@@ -25,7 +25,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      await api.login(email, password);
+      await api.login(email.trim(), password);
       router.replace(nextPath());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

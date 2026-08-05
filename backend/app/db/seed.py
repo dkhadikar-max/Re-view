@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models.entities import (
     Approval,
     ApprovalStatus,
@@ -67,8 +67,9 @@ def _owner_name() -> str:
 
 
 def _owner_password() -> str | None:
-    if settings.owner_password:
-        return settings.owner_password
+    raw = (settings.owner_password or "").strip()
+    if raw:
+        return raw
     if settings.environment == "test":
         return "test-owner-password"
     if settings.environment == "development":
@@ -82,7 +83,12 @@ DEMO_PASSWORD = _owner_password() or "test-owner-password"
 
 
 def ensure_owner_account(db: Session) -> None:
-    """Upsert platform owner as admin; disable legacy azurecoast demo logins."""
+    """Upsert platform owner as admin; disable legacy azurecoast demo logins.
+
+    Does not re-hash the owner password on every boot unless OWNER_PASSWORD
+    no longer verifies — avoids wiping a working hash when env whitespace
+    changes, while still rotating when the env password is updated.
+    """
     if not db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
         return
 
@@ -125,7 +131,7 @@ def ensure_owner_account(db: Session) -> None:
         owner.name = name
         owner.role = "admin"
         owner.is_active = True
-        if password:
+        if password and not verify_password(password, owner.password_hash):
             owner.password_hash = hash_password(password)
     elif password:
         db.add(
@@ -138,6 +144,9 @@ def ensure_owner_account(db: Session) -> None:
                 is_active=True,
             )
         )
+
+    # Same email on other tenants (e.g. a trial) stays active — login matches by password.
+    # Prefer a clear signup conflict for new accounts; do not deactivate trials here.
 
     if settings.environment == "test" and password:
         mgr = (
