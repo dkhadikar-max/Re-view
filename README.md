@@ -2,9 +2,9 @@
 
 **An [Argus OS](https://argusai.online) product.**
 
-*Guest revenue, after booking.*
+*AI Guest Operating System*
 
-Revisit is the hospitality revenue layer in the Argus decision operating system. V1.0 targets **one paying hotel** with production integrations — not 100 features.
+Revisit is the hospitality guest OS in the Argus decision operating system — Living Guest Intelligence, Celebrate Rewards, approvals, and revenue after booking. V1.0 targets **one paying hotel** with production integrations — not 100 features.
 
 **Product URL:** [revisit.argusai.online](https://revisit.argusai.online)  
 **Parent platform:** [Argus OS](https://argusai.online) · [GitHub](https://github.com/dkhadikar-max/ARGUS-OS)
@@ -13,7 +13,7 @@ Revisit is the hospitality revenue layer in the Argus decision operating system.
 
 Suggested product blurb when linking from Argus:
 
-> **Revisit** — AI guest revenue after booking. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.
+> **Revisit** — AI Guest Operating System. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.
 
 Link the Argus product card to **https://revisit.argusai.online**.
 

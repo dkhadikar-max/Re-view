@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Button, Panel, Stat } from "@/components/ui";
 import { api, type SalesAnalytics } from "@/lib/api";
+import { ARGUS, REVISIT } from "@/lib/brand";
 import { formatCurrency } from "@/lib/utils";
 
 export default function AnalyticsPage() {
@@ -37,17 +38,17 @@ export default function AnalyticsPage() {
     <div>
       <TopBar
         title="Sales Analytics"
-        subtitle="The V1 demo board — review rate, repeat guests, upsell revenue, AI messages."
+        subtitle={`${REVISIT.tagline} — review rate, repeat guests, upsell revenue, AI messages.`}
       />
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-800 p-6 text-white opacity-0">
         <p className="text-xs uppercase tracking-wider text-ink-300">
-          Revisit · Argus OS · last {data.period_days} days
+          {REVISIT.name} · {ARGUS.productLine} · last {data.period_days} days
         </p>
         <h2 className="mt-2 font-display text-3xl">One paying hotel. These numbers.</h2>
         <p className="mt-2 max-w-2xl text-sm text-ink-200">
-          Revenue attributed to upsells · AI outbound volume · guest satisfaction proxy
-          from Guest Intelligence.
+          {REVISIT.tagline} — upsell revenue, review rate, and AI-assisted outbound
+          volume for your property.
         </p>
       </div>
 

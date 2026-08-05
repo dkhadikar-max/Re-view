@@ -38,7 +38,13 @@ const nav = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar({ user }: { user: User | null }) {
+export function Sidebar({
+  user,
+  propertyName,
+}: {
+  user: User | null;
+  propertyName?: string | null;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -91,7 +97,9 @@ export function Sidebar({ user }: { user: User | null }) {
       </nav>
 
       <div className="border-t border-white/10 px-4 py-4">
-        <p className="text-xs text-ink-400">Azure Coast Resort</p>
+        <p className="text-xs text-ink-400">
+          {propertyName || "Your hotel"}
+        </p>
         <p className="text-sm text-ink-200">
           {user?.name || "User"} · {user?.role || "—"}
         </p>
@@ -101,7 +109,7 @@ export function Sidebar({ user }: { user: User | null }) {
           rel="noreferrer"
           className="mt-2 block text-[11px] text-ink-400 underline-offset-2 hover:text-sea-300 hover:underline"
         >
-          A product of {ARGUS.productLine}
+          {REVISIT.productOf}
         </a>
         <button
           onClick={logout}

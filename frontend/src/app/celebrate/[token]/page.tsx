@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, type GuestCelebrateStatus } from "@/lib/api";
+import { ARGUS, REVISIT } from "@/lib/brand";
 import { Button } from "@/components/ui";
 
 export default function GuestCelebratePage() {
@@ -162,6 +163,10 @@ export default function GuestCelebratePage() {
             </Button>
           </form>
         )}
+
+        <p className="mt-8 text-center text-[11px] text-ink-400">
+          Powered by {REVISIT.name} · {ARGUS.productLine}
+        </p>
       </div>
     </div>
   );

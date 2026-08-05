@@ -1,6 +1,6 @@
 # Revisit — Backend
 
-FastAPI service for Revisit (guest revenue after booking).
+FastAPI service for Revisit (AI Guest Operating System — an Argus OS product).
 
 ```bash
 pip install -r requirements.txt

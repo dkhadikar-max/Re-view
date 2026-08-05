@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Outfit } from "next/font/google";
 import { AuthShell } from "@/components/AuthShell";
+import { REVISIT } from "@/lib/brand";
 import "./globals.css";
 
 const display = Fraunces({
@@ -16,9 +17,9 @@ const sans = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Revisit · Argus OS",
-  description:
-    "Revisit — an Argus OS product. The AI employee that manages every guest after booking: revenue, reviews, and lifetime value.",
+  title: REVISIT.title,
+  description: REVISIT.description,
+  applicationName: REVISIT.name,
 };
 
 export default function RootLayout({

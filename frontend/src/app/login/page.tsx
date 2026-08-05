@@ -44,9 +44,7 @@ export default function LoginPage() {
           {ARGUS.productLine}
         </p>
         <p className="mt-2 font-display text-3xl text-ink-950">{REVISIT.name}</p>
-        <p className="mt-1 text-sm text-ink-500">
-          {REVISIT.tagline} — AI assisted, human approved
-        </p>
+        <p className="mt-1 text-sm text-ink-500">{REVISIT.tagline}</p>
         <ol className="mt-4 space-y-1.5 rounded-xl bg-sea-500/5 px-3 py-3 text-xs text-ink-600">
           {REVISIT.celebrateLoop.map((step, i) => (
             <li key={step} className="flex gap-2">
@@ -87,7 +85,7 @@ export default function LoginPage() {
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         <p className="mt-4 text-center text-sm text-ink-600">
-          Hotel evaluating Revisit?{" "}
+          Hotel evaluating {REVISIT.name}?{" "}
           <Link
             href="/onboard"
             className="font-medium text-sea-700 underline-offset-2 hover:underline"
@@ -96,14 +94,14 @@ export default function LoginPage() {
           </Link>
         </p>
         <p className="mt-3 text-center text-[11px] text-ink-400">
-          A product of{" "}
+          {REVISIT.productOf} ·{" "}
           <a
             href={ARGUS.siteUrl}
             target="_blank"
             rel="noreferrer"
             className="text-sea-700 underline-offset-2 hover:underline"
           >
-            {ARGUS.name}
+            {ARGUS.siteUrl.replace(/^https?:\/\//, "")}
           </a>
         </p>
       </form>

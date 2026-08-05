@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Panel } from "@/components/ui";
 import { api, type Property } from "@/lib/api";
+import { REVISIT } from "@/lib/brand";
 
 export default function SettingsPage() {
   const [property, setProperty] = useState<Property | null>(null);
@@ -47,10 +48,11 @@ export default function SettingsPage() {
 
       <Panel title="Account" className="[animation-delay:80ms]">
         <p className="text-sm text-ink-600">
-          Hotel staff use this workspace to approve messages, manage reviews,
-          and track guest revenue. Guests interact over WhatsApp, email, and
-          payment links — not this dashboard.
+          This is your {REVISIT.name} workspace ({REVISIT.tagline}). Staff approve
+          messages, manage reviews, and track guest revenue here. Guests interact
+          over WhatsApp, email, and payment links — not this dashboard.
         </p>
+        <p className="mt-3 text-xs text-ink-400">{REVISIT.productOf}</p>
       </Panel>
     </div>
   );

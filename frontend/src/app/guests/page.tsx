@@ -9,6 +9,7 @@ import {
   type Guest,
   type GuestOpportunity,
 } from "@/lib/api";
+import { REVISIT } from "@/lib/brand";
 import { cn, formatCurrency } from "@/lib/utils";
 
 function healthTone(health?: string) {
@@ -118,7 +119,7 @@ export default function GuestsPage() {
     <div>
       <TopBar
         title="Guest Intelligence"
-        subtitle="AI remembers every guest — who they are, what they prefer, and what to do next."
+        subtitle={`${REVISIT.name} remembers every guest — who they are, what they prefer, and what to do next.`}
       />
 
       {/* Opportunities */}

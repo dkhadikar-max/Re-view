@@ -9,6 +9,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [propertyName, setPropertyName] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const isPublic =
     pathname === "/login" ||
@@ -20,16 +21,28 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       setReady(true);
       return;
     }
+    let cancelled = false;
     api
       .me()
-      .then((u) => {
+      .then(async (u) => {
+        if (cancelled) return;
         setUser(u);
+        try {
+          const props = await api.properties();
+          if (!cancelled) setPropertyName(props[0]?.name || null);
+        } catch {
+          if (!cancelled) setPropertyName(null);
+        }
         setReady(true);
       })
       .catch(() => {
+        if (cancelled) return;
         setToken(null);
         router.replace("/login");
       });
+    return () => {
+      cancelled = true;
+    };
   }, [isPublic, router, pathname]);
 
   if (!ready) {
@@ -46,7 +59,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-hero-wash bg-grain">
-      <Sidebar user={user} />
+      <Sidebar user={user} propertyName={propertyName} />
       <main className="ml-0 min-h-screen px-4 py-6 md:ml-60 md:px-10 md:py-8">
         {children}
       </main>

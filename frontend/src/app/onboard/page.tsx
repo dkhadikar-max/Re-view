@@ -73,7 +73,7 @@ export default function HotelSignupPage() {
             {ARGUS.productLine} · {REVISIT.name}
           </p>
           <h1 className="mt-3 font-display text-4xl tracking-tight text-ink-950 md:text-5xl">
-            See Revisit for your hotel
+            See {REVISIT.name} for your hotel
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-600">
             {REVISIT.tagline}. Create a trial workspace — Living Guest
@@ -127,7 +127,7 @@ export default function HotelSignupPage() {
                 required
                 value={hotelName}
                 onChange={(e) => setHotelName(e.target.value)}
-                placeholder="Azure Coast Resort"
+                placeholder="Seaside Grand Hotel"
                 className="mt-1 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-sea-500"
               />
             </label>
@@ -195,7 +195,7 @@ export default function HotelSignupPage() {
           </div>
           <p className="mt-3 text-xs text-ink-500">
             Your trial includes sample guests, arrivals, approvals, and revenue so
-            you can see how Revisit works immediately.
+            you can see how {REVISIT.name} works immediately.
           </p>
 
           {error && (

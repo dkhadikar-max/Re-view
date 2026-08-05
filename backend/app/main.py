@@ -91,6 +91,7 @@ def root():
     return {
         "service": settings.app_name,
         "product": "Revisit",
+        "tagline": "AI Guest Operating System",
         "platform": settings.argus_product_line,
         "version": settings.app_version,
         "status": "ok",
