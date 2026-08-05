@@ -1,52 +1,31 @@
-"""Public demo onboarding endpoints."""
+"""Public hotel trial signup — for hotels who want to explore Revisit."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token
-from app.db.seed import DEMO_EMAIL, DEMO_TENANT
 from app.db.session import get_db
-from app.models.entities import User
-from app.services.demo_onboard import (
-    DemoOnboardRequest,
-    DemoOnboardResponse,
-    build_onboard_response,
-    onboard_demo_guest,
+from app.services.hotel_signup import (
+    HotelSignupRequest,
+    HotelSignupResponse,
+    signup_hotel,
 )
 
-router = APIRouter(prefix="/demo", tags=["demo-onboarding"])
+router = APIRouter(prefix="/demo", tags=["hotel-trial"])
 
 
-@router.post("/onboard", response_model=DemoOnboardResponse)
-def demo_guest_onboard(
-    payload: DemoOnboardRequest,
+@router.post("/hotel-signup", response_model=HotelSignupResponse)
+@router.post("/onboard", response_model=HotelSignupResponse, include_in_schema=False)
+def hotel_trial_signup(
+    payload: HotelSignupRequest,
     db: Session = Depends(get_db),
-) -> DemoOnboardResponse:
-    """Public: create a rich guest profile in the demo hotel and optionally issue a dashboard session."""
+) -> HotelSignupResponse:
+    """Create a trial hotel account (tenant + manager + property) and return a login session."""
     try:
-        guest = onboard_demo_guest(db, payload)
-    except RuntimeError as exc:
+        return signup_hotel(db, payload)
+    except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-
-    access_token: str | None = None
-    if payload.open_dashboard:
-        manager = (
-            db.query(User)
-            .filter(User.tenant_id == DEMO_TENANT, User.email == DEMO_EMAIL)
-            .first()
-        )
-        if manager:
-            access_token = create_access_token(
-                user_id=manager.id,
-                tenant_id=manager.tenant_id,
-                email=manager.email,
-                name=manager.name,
-                role=manager.role,
-            )
-
-    return build_onboard_response(db, guest, access_token=access_token)

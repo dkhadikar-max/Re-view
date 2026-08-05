@@ -432,33 +432,25 @@ export const api = {
   guest: (id: string) => request<Guest>(`/api/guests/${id}`),
   guestOpportunities: () =>
     request<GuestOpportunity[]>("/api/guests/opportunities"),
-  demoOnboard: (payload: {
-    name: string;
-    email?: string;
-    phone?: string;
+  hotelSignup: (payload: {
+    hotel_name: string;
+    your_name: string;
+    email: string;
+    password: string;
+    city?: string;
     country?: string;
-    language?: string;
-    travel_type?: string;
-    purpose?: string;
-    preferred_room?: string;
-    dietary_preferences?: string;
-    birthday?: string;
-    anniversary?: string;
-    children?: number;
-    pets?: boolean;
-    communication_preference?: string;
-    favorite_wine?: string;
-    remembers?: string[];
-    company_or_hotel?: string;
-    open_dashboard?: boolean;
+    rooms?: number;
+    include_sample_data?: boolean;
   }) =>
     request<{
-      guest: Guest;
+      access_token: string;
       dashboard_path: string;
       message: string;
-      access_token?: string;
+      hotel_name: string;
       property_name: string;
-    }>("/api/demo/onboard", {
+      tenant_id: string;
+      user: User;
+    }>("/api/demo/hotel-signup", {
       method: "POST",
       body: JSON.stringify(payload),
       auth: false,

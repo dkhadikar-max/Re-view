@@ -76,15 +76,15 @@ export default function LoginPage() {
           {loading ? "Signing in…" : "Sign in"}
         </Button>
         <p className="mt-4 text-xs text-ink-400">
-          Demo: manager@azurecoast.demo / ChangeMe123!
+          Shared demo: manager@azurecoast.demo / ChangeMe123!
         </p>
         <p className="mt-3 text-center text-sm text-ink-600">
-          Showing a client?{" "}
+          Hotel evaluating Revisit?{" "}
           <Link
             href="/onboard"
             className="font-medium text-sea-700 underline-offset-2 hover:underline"
           >
-            Onboard them as a guest →
+            Create a free trial →
           </Link>
         </p>
         <p className="mt-3 text-center text-[11px] text-ink-400">

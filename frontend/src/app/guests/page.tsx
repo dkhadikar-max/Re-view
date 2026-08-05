@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { Check, Search, Sparkles, UserPlus } from "lucide-react";
+import { Check, Search, Sparkles } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Empty, Panel } from "@/components/ui";
 import {
@@ -121,19 +120,6 @@ export default function GuestsPage() {
         title="Guest Intelligence"
         subtitle="AI remembers every guest — who they are, what they prefer, and what to do next."
       />
-
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 animate-fade-up opacity-0">
-        <p className="text-sm text-ink-500">
-          Demo a client live — onboard them and open their profile in seconds.
-        </p>
-        <Link
-          href="/onboard"
-          className="inline-flex items-center gap-2 rounded-xl bg-ink-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-ink-800"
-        >
-          <UserPlus className="h-4 w-4" />
-          Onboard a guest
-        </Link>
-      </div>
 
       {/* Opportunities */}
       <section className="mb-6 animate-fade-up opacity-0">
