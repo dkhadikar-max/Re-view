@@ -755,7 +755,7 @@ def create_review(
             source="api",
             idempotency_key=f"NegativeReviewReceived:{review.id}",
         )
-        # Keep direct route use safe when application event handlers were not registered.
+        # Keep direct route use safe when event handlers were not registered.
         if not review.ai_draft_response:
             handle_negative_review(db, review, guest, property_)
     else:
