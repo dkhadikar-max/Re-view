@@ -45,8 +45,16 @@ export default function LoginPage() {
         </p>
         <p className="mt-2 font-display text-3xl text-ink-950">{REVISIT.name}</p>
         <p className="mt-1 text-sm text-ink-500">
-          Sign in to manage guest revenue after booking
+          {REVISIT.tagline} — AI assisted, human approved
         </p>
+        <ol className="mt-4 space-y-1.5 rounded-xl bg-sea-500/5 px-3 py-3 text-xs text-ink-600">
+          {REVISIT.celebrateLoop.map((step, i) => (
+            <li key={step} className="flex gap-2">
+              <span className="text-sea-600">{i === 0 ? "→" : "↓"}</span>
+              {step}
+            </li>
+          ))}
+        </ol>
         <label className="mt-6 block text-xs text-ink-500">
           Email
           <input

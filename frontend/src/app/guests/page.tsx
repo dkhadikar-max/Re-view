@@ -503,29 +503,53 @@ export default function GuestsPage() {
               </div>
             )}
 
-            {/* Timeline */}
+            {/* Revenue Timeline */}
             <div className="rounded-2xl border border-ink-200/60 bg-white/70 p-5 backdrop-blur">
-              <h3 className="font-display text-lg text-ink-900">Timeline</h3>
-              {(selected.timeline || []).length === 0 ? (
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="font-display text-lg text-ink-900">
+                  Revenue Timeline
+                </h3>
+                {selected.lifetime_value != null && (
+                  <p className="text-sm font-medium text-sea-700">
+                    LTV {formatCurrency(selected.lifetime_value)}
+                  </p>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-ink-400">
+                Stay → review → reward → return → upsell
+              </p>
+              {(selected.revenue_timeline || selected.timeline || []).length ===
+              0 ? (
                 <p className="mt-2 text-sm text-ink-400">No history yet</p>
               ) : (
                 <ol className="mt-3 space-y-0">
-                  {selected.timeline!.map((ev, i) => (
-                    <li key={`${ev.at}-${ev.label}-${i}`} className="flex gap-3">
-                      <div className="flex w-4 flex-col items-center">
-                        <span className="mt-1.5 h-2 w-2 rounded-full bg-sea-500" />
-                        {i < selected.timeline!.length - 1 && (
-                          <span className="w-px flex-1 bg-ink-200" />
-                        )}
-                      </div>
-                      <div className="pb-4">
-                        <p className="text-sm text-ink-800">{ev.label}</p>
-                        <p className="text-[11px] text-ink-400">
-                          {formatShortDate(ev.at)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
+                  {(selected.revenue_timeline || selected.timeline || []).map(
+                    (ev, i, arr) => (
+                      <li key={`${ev.at}-${ev.label}-${i}`} className="flex gap-3">
+                        <div className="flex w-4 flex-col items-center">
+                          <span
+                            className={`mt-1.5 h-2 w-2 rounded-full ${
+                              ev.kind === "ltv" ? "bg-sand-400" : "bg-sea-500"
+                            }`}
+                          />
+                          {i < arr.length - 1 && (
+                            <span className="w-px flex-1 bg-ink-200" />
+                          )}
+                        </div>
+                        <div className="pb-4">
+                          <p className="text-sm text-ink-800">{ev.label}</p>
+                          <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-ink-400">
+                            <span>{formatShortDate(ev.at)}</span>
+                            {ev.amount != null && ev.amount > 0 && ev.kind !== "ltv" && (
+                              <span className="font-medium text-sea-700">
+                                {formatCurrency(ev.amount)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  )}
                 </ol>
               )}
             </div>

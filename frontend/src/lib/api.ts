@@ -112,10 +112,27 @@ export type DashboardStats = {
   metrics_note?: string;
 };
 
+export type ROIMetrics = {
+  period_days: number;
+  period_label: string;
+  revenue_generated: number;
+  reviews_generated: number;
+  repeat_guests: number;
+  ai_hours_saved: number;
+  revenue_per_guest: number;
+  revenue_per_guest_delta_pct: number;
+  upsell_revenue: number;
+  celebrate_redemptions: number;
+  celebrate_unlocked: number;
+  narrative: string;
+  generated_at: string;
+};
+
 export type GuestTimelineEvent = {
   at: string;
   label: string;
   kind: string;
+  amount?: number | null;
 };
 
 export type GuestNextBestAction = {
@@ -183,6 +200,9 @@ export type Guest = {
   next_best_action?: GuestNextBestAction | null;
   timeline?: GuestTimelineEvent[];
   avg_rating?: number | null;
+  lifetime_value?: number;
+  revenue_from_upsells?: number;
+  revenue_timeline?: GuestTimelineEvent[];
 };
 
 export type Reservation = {
@@ -496,6 +516,8 @@ export const api = {
     ),
   salesAnalytics: (periodDays = 30) =>
     request<SalesAnalytics>(`/api/analytics/sales?period_days=${periodDays}`),
+  roiMetrics: (periodDays = 30) =>
+    request<ROIMetrics>(`/api/analytics/roi?period_days=${periodDays}`),
   integrationsStatus: () => request<V1Readiness>("/api/integrations/status"),
   syncCloudbeds: () =>
     request<{ imported: number; events_emitted: number; message: string }>(

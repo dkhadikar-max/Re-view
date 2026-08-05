@@ -11,12 +11,15 @@ import {
   type DashboardStats,
   type Reservation,
   type Review,
+  type ROIMetrics,
   type Task,
 } from "@/lib/api";
+import { REVISIT } from "@/lib/brand";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default function OperationsPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [roi, setRoi] = useState<ROIMetrics | null>(null);
   const [arrivals, setArrivals] = useState<Reservation[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -25,14 +28,16 @@ export default function OperationsPage() {
   const [syncMsg, setSyncMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [s, reservations, a, r, t] = await Promise.all([
+    const [s, roiData, reservations, a, r, t] = await Promise.all([
       api.stats(),
+      api.roiMetrics(30),
       api.reservations(),
       api.approvals("pending"),
       api.reviews(),
       api.tasks(),
     ]);
     setStats(s);
+    setRoi(roiData);
     const today = new Date().toISOString().slice(0, 10);
     setArrivals(
       reservations.filter(
@@ -64,7 +69,7 @@ export default function OperationsPage() {
     await load();
   }
 
-  if (!stats) {
+  if (!stats || !roi) {
     return (
       <div className="flex h-64 items-center justify-center text-ink-400">
         Loading operations…
@@ -72,11 +77,15 @@ export default function OperationsPage() {
     );
   }
 
+  const rpgDelta = roi.revenue_per_guest_delta_pct;
+  const rpgHint =
+    rpgDelta >= 0 ? `↑${rpgDelta}% vs prior period` : `↓${Math.abs(rpgDelta)}% vs prior`;
+
   return (
     <div>
       <TopBar
-        title="Today at the property"
-        subtitle="What needs attention now — arrivals, messages, reviews, and revenue opportunities."
+        title="Operations"
+        subtitle={`${REVISIT.tagline} — outcomes first, then what needs attention today.`}
         action={
           <Button onClick={handleSync} disabled={syncing} variant="secondary">
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
@@ -88,6 +97,74 @@ export default function OperationsPage() {
         <p className="mb-4 animate-fade-in text-sm text-sea-700">{syncMsg}</p>
       )}
 
+      <section className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-700 p-6 text-white opacity-0">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-sea-300">
+              {roi.period_label}
+            </p>
+            <h2 className="mt-1 font-display text-2xl tracking-tight md:text-3xl">
+              Revenue impact
+            </h2>
+            <p className="mt-2 max-w-xl text-sm text-ink-300">{roi.narrative}</p>
+          </div>
+          <Link
+            href="/celebrate"
+            className="text-xs font-medium text-sea-300 underline-offset-2 hover:underline"
+          >
+            Celebrate loop →
+          </Link>
+        </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="rounded-xl bg-white/5 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-ink-400">
+              Revenue generated
+            </p>
+            <p className="mt-1 font-display text-3xl text-sea-300">
+              {formatCurrency(roi.revenue_generated)}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/5 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-ink-400">
+              Reviews generated
+            </p>
+            <p className="mt-1 font-display text-3xl">{roi.reviews_generated}</p>
+          </div>
+          <div className="rounded-xl bg-white/5 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-ink-400">
+              Repeat guests
+            </p>
+            <p className="mt-1 font-display text-3xl">{roi.repeat_guests}</p>
+          </div>
+          <div className="rounded-xl bg-white/5 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-ink-400">
+              AI hours saved
+            </p>
+            <p className="mt-1 font-display text-3xl">{roi.ai_hours_saved}</p>
+          </div>
+          <div className="rounded-xl bg-white/5 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-ink-400">
+              Revenue per guest
+            </p>
+            <p className="mt-1 font-display text-3xl">
+              {formatCurrency(roi.revenue_per_guest)}
+            </p>
+            <p className="mt-0.5 text-xs text-sea-300">{rpgHint}</p>
+          </div>
+        </div>
+        <ol className="mt-5 flex flex-wrap gap-2 text-xs text-ink-300">
+          {REVISIT.celebrateLoop.map((step, i) => (
+            <li key={step} className="flex items-center gap-2">
+              {i > 0 && <span className="text-sea-400">↓</span>}
+              <span className="rounded-md bg-white/5 px-2 py-1">{step}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-ink-400">
+        Today at the property
+      </p>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Arrivals" value={stats.arrivals_today} accent="sea" delay={0} />
         <Stat label="Departures" value={stats.departures_today} accent="sand" delay={40} />
@@ -121,7 +198,7 @@ export default function OperationsPage() {
         <Stat
           label="AI hours saved"
           value={`${stats.ai_saved_hours}h`}
-          hint={`${stats.response_time_hours}h avg response`}
+          hint={`${stats.response_time_hours}h avg response · AI assisted`}
           delay={240}
         />
         <Stat
@@ -195,7 +272,7 @@ export default function OperationsPage() {
                       Approve
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="secondary"
                       onClick={() => handleApproval(a.id, "reject")}
                     >
                       Reject
@@ -207,37 +284,47 @@ export default function OperationsPage() {
           )}
         </Panel>
 
-        <Panel title="Negative reviews" className="[animation-delay:400ms]">
+        <Panel
+          title="Negative reviews"
+          action={
+            <Link href="/reviews" className="text-xs text-sea-600 hover:underline">
+              All reviews
+            </Link>
+          }
+          className="[animation-delay:400ms]"
+        >
           {reviews.length === 0 ? (
-            <Empty>No unresolved negative reviews</Empty>
+            <Empty>No open negative reviews</Empty>
           ) : (
             <ul className="space-y-3">
               {reviews.map((r) => (
-                <li key={r.id} className="border-l-2 border-coral-500 pl-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{r.guest_name}</span>
-                    <Badge tone="negative">{r.rating}★</Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-ink-500 line-clamp-2">{r.body}</p>
+                <li key={r.id} className="text-sm">
+                  <p className="font-medium text-ink-900">
+                    {r.rating}★ · {r.guest_name || "Guest"}
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-xs text-ink-500">{r.body}</p>
                 </li>
               ))}
             </ul>
           )}
         </Panel>
 
-        <Panel title="Open tasks" className="[animation-delay:440ms]">
+        <Panel
+          title="Open tasks"
+          action={
+            <Link href="/tasks" className="text-xs text-sea-600 hover:underline">
+              All tasks
+            </Link>
+          }
+          className="[animation-delay:440ms]"
+        >
           {tasks.length === 0 ? (
             <Empty>No open tasks</Empty>
           ) : (
-            <ul className="divide-y divide-ink-100">
+            <ul className="space-y-3">
               {tasks.map((t) => (
-                <li key={t.id} className="flex items-center justify-between gap-3 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-ink-900">{t.title}</p>
-                    <p className="text-xs text-ink-500">
-                      {t.assignee || "Unassigned"}
-                    </p>
-                  </div>
+                <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-ink-800">{t.title}</span>
                   <Badge tone={t.priority}>{t.priority}</Badge>
                 </li>
               ))}
