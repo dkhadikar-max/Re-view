@@ -82,6 +82,22 @@ async def integrity_exception_handler(request: Request, exc: IntegrityError):
     )
 
 
+@app.get("/")
+def root():
+    """Railway / browsers hit `/`; API lives under `/api`."""
+    return {
+        "service": settings.app_name,
+        "product": "Revisit",
+        "platform": settings.argus_product_line,
+        "version": settings.app_version,
+        "status": "ok",
+        "app": settings.frontend_base_url,
+        "health": "/health",
+        "ready": "/ready",
+        "api": "/api",
+    }
+
+
 @app.get("/health", response_model=HealthOut)
 def health():
     return HealthOut(
