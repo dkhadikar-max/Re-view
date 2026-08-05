@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.models.entities import (
+    Coupon,
+    CouponStatus,
     Guest,
     Message,
     Offer,
@@ -23,7 +25,8 @@ from app.schemas import GuestOut
 class TimelineEvent(BaseModel):
     at: date | datetime
     label: str
-    kind: str  # stay | review | reward | purchase | message | celebrate
+    kind: str  # stay | review | offer | purchase | message | celebrate | ltv
+    amount: float | None = None
 
 
 class GuestOpportunity(BaseModel):
@@ -58,6 +61,10 @@ class GuestIntelligence(GuestOut):
     next_best_action: dict[str, Any] | None = None
     timeline: list[TimelineEvent] = Field(default_factory=list)
     avg_rating: float | None = None
+    lifetime_value: float = 0.0
+    revenue_from_upsells: float = 0.0
+    revenue_timeline: list[TimelineEvent] = Field(default_factory=list)
+
 
 
 def _clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
@@ -237,12 +244,21 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
     if reviews:
         avg_rating = round(sum(r.rating for r in reviews) / len(reviews), 1)
 
-    # Timeline
+    # Timeline + Revenue Timeline
     timeline: list[TimelineEvent] = []
+    revenue_timeline: list[TimelineEvent] = []
+    upsell_total = 0.0
+
     for r in reversed(reservations[-6:]):
-        timeline.append(
-            TimelineEvent(at=r.check_in, label=f"Stayed · {r.room_type}", kind="stay")
+        amt = float(r.total_amount or 0)
+        ev = TimelineEvent(
+            at=r.check_in,
+            label=f"Stayed · {r.room_type}",
+            kind="stay",
+            amount=amt,
         )
+        timeline.append(ev)
+        revenue_timeline.append(ev)
     for rev in reversed(reviews[-4:]):
         timeline.append(
             TimelineEvent(
@@ -251,23 +267,76 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
                 kind="review",
             )
         )
+        revenue_timeline.append(
+            TimelineEvent(
+                at=rev.created_at,
+                label=f"{rev.rating}★ review left",
+                kind="review",
+            )
+        )
     for o in reversed([x for x in offers if x.status == OfferStatus.accepted][-4:]):
-        timeline.append(
-            TimelineEvent(
-                at=o.accepted_at or o.created_at,
-                label=f"Purchased {o.name}",
-                kind="purchase",
-            )
+        amt = float(o.price or 0)
+        upsell_total += amt
+        ev = TimelineEvent(
+            at=o.accepted_at or o.created_at,
+            label=f"Purchased {o.name}",
+            kind="purchase",
+            amount=amt,
         )
+        timeline.append(ev)
+        revenue_timeline.append(ev)
     if guest.review_reward_unlocked_at:
-        timeline.append(
+        unlock_ev = TimelineEvent(
+            at=guest.review_reward_unlocked_at,
+            label="Celebrate reward unlocked",
+            kind="celebrate",
+        )
+        timeline.append(unlock_ev)
+        revenue_timeline.append(unlock_ev)
+
+    coupons = (
+        db.query(Coupon)
+        .filter(Coupon.guest_id == guest.id)
+        .order_by(Coupon.created_at.asc())
+        .all()
+    )
+    for c in coupons:
+        revenue_timeline.append(
             TimelineEvent(
-                at=guest.review_reward_unlocked_at,
-                label="Celebrate reward unlocked",
-                kind="celebrate",
+                at=c.created_at,
+                label=f"{c.offer_type.value.title()} offer created",
+                kind="offer",
             )
         )
-    timeline.sort(key=lambda e: e.at if isinstance(e.at, datetime) else datetime.combine(e.at, datetime.min.time()))
+        if c.status == CouponStatus.redeemed and c.redeemed_at:
+            revenue_timeline.append(
+                TimelineEvent(
+                    at=c.redeemed_at,
+                    label=f"{c.offer_type.value.title()} redeemed",
+                    kind="celebrate",
+                    amount=float(c.redemption_amount or 0) or None,
+                )
+            )
+
+    lifetime_value = float(guest.lifetime_spend or 0) + upsell_total
+    revenue_timeline.append(
+        TimelineEvent(
+            at=datetime.utcnow(),
+            label=f"Lifetime value €{lifetime_value:,.0f}",
+            kind="ltv",
+            amount=lifetime_value,
+        )
+    )
+
+    def _sort_key(e: TimelineEvent):
+        return (
+            e.at
+            if isinstance(e.at, datetime)
+            else datetime.combine(e.at, datetime.min.time())
+        )
+
+    timeline.sort(key=_sort_key)
+    revenue_timeline.sort(key=_sort_key)
 
     lang = (guest.language or "en").lower()
     lang_label = {
@@ -373,6 +442,9 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
         next_best_action=nba,
         timeline=timeline[-10:],
         avg_rating=avg_rating,
+        lifetime_value=round(lifetime_value, 2),
+        revenue_from_upsells=round(upsell_total, 2),
+        revenue_timeline=revenue_timeline[-12:],
     )
 
 

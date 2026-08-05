@@ -21,7 +21,7 @@ from app.integrations.queue import get_queue
 from app.integrations.stripe_payments import stripe_payments
 from app.integrations.whatsapp import whatsapp_client
 from app.models.entities import Guest, Offer, OfferStatus, Reservation
-from app.services.analytics import SalesAnalytics, build_sales_analytics
+from app.services.analytics import ROIMetrics, SalesAnalytics, build_roi_metrics, build_sales_analytics
 from app.services.audit import write_audit
 from app.services.messaging import apply_provider_status, ingest_inbound_whatsapp
 from app.services.pms_sync import cloudbeds_check_in, cloudbeds_check_out, sync_cloudbeds
@@ -171,6 +171,16 @@ def sales_analytics(
     db: Session = Depends(get_db),
 ) -> SalesAnalytics:
     return build_sales_analytics(db, user.tenant_id, period_days=period_days)
+
+
+@router.get("/analytics/roi", response_model=ROIMetrics)
+def roi_analytics(
+    user: AuthUser,
+    period_days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+) -> ROIMetrics:
+    """ROI board for renewals — revenue, reviews, repeats, AI hours saved."""
+    return build_roi_metrics(db, user.tenant_id, period_days=period_days)
 
 
 @router.post("/connectors/cloudbeds/sync")

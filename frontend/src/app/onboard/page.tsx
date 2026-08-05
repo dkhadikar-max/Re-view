@@ -77,10 +77,20 @@ export default function HotelSignupPage() {
             See Revisit for your hotel
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-600">
-            Create a free trial workspace. Walk Guest Intelligence, AI approvals,
-            and revenue — as if your property were already live.
+            {REVISIT.tagline}. Create a trial workspace — Living Guest
+            Intelligence, Celebrate Rewards, and AI-assisted approvals.
           </p>
-          <ul className="mt-8 space-y-3 text-sm text-ink-700">
+          <ol className="mt-6 space-y-2 rounded-2xl border border-ink-200/60 bg-white/60 p-4 text-sm text-ink-700">
+            {REVISIT.celebrateLoop.map((step, i) => (
+              <li key={step} className="flex gap-2">
+                <span className="font-medium text-sea-600">
+                  {i === 0 ? "1." : `${i + 1}.`}
+                </span>
+                {step}
+              </li>
+            ))}
+          </ol>
+          <ul className="mt-6 space-y-3 text-sm text-ink-700">
             {[
               "Your own hotel account — not a shared sandbox",
               "Sample guests so Intelligence looks real on day one",
