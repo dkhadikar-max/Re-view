@@ -153,7 +153,9 @@ def _reservation_out(
 
 def _event_out(event: Event) -> EventOut:
     item = EventOut.model_validate(event)
-    item.status = event.status.value if hasattr(event.status, "value") else event.status
+    item.status = (
+        event.status.value if isinstance(event.status, EventStatus) else event.status
+    )
     return item
 
 
@@ -739,6 +741,9 @@ def create_review(
             source="api",
             idempotency_key=f"NegativeReviewReceived:{review.id}",
         )
+        # Keep direct route use safe when application event handlers were not registered.
+        if not review.ai_draft_response:
+            handle_negative_review(db, review, guest, property_)
     else:
         review.ai_draft_response = ai_orchestrator.draft_review_response(
             review, property_, guest
@@ -1246,7 +1251,6 @@ async def import_csv(
                 )
                 .first()
             )
-        is_new_guest = guest is None
         if guest is None:
             guest = Guest(
                 tenant_id=user.tenant_id,
@@ -1297,16 +1301,6 @@ async def import_csv(
         )
         db.add(reservation)
         db.flush()
-        if is_new_guest:
-            event_bus.publish_and_process(
-                db,
-                user.tenant_id,
-                "GuestProfileCreated",
-                {"guest_id": guest.id, "property_id": property_.id},
-                source="csv",
-                idempotency_key=f"GuestProfileCreated:csv:{guest.id}",
-            )
-            emitted += 1
         event_bus.publish_and_process(
             db,
             user.tenant_id,
