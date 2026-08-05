@@ -4,11 +4,15 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function apiBase(): string {
-  const base =
+  let base =
     process.env.INTERNAL_API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
     "http://127.0.0.1:8000";
-  return base.replace(/\/$/, "");
+  base = base.trim().replace(/\/$/, "");
+  if (base && !/^https?:\/\//i.test(base)) {
+    base = `https://${base}`;
+  }
+  return base;
 }
 
 async function proxy(req: NextRequest, path: string[]) {
