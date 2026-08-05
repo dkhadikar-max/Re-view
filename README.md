@@ -82,17 +82,18 @@ Demo: `manager@azurecoast.demo` / `ChangeMe123!`
 
 ### Railway deploy
 
-`main` is currently empty (README only). Deploy from branch  
-`cursor/guest-revenue-agent-mvp-d9a8` **or merge PR #3 into `main` first**.
+`main` has the full app. Create **two services** from this repo.
 
-Create **two services** in a Revisit Railway project:
+**Important:** leave **Root Directory empty** (repo root). Set Dockerfile path instead.
 
-| Service | Root Directory | Notes |
-|---------|----------------|-------|
-| API | `backend` | Dockerfile; attach Postgres + Redis |
-| Web | `frontend` | Dockerfile; set `INTERNAL_API_URL` to the API public URL |
+| Service | Builder | Dockerfile path |
+|---------|---------|-----------------|
+| API | Dockerfile | `backend/Dockerfile` |
+| Web | Dockerfile | `frontend/Dockerfile` |
 
-API env (minimum): `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`.
+Clear any Custom Build Command (do not use `npm run build` on the API).
+
+API env (minimum): `DATABASE_URL` (Postgres plugin), `REDIS_URL` (optional), `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`.
 
 Web env: `INTERNAL_API_URL=https://<your-api>.up.railway.app`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`.
 

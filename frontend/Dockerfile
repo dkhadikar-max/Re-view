@@ -1,13 +1,18 @@
+# Build context = repository root (Railway: Dockerfile path = frontend/Dockerfile)
+# Do NOT also set Root Directory to frontend, or paths will break.
 FROM node:22-alpine AS deps
 WORKDIR /app
-COPY package*.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY frontend/ .
 ENV NEXT_TELEMETRY_DISABLED=1
+# INTERNAL_API_URL is used at runtime by Next rewrites; bake a placeholder for build.
+ARG INTERNAL_API_URL=http://127.0.0.1:8000
+ENV INTERNAL_API_URL=$INTERNAL_API_URL
 RUN npm run build
 
 FROM node:22-alpine AS runner
