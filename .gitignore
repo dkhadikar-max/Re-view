@@ -30,3 +30,4 @@ backend/gra.db
 # Misc
 .turbo/
 coverage/
+*.webp
