@@ -15,9 +15,12 @@ import {
   type Task,
 } from "@/lib/api";
 import { REVISIT } from "@/lib/brand";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { useMoney, useWorkspaceCurrency } from "@/components/WorkspaceProvider";
+import { formatDate } from "@/lib/utils";
 
 export default function OperationsPage() {
+  const money = useMoney();
+  const currency = useWorkspaceCurrency();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [roi, setRoi] = useState<ROIMetrics | null>(null);
   const [arrivals, setArrivals] = useState<Reservation[]>([]);
@@ -68,6 +71,7 @@ export default function OperationsPage() {
           upsell_revenue: s.upsell_revenue,
           celebrate_redemptions: 0,
           celebrate_unlocked: 0,
+          currency: s.currency || currency,
           narrative:
             "AI-assisted guest revenue in motion — approvals, reviews, and upsells for your property.",
           generated_at: new Date().toISOString(),
@@ -76,7 +80,7 @@ export default function OperationsPage() {
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load operations");
     }
-  }, []);
+  }, [currency]);
 
   useEffect(() => {
     void load();
@@ -132,6 +136,7 @@ export default function OperationsPage() {
     upsell_revenue: stats.upsell_revenue,
     celebrate_redemptions: 0,
     celebrate_unlocked: 0,
+    currency: stats.currency || currency,
     narrative:
       "AI-assisted guest revenue in motion — approvals, reviews, and upsells for your property.",
     generated_at: new Date().toISOString(),
@@ -161,7 +166,7 @@ export default function OperationsPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-sea-300">
-              {roiBoard.period_label}
+              {roiBoard.period_label} · {currency}
             </p>
             <h2 className="mt-1 font-display text-2xl tracking-tight md:text-3xl">
               Revenue impact
@@ -181,7 +186,7 @@ export default function OperationsPage() {
               Revenue generated
             </p>
             <p className="mt-1 font-display text-3xl text-sea-300">
-              {formatCurrency(roiBoard.revenue_generated)}
+              {money(roiBoard.revenue_generated)}
             </p>
           </div>
           <div className="rounded-xl bg-white/5 px-4 py-3">
@@ -207,7 +212,7 @@ export default function OperationsPage() {
               Revenue per guest
             </p>
             <p className="mt-1 font-display text-3xl">
-              {formatCurrency(roiBoard.revenue_per_guest)}
+              {money(roiBoard.revenue_per_guest)}
             </p>
             <p className="mt-0.5 text-xs text-sea-300">{rpgHint}</p>
           </div>
@@ -236,7 +241,7 @@ export default function OperationsPage() {
         />
         <Stat
           label="Upsell revenue"
-          value={formatCurrency(stats.upsell_revenue)}
+          value={money(stats.upsell_revenue)}
           hint={`${stats.upsells_waiting} offers waiting`}
           accent="sea"
           delay={120}
@@ -246,7 +251,7 @@ export default function OperationsPage() {
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Revenue today"
-          value={formatCurrency(stats.revenue_today)}
+          value={money(stats.revenue_today)}
           delay={160}
         />
         <Stat

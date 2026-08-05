@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Button, Empty, Panel } from "@/components/ui";
 import { api, type Reservation } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
+import { useMoney } from "@/components/WorkspaceProvider";
 
 export default function ReservationsPage() {
+  const money = useMoney();
   const [rows, setRows] = useState<Reservation[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -142,7 +144,7 @@ export default function ReservationsPage() {
                     <td className="py-3 text-ink-600">{r.room_type}</td>
                     <td className="py-3 text-ink-600">{r.source}</td>
                     <td className="py-3">
-                      {formatCurrency(r.total_amount, r.currency)}
+                      {money(r.total_amount, r.currency)}
                     </td>
                     <td className="py-3">
                       <Badge tone={r.status}>

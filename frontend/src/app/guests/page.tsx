@@ -9,8 +9,9 @@ import {
   type Guest,
   type GuestOpportunity,
 } from "@/lib/api";
+import { useMoney } from "@/components/WorkspaceProvider";
 import { REVISIT } from "@/lib/brand";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 function healthTone(health?: string) {
   if (health === "loyal") return "bg-emerald-500/15 text-emerald-700";
@@ -50,6 +51,7 @@ function Metric({
 }
 
 export default function GuestsPage() {
+  const money = useMoney();
   const [guests, setGuests] = useState<Guest[]>([]);
   const [opportunities, setOpportunities] = useState<GuestOpportunity[]>([]);
   const [selected, setSelected] = useState<Guest | null>(null);
@@ -289,7 +291,7 @@ export default function GuestsPage() {
                       <div className="text-right">
                         <p className="text-ink-400">Spend</p>
                         <p className="font-medium text-ink-800">
-                          {formatCurrency(g.lifetime_spend)}
+                          {money(g.lifetime_spend)}
                         </p>
                       </div>
                       <Badge>{g.preferred_channel || g.communication_preference}</Badge>
@@ -353,7 +355,7 @@ export default function GuestsPage() {
                 />
                 <Metric
                   label="Avg spend"
-                  value={formatCurrency(selected.average_booking || 0)}
+                  value={money(selected.average_booking || 0)}
                 />
               </div>
 
@@ -494,7 +496,7 @@ export default function GuestsPage() {
                   <span>
                     Expected revenue{" "}
                     <strong className="text-ink-800">
-                      {formatCurrency(nba.expected_revenue)}
+                      {money(nba.expected_revenue)}
                     </strong>
                   </span>
                 </div>
@@ -512,7 +514,7 @@ export default function GuestsPage() {
                 </h3>
                 {selected.lifetime_value != null && (
                   <p className="text-sm font-medium text-sea-700">
-                    LTV {formatCurrency(selected.lifetime_value)}
+                    LTV {money(selected.lifetime_value)}
                   </p>
                 )}
               </div>
@@ -543,7 +545,7 @@ export default function GuestsPage() {
                             <span>{formatShortDate(ev.at)}</span>
                             {ev.amount != null && ev.amount > 0 && ev.kind !== "ltv" && (
                               <span className="font-medium text-sea-700">
-                                {formatCurrency(ev.amount)}
+                                {money(ev.amount)}
                               </span>
                             )}
                           </div>

@@ -52,6 +52,15 @@ def test_hotel_signup_sets_currency_from_country(client):
     assert celebrate.status_code == 200
     assert celebrate.json()["currency"] == "INR"
 
+    stats = client.get("/api/dashboard/stats", headers=headers)
+    assert stats.status_code == 200
+    assert stats.json()["currency"] == "INR"
+
+    roi = client.get("/api/analytics/roi?period_days=30", headers=headers)
+    assert roi.status_code == 200
+    assert roi.json()["currency"] == "INR"
+    assert "₹" in roi.json()["narrative"] or "INR" in roi.json()["narrative"]
+
 
 def test_hotel_signup_uk_uses_gbp(client):
     res = client.post(

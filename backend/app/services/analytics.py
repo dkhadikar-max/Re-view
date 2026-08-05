@@ -15,9 +15,11 @@ from app.models.entities import (
     MessageStatus,
     Offer,
     OfferStatus,
+    Property,
     Reservation,
     Review,
 )
+from app.services.currency import currency_for_country
 
 
 class SalesAnalytics(BaseModel):
@@ -36,6 +38,7 @@ class SalesAnalytics(BaseModel):
     google_rating_proxy: float
     celebrations_enrolled: int
     period_days: int
+    currency: str = "EUR"
     generated_at: datetime
 
 
@@ -53,12 +56,46 @@ class ROIMetrics(BaseModel):
     upsell_revenue: float = 0.0
     celebrate_redemptions: int = 0
     celebrate_unlocked: int = 0
+    currency: str = "EUR"
     narrative: str = ""
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+def _tenant_currency(db: Session, tenant_id: str) -> str:
+    prop = db.query(Property).filter(Property.tenant_id == tenant_id).first()
+    if not prop:
+        return "EUR"
+    return (
+        (getattr(prop, "currency", None) or "").upper()
+        or currency_for_country(prop.country)
+    )
+
+
+def format_money(amount: float, currency: str = "EUR") -> str:
+    code = (currency or "EUR").upper()
+    symbols = {
+        "EUR": "€",
+        "USD": "$",
+        "GBP": "£",
+        "INR": "₹",
+        "JPY": "¥",
+        "AED": "AED ",
+        "SAR": "SAR ",
+        "CHF": "CHF ",
+        "SEK": "SEK ",
+        "NOK": "NOK ",
+        "DKK": "DKK ",
+        "AUD": "A$",
+        "CAD": "C$",
+        "SGD": "S$",
+    }
+    symbol = symbols.get(code, f"{code} ")
+    return f"{symbol}{amount:,.0f}"
+
+
 def build_sales_analytics(db: Session, tenant_id: str, period_days: int = 30) -> SalesAnalytics:
     since = datetime.utcnow() - timedelta(days=period_days)
+    currency = _tenant_currency(db, tenant_id)
     total_guests = db.query(Guest).filter(Guest.tenant_id == tenant_id).count()
     reviewed = (
         db.query(Guest)
@@ -154,6 +191,7 @@ def build_sales_analytics(db: Session, tenant_id: str, period_days: int = 30) ->
         google_rating_proxy=round(google_proxy, 2),
         celebrations_enrolled=enrolled,
         period_days=period_days,
+        currency=currency,
         generated_at=datetime.utcnow(),
     )
 
@@ -163,6 +201,7 @@ def build_roi_metrics(db: Session, tenant_id: str, period_days: int = 30) -> ROI
     since = datetime.utcnow() - timedelta(days=period_days)
     prior_since = since - timedelta(days=period_days)
     today = date.today()
+    currency = _tenant_currency(db, tenant_id)
 
     upsell_revenue = float(
         db.query(func.coalesce(func.sum(Offer.price), 0))
@@ -293,7 +332,7 @@ def build_roi_metrics(db: Session, tenant_id: str, period_days: int = 30) -> ROI
     )
 
     narrative = (
-        f"Revisit drove {format_eur(revenue_generated)} in attributable revenue, "
+        f"Revisit drove {format_money(revenue_generated, currency)} in attributable revenue, "
         f"{reviews_generated} reviews, and {repeat_guests} repeat guests — "
         f"about {ai_hours} hours of staff work handled with AI assistance."
     )
@@ -310,10 +349,11 @@ def build_roi_metrics(db: Session, tenant_id: str, period_days: int = 30) -> ROI
         upsell_revenue=round(upsell_revenue, 2),
         celebrate_redemptions=len(celebrate_redeemed),
         celebrate_unlocked=celebrate_unlocked,
+        currency=currency,
         narrative=narrative,
         generated_at=datetime.utcnow(),
     )
 
 
 def format_eur(amount: float) -> str:
-    return f"€{amount:,.0f}"
+    return format_money(amount, "EUR")

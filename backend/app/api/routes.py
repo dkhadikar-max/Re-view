@@ -91,6 +91,7 @@ from app.services.ai_orchestrator import (
 from app.services.audit import write_audit
 from app.services.celebrate_rewards import run_celebrate_campaigns, unlock_after_review
 from app.services.connectors import sync_connector
+from app.services.currency import currency_for_country
 from app.services.event_bus import event_bus
 from app.services.guest_intelligence import (
     GuestIntelligence,
@@ -401,6 +402,13 @@ def dashboard_stats(user: AuthUser, db: Session = Depends(get_db)) -> DashboardS
         .count()
     )
     rooms = property_.rooms if property_ else 0
+    currency = (
+        (getattr(property_, "currency", None) or "").upper()
+        if property_
+        else ""
+    ) or (
+        currency_for_country(property_.country) if property_ else "EUR"
+    )
 
     return DashboardStats(
         arrivals_today=arrivals,
@@ -423,6 +431,7 @@ def dashboard_stats(user: AuthUser, db: Session = Depends(get_db)) -> DashboardS
         occupancy_pct=round(min(100.0, active / rooms * 100), 1) if rooms else 0.0,
         active_reservations=active,
         total_guests=total_guests,
+        currency=currency,
     )
 
 

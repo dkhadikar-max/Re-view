@@ -288,6 +288,7 @@ class DashboardStats(BaseModel):
     occupancy_pct: float
     active_reservations: int
     total_guests: int
+    currency: str = "EUR"
     metrics_note: str = (
         "revenue_today = in-house reservation room revenue for stays covering today; "
         "response_time_hours and ai_saved_hours are operational estimates derived from "

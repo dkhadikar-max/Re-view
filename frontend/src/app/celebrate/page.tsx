@@ -11,9 +11,11 @@ import {
   type Coupon,
   type Guest,
 } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { useMoney, useWorkspaceCurrency } from "@/components/WorkspaceProvider";
 
 export default function CelebratePage() {
+  const money = useMoney();
+  const workspaceCurrency = useWorkspaceCurrency();
   const [dash, setDash] = useState<CelebrateDashboard | null>(null);
   const [config, setConfig] = useState<CelebrateConfig | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -144,7 +146,7 @@ export default function CelebratePage() {
         <Stat
           label="Coupons redeemed"
           value={dash.coupons_redeemed}
-          hint={`Revenue ${formatCurrency(dash.revenue_generated, config.currency || "EUR")}`}
+          hint={`Revenue ${money(dash.revenue_generated, config.currency || workspaceCurrency)}`}
           accent="sea"
           delay={120}
         />
@@ -153,12 +155,12 @@ export default function CelebratePage() {
         <Stat label="Repeat visits" value={dash.repeat_visits} delay={160} />
         <Stat
           label="Avg spend (enrolled)"
-          value={formatCurrency(dash.average_spend, config.currency || "EUR")}
+          value={money(dash.average_spend, config.currency || workspaceCurrency)}
           delay={200}
         />
         <Stat
           label="Discount cost (est.)"
-          value={formatCurrency(dash.estimated_discount_cost, config.currency || "EUR")}
+          value={money(dash.estimated_discount_cost, config.currency || workspaceCurrency)}
           delay={240}
         />
         <Stat label="ROI" value={dash.roi != null ? `${dash.roi}x` : "—"} delay={280} />

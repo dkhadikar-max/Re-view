@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Button, Panel, Stat } from "@/components/ui";
+import { useMoney, useWorkspaceCurrency } from "@/components/WorkspaceProvider";
 import { api, type SalesAnalytics } from "@/lib/api";
 import { ARGUS, REVISIT } from "@/lib/brand";
-import { formatCurrency } from "@/lib/utils";
 
 export default function AnalyticsPage() {
+  const money = useMoney();
+  const currency = useWorkspaceCurrency();
   const [data, setData] = useState<SalesAnalytics | null>(null);
   const [error, setError] = useState("");
 
@@ -43,7 +45,7 @@ export default function AnalyticsPage() {
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-800 p-6 text-white opacity-0">
         <p className="text-xs uppercase tracking-wider text-ink-300">
-          {REVISIT.name} · {ARGUS.productLine} · last {data.period_days} days
+          {REVISIT.name} · {ARGUS.productLine} · {currency} · last {data.period_days} days
         </p>
         <h2 className="mt-2 font-display text-3xl">One paying hotel. These numbers.</h2>
         <p className="mt-2 max-w-2xl text-sm text-ink-200">
@@ -68,7 +70,7 @@ export default function AnalyticsPage() {
         />
         <Stat
           label="Revenue generated"
-          value={formatCurrency(data.revenue_generated)}
+          value={money(data.revenue_generated)}
           hint="Attributed upsell revenue"
           accent="coral"
           delay={80}
@@ -82,7 +84,7 @@ export default function AnalyticsPage() {
         <Stat
           label="Upsell conversion"
           value={`${data.upsell_conversion}%`}
-          hint={formatCurrency(data.upsell_revenue) + " accepted"}
+          hint={money(data.upsell_revenue) + " accepted"}
           accent="sea"
           delay={160}
         />
@@ -105,7 +107,7 @@ export default function AnalyticsPage() {
           <p>
             Active room revenue:{" "}
             <span className="font-medium text-ink-900">
-              {formatCurrency(data.room_revenue_active)}
+              {money(data.room_revenue_active)}
             </span>
           </p>
           <p className="text-ink-400">

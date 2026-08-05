@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Button, Empty, Panel, Stat } from "@/components/ui";
+import { useMoney } from "@/components/WorkspaceProvider";
 import { api, type DashboardStats, type Offer } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
 
 export default function RevenuePage() {
+  const money = useMoney();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -60,12 +61,12 @@ export default function RevenuePage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Revenue today"
-          value={formatCurrency(stats.revenue_today)}
+          value={money(stats.revenue_today)}
           accent="sea"
         />
         <Stat
           label="Upsell revenue"
-          value={formatCurrency(stats.upsell_revenue)}
+          value={money(stats.upsell_revenue)}
           accent="sand"
           delay={40}
         />
@@ -76,7 +77,7 @@ export default function RevenuePage() {
         />
         <Stat
           label="Average spend"
-          value={formatCurrency(stats.average_spend)}
+          value={money(stats.average_spend)}
           delay={120}
         />
       </div>
@@ -116,7 +117,7 @@ export default function RevenuePage() {
                     </td>
                     <td className="py-3 text-ink-600">{o.guest_name}</td>
                     <td className="py-3">
-                      {formatCurrency(o.price, o.currency)}
+                      {money(o.price, o.currency)}
                     </td>
                     <td className="py-3 text-ink-500">
                       {Math.round(o.confidence * 100)}%

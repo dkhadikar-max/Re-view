@@ -109,6 +109,7 @@ export type DashboardStats = {
   occupancy_pct: number;
   active_reservations: number;
   total_guests: number;
+  currency?: string;
   metrics_note?: string;
 };
 
@@ -124,6 +125,7 @@ export type ROIMetrics = {
   upsell_revenue: number;
   celebrate_redemptions: number;
   celebrate_unlocked: number;
+  currency?: string;
   narrative: string;
   generated_at: string;
 };
@@ -294,6 +296,7 @@ export type SalesAnalytics = {
   google_rating_proxy: number;
   celebrations_enrolled: number;
   period_days: number;
+  currency?: string;
   generated_at: string;
 };
 
