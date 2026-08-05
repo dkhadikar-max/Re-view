@@ -6,7 +6,13 @@
 **/.venv
 **/*.db
 **/.pytest_cache
-frontend
+**/.mypy_cache
+**/.ruff_cache
+backend/.venv
+backend/**/__pycache__
+backend/*.db
+backend/tests
 *.md
 .env
 .env.*
+.dockerignore
