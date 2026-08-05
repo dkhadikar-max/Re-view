@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -49,8 +50,115 @@ from app.services.event_bus import event_bus
 from app.services.workflow_engine import register_workflow_handlers
 
 DEMO_TENANT = "demo-hotel"
-DEMO_EMAIL = "manager@azurecoast.demo"
-DEMO_PASSWORD = "ChangeMe123!"
+LEGACY_DEMO_EMAILS = (
+    "manager@azurecoast.demo",
+    "staff@azurecoast.demo",
+    "admin@azurecoast.demo",
+)
+TEST_MANAGER_EMAIL = "manager@revisit.example"
+
+
+def _owner_email() -> str:
+    return (settings.owner_email or "dkhadikar@gmail.com").strip().lower()
+
+
+def _owner_name() -> str:
+    return (settings.owner_name or "Deepanshu").strip() or "Owner"
+
+
+def _owner_password() -> str:
+    if settings.owner_password:
+        return settings.owner_password
+    if settings.environment == "test":
+        return "test-owner-password"
+    if settings.environment == "development":
+        return "LocalDevOwnerPass1!"
+    return "ChangeMe-Set-OWNER_PASSWORD"
+
+
+# Resolved at import for tests; ensure_owner_account always uses live settings.
+DEMO_EMAIL = _owner_email()
+DEMO_PASSWORD = _owner_password()
+
+
+def ensure_owner_account(db: Session) -> None:
+    """Upsert platform owner as admin; disable legacy azurecoast demo logins."""
+    if not db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
+        return
+
+    email = _owner_email()
+    password = _owner_password()
+    name = _owner_name()
+
+    legacy = (
+        db.query(User)
+        .filter(
+            User.tenant_id == DEMO_TENANT,
+            func.lower(User.email).in_([e.lower() for e in LEGACY_DEMO_EMAILS]),
+        )
+        .all()
+    )
+    for user in legacy:
+        # Rename manager → owner when owner row does not exist yet
+        if user.email.lower() == "manager@azurecoast.demo":
+            existing_owner = (
+                db.query(User)
+                .filter(User.tenant_id == DEMO_TENANT, func.lower(User.email) == email)
+                .first()
+            )
+            if not existing_owner:
+                user.email = email
+                user.name = name
+                user.role = "admin"
+                user.is_active = True
+                user.password_hash = hash_password(password)
+                continue
+        user.is_active = False
+
+    owner = (
+        db.query(User)
+        .filter(User.tenant_id == DEMO_TENANT, func.lower(User.email) == email)
+        .first()
+    )
+    if owner:
+        owner.name = name
+        owner.role = "admin"
+        owner.is_active = True
+        owner.password_hash = hash_password(password)
+    else:
+        db.add(
+            User(
+                tenant_id=DEMO_TENANT,
+                email=email,
+                name=name,
+                role="admin",
+                password_hash=hash_password(password),
+                is_active=True,
+            )
+        )
+
+    if settings.environment == "test":
+        mgr = (
+            db.query(User)
+            .filter(
+                User.tenant_id == DEMO_TENANT,
+                func.lower(User.email) == TEST_MANAGER_EMAIL.lower(),
+            )
+            .first()
+        )
+        if not mgr:
+            db.add(
+                User(
+                    tenant_id=DEMO_TENANT,
+                    email=TEST_MANAGER_EMAIL,
+                    name="Test Manager",
+                    role="manager",
+                    password_hash=hash_password(password),
+                    is_active=True,
+                )
+            )
+
+    db.commit()
 
 
 def _on_reservation_created(db: Session, event, payload: dict) -> None:
@@ -177,6 +285,7 @@ def register_handlers() -> None:
 
 def seed_database(db: Session) -> None:
     if db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
+        ensure_owner_account(db)
         return
 
     today = date.today()
@@ -186,33 +295,24 @@ def seed_database(db: Session) -> None:
     db.add(
         User(
             tenant_id=DEMO_TENANT,
-            email=DEMO_EMAIL,
-            name="Sofia Marino",
-            role="manager",
-            password_hash=hash_password(DEMO_PASSWORD),
-            is_active=True,
-        )
-    )
-    db.add(
-        User(
-            tenant_id=DEMO_TENANT,
-            email="staff@azurecoast.demo",
-            name="Alex Staff",
-            role="staff",
-            password_hash=hash_password(DEMO_PASSWORD),
-            is_active=True,
-        )
-    )
-    db.add(
-        User(
-            tenant_id=DEMO_TENANT,
-            email="admin@azurecoast.demo",
-            name="Re-view Super Admin",
+            email=_owner_email(),
+            name=_owner_name(),
             role="admin",
-            password_hash=hash_password(DEMO_PASSWORD),
+            password_hash=hash_password(_owner_password()),
             is_active=True,
         )
     )
+    if settings.environment == "test":
+        db.add(
+            User(
+                tenant_id=DEMO_TENANT,
+                email=TEST_MANAGER_EMAIL,
+                name="Test Manager",
+                role="manager",
+                password_hash=hash_password(_owner_password()),
+                is_active=True,
+            )
+        )
 
     prop = Property(
         tenant_id=DEMO_TENANT,

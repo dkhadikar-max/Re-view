@@ -79,7 +79,14 @@ def test_review_unlocks_celebrate_then_lock_dates(client):
 
 
 def test_manager_cannot_admin_unlock(client):
-    h = _auth(client)
+    from app.db.seed import TEST_MANAGER_EMAIL
+
+    login = client.post(
+        "/api/auth/login",
+        data={"username": TEST_MANAGER_EMAIL, "password": DEMO_PASSWORD},
+    )
+    assert login.status_code == 200
+    h = {"Authorization": f"Bearer {login.json()['access_token']}"}
     guests = client.get("/api/guests", headers=h).json()
     locked = next(g for g in guests if g.get("birthday_locked"))
     r = client.post(
@@ -93,7 +100,7 @@ def test_manager_cannot_admin_unlock(client):
 def test_admin_unlock_with_audit(client):
     login = client.post(
         "/api/auth/login",
-        data={"username": "admin@azurecoast.demo", "password": DEMO_PASSWORD},
+        data={"username": DEMO_EMAIL, "password": DEMO_PASSWORD},
     )
     assert login.status_code == 200
     h = {"Authorization": f"Bearer {login.json()['access_token']}"}

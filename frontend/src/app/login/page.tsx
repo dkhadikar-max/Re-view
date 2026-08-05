@@ -15,8 +15,8 @@ function nextPath(): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("manager@azurecoast.demo");
-  const [password, setPassword] = useState("ChangeMe123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -52,8 +52,10 @@ export default function LoginPage() {
           <input
             type="email"
             required
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@yourhotel.com"
             className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm outline-none focus:border-sea-500"
           />
         </label>
@@ -62,6 +64,7 @@ export default function LoginPage() {
           <input
             type="password"
             required
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm outline-none focus:border-sea-500"
@@ -75,10 +78,7 @@ export default function LoginPage() {
         <Button type="submit" className="mt-5 w-full" disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
         </Button>
-        <p className="mt-4 text-xs text-ink-400">
-          Shared demo: manager@azurecoast.demo / ChangeMe123!
-        </p>
-        <p className="mt-3 text-center text-sm text-ink-600">
+        <p className="mt-4 text-center text-sm text-ink-600">
           Hotel evaluating Revisit?{" "}
           <Link
             href="/onboard"

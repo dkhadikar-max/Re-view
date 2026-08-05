@@ -16,6 +16,8 @@ os.environ["JWT_SECRET"] = "test-secret-key-at-least-32-characters-long"
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 os.environ["RATE_LIMIT_PER_MINUTE"] = "10000"
+os.environ["OWNER_EMAIL"] = "dkhadikar@gmail.com"
+os.environ["OWNER_PASSWORD"] = "test-owner-password"
 
 from app.core.config import get_settings
 

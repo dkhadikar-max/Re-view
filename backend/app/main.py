@@ -18,7 +18,7 @@ from app.api.integrations import router as integrations_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import RateLimitMiddleware, RequestContextMiddleware
-from app.db.seed import register_handlers, seed_database
+from app.db.seed import ensure_owner_account, register_handlers, seed_database
 from app.db.session import Base, SessionLocal, engine
 from app.schemas import HealthOut
 
@@ -35,6 +35,7 @@ async def lifespan(_: FastAPI):
         db = SessionLocal()
         try:
             seed_database(db)
+            ensure_owner_account(db)
         finally:
             db.close()
     yield

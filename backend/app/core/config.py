@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     seed_on_startup: bool = True
     auto_create_tables: bool = True
 
+    # Platform owner (main admin account for the demo hotel workspace)
+    owner_email: str = "dkhadikar@gmail.com"
+    owner_name: str = "Deepanshu"
+    owner_password: str = Field(
+        default="",
+        description="Password for owner_email. Set OWNER_PASSWORD in production.",
+    )
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
