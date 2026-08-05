@@ -22,7 +22,7 @@ def test_integrations_status(client: TestClient, auth_header: dict):
     }.issubset(providers)
     assert body["ready_for_first_hotel"] is True  # non-production clears blockers
     assert body["platform"] == "Argus OS"
-    assert "argus" in body["platform_url"].lower()
+    assert "argusai.online" in body["platform_url"].lower() or "argus" in body["platform_url"].lower()
     assert "GPT-5.5 API" in body["platform_pays"]
     assert "PostgreSQL" in body["platform_pays"]
     assert "Redis" in body["platform_pays"]

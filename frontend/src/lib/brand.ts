@@ -5,7 +5,7 @@ export const ARGUS = {
   productLine: "Argus OS",
   tagline: "Decision operating system",
   siteUrl:
-    process.env.NEXT_PUBLIC_ARGUS_SITE_URL || "https://argusos-psi.vercel.app",
+    process.env.NEXT_PUBLIC_ARGUS_SITE_URL || "https://argusai.online",
   githubUrl: "https://github.com/dkhadikar-max/ARGUS-OS",
 } as const;
 

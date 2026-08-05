@@ -1,12 +1,12 @@
 # Revisit
 
-**An [Argus OS](https://argusos-psi.vercel.app) product.**
+**An [Argus OS](https://argusai.online) product.**
 
 *Guest revenue, after booking.*
 
 Revisit is the hospitality revenue layer in the Argus decision operating system. V1.0 targets **one paying hotel** with production integrations — not 100 features.
 
-**Parent platform:** [Argus OS](https://argusos-psi.vercel.app) · [GitHub](https://github.com/dkhadikar-max/ARGUS-OS)
+**Parent platform:** [Argus OS](https://argusai.online) · [GitHub](https://github.com/dkhadikar-max/ARGUS-OS)
 
 ## For the Argus site
 
