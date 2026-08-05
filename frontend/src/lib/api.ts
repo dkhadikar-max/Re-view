@@ -478,6 +478,11 @@ export const api = {
     return res;
   },
   me: () => request<User>("/api/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ message: string; email: string }>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
   stats: () => request<DashboardStats>("/api/dashboard/stats"),
   properties: () => request<Property[]>("/api/properties"),
   guests: (params?: {
@@ -570,6 +575,17 @@ export const api = {
   integrationsStatus: () => request<V1Readiness>("/api/integrations/status"),
   adminClients: () => request<AdminClient[]>("/api/admin/clients"),
   adminAnalytics: () => request<PlatformAnalytics>("/api/admin/analytics"),
+  adminResetPassword: (tenantId: string, newPassword?: string) =>
+    request<{
+      message: string;
+      email: string;
+      temporary_password?: string | null;
+    }>(`/api/admin/clients/${tenantId}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify(
+        newPassword ? { new_password: newPassword } : {}
+      ),
+    }),
   syncCloudbeds: () =>
     request<{ imported: number; events_emitted: number; message: string }>(
       "/api/connectors/cloudbeds/sync",

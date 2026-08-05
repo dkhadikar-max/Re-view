@@ -84,6 +84,7 @@ from app.schemas import (
     WorkerResult,
     WorkflowOut,
 )
+from app.services.passwords import ChangePasswordRequest
 from app.services.ai_orchestrator import (
     ai_orchestrator,
     execute_decision,
@@ -271,6 +272,29 @@ def auth_me(user: AuthUser) -> UserOut:
         name=user.name,
         role=user.role,
         is_platform_admin=is_platform_owner(user),
+    )
+
+
+@router.post("/auth/change-password")
+def auth_change_password(
+    payload: ChangePasswordRequest,
+    user: AuthUser,
+    db: Session = Depends(get_db),
+):
+    from app.services.passwords import change_password
+
+    row = (
+        db.query(User)
+        .filter(User.id == user.id, User.tenant_id == user.tenant_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return change_password(
+        db,
+        user=row,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
     )
 
 

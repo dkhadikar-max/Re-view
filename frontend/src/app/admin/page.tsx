@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shield } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
-import { Badge, Empty, Panel, Stat } from "@/components/ui";
+import { Badge, Button, Empty, Panel, Stat } from "@/components/ui";
 import {
   api,
   type AdminClient,
@@ -22,6 +22,33 @@ export default function PlatformAdminPage() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [resetBusy, setResetBusy] = useState<string | null>(null);
+  const [resetResult, setResetResult] = useState<{
+    hotel: string;
+    email: string;
+    temporary_password?: string | null;
+    message: string;
+  } | null>(null);
+  const [resetError, setResetError] = useState("");
+
+  async function resetPassword(client: AdminClient) {
+    setResetError("");
+    setResetResult(null);
+    setResetBusy(client.tenant_id);
+    try {
+      const res = await api.adminResetPassword(client.tenant_id);
+      setResetResult({
+        hotel: client.hotel_name,
+        email: res.email,
+        temporary_password: res.temporary_password,
+        message: res.message,
+      });
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResetBusy(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -225,7 +252,8 @@ export default function PlatformAdminPage() {
                   <th className="pb-2 pr-3 font-medium">Plan</th>
                   <th className="pb-2 pr-3 font-medium">Market</th>
                   <th className="pb-2 pr-3 font-medium">Activity</th>
-                  <th className="pb-2 font-medium">Signed up</th>
+                  <th className="pb-2 pr-3 font-medium">Signed up</th>
+                  <th className="pb-2 font-medium">Password</th>
                 </tr>
               </thead>
               <tbody>
@@ -263,8 +291,19 @@ export default function PlatformAdminPage() {
                         {formatCurrency(c.upsell_revenue, c.currency)}
                       </p>
                     </td>
-                    <td className="py-3 text-xs text-ink-500">
+                    <td className="py-3 pr-3 text-xs text-ink-500">
                       {formatDate(c.signed_up_at)}
+                    </td>
+                    <td className="py-3">
+                      {!c.is_demo && (
+                        <Button
+                          variant="secondary"
+                          disabled={resetBusy === c.tenant_id}
+                          onClick={() => void resetPassword(c)}
+                        >
+                          {resetBusy === c.tenant_id ? "Resetting…" : "Reset"}
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -273,6 +312,45 @@ export default function PlatformAdminPage() {
           </div>
         )}
       </Panel>
+
+      {(resetResult || resetError) && (
+        <div className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-lg animate-fade-up rounded-2xl border border-ink-200 bg-white p-5 shadow-lg">
+          {resetError && (
+            <p className="text-sm text-coral-600" role="alert">
+              {resetError}
+            </p>
+          )}
+          {resetResult && (
+            <div className="space-y-2 text-sm">
+              <p className="font-medium text-ink-900">
+                Password reset · {resetResult.hotel}
+              </p>
+              <p className="text-ink-600">{resetResult.message}</p>
+              <p className="text-ink-500">
+                Account: <span className="text-ink-800">{resetResult.email}</span>
+              </p>
+              {resetResult.temporary_password && (
+                <p className="rounded-xl bg-ink-50 px-3 py-2 font-mono text-base text-ink-900">
+                  {resetResult.temporary_password}
+                </p>
+              )}
+              <p className="text-[11px] text-ink-400">
+                Stored as a hash only. Copy now — it will not be shown again.
+              </p>
+            </div>
+          )}
+          <Button
+            className="mt-3"
+            variant="secondary"
+            onClick={() => {
+              setResetResult(null);
+              setResetError("");
+            }}
+          >
+            Close
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
