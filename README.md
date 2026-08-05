@@ -83,23 +83,28 @@ Demo: `manager@azurecoast.demo` / `ChangeMe123!`
 
 ### Railway deploy
 
-`main` has the full app. Create **two services** from this repo.
+Create **two services** from this repo. Leave **Root Directory empty**.
 
-**Important:** leave **Root Directory empty** (repo root). Set Dockerfile path instead.
+| Service | Domain | Dockerfile path (set in dashboard) |
+|---------|--------|--------------------------------------|
+| **API** | e.g. `api.revisit…` or Railway URL | `backend/Dockerfile` |
+| **Web** | `revisit.argusai.online` | `frontend/Dockerfile` |
 
-| Service | Builder | Dockerfile path |
-|---------|---------|-----------------|
-| API | Dockerfile | `backend/Dockerfile` |
-| Web | Dockerfile | `frontend/Dockerfile` |
+Do **not** put a root `railway.toml` that pins one Dockerfile — Railway applies it to every service.
 
-Clear any Custom Build Command (do not use `npm run build` on the API).
+**Web (frontend) settings**
+- Builder: Dockerfile  
+- Dockerfile path: `frontend/Dockerfile` (override the dashboard if it still shows backend)  
+- Custom domain: `revisit.argusai.online`  
+- Env: `INTERNAL_API_URL=<API public URL>`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`, `NEXT_PUBLIC_REVISIT_SITE_URL=https://revisit.argusai.online`
 
-API env (minimum): `DATABASE_URL` (Postgres plugin), `REDIS_URL` (optional), `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`.
+**API settings**
+- Builder: Dockerfile  
+- Dockerfile path: `backend/Dockerfile`  
+- Healthcheck: `/ready`  
+- Env: `DATABASE_URL`, `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`
 
-Web env: `INTERNAL_API_URL=https://<your-api>.up.railway.app`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`, `NEXT_PUBLIC_REVISIT_SITE_URL=https://revisit.argusai.online`.
-
-**Custom domain (frontend):** on the Web service → Settings → Networking → Custom Domain → `revisit.argusai.online`.  
-At your DNS provider for `argusai.online`, add the CNAME Railway shows (usually `revisit` → `*.up.railway.app`).
+Clear Custom Build Command on both.
 
 ### Docker (dev)
 

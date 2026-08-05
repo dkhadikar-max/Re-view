@@ -1,14 +1,10 @@
-# Place this service's Railway settings as:
-# - Root Directory: (empty / repo root)
-# - Builder: Dockerfile
-# - Dockerfile path: backend/Dockerfile
+# Docs only — do not rely on this for multi-service Railway.
+# Set Dockerfile path in the Railway dashboard per service:
+#   API → backend/Dockerfile
+#   Web → frontend/Dockerfile
+#
+# A root railway.toml would force ONE dockerfile onto every service.
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "backend/Dockerfile"
-
-[deploy]
-healthcheckPath = "/ready"
-healthcheckTimeout = 30
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
+dockerfilePath = "Dockerfile"
