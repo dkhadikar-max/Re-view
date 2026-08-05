@@ -47,7 +47,7 @@ export default function AnalyticsPage() {
         <h2 className="mt-2 font-display text-3xl">One paying hotel. These numbers.</h2>
         <p className="mt-2 max-w-2xl text-sm text-ink-200">
           Revenue attributed to upsells · AI outbound volume · guest satisfaction proxy
-          from Guest Memory.
+          from Guest Intelligence.
         </p>
       </div>
 

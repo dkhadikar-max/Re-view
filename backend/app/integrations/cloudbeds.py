@@ -240,8 +240,10 @@ class CloudbedsClient:
                 source="Cloudbeds",
                 guest=NormalizedGuest(
                     external_id=f"G-{gen}-A",
-                    name=f"Cloudbeds Guest {gen}A",
-                    email=f"cb{gen}a@example.com",
+                    name=["Yuki Tanaka", "Amelia Chen", "Sofia Ricci", "Noah Berg"][
+                        (gen - 1) % 4
+                    ],
+                    email=f"guest{gen}a@example.com",
                     country="Japan",
                     language="en",
                 ),
@@ -256,8 +258,10 @@ class CloudbedsClient:
                 source="Cloudbeds",
                 guest=NormalizedGuest(
                     external_id=f"G-{gen}-B",
-                    name=f"Cloudbeds Guest {gen}B",
-                    email=f"cb{gen}b@example.com",
+                    name=["Elena Vargas", "Luca Moretti", "Priya Sharma", "Jonas Lind"][
+                        (gen - 1) % 4
+                    ],
+                    email=f"guest{gen}b@example.com",
                     country="Spain",
                     language="es",
                     children=2,

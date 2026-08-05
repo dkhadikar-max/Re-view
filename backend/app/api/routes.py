@@ -92,6 +92,12 @@ from app.services.audit import write_audit
 from app.services.celebrate_rewards import run_celebrate_campaigns, unlock_after_review
 from app.services.connectors import sync_connector
 from app.services.event_bus import event_bus
+from app.services.guest_intelligence import (
+    GuestIntelligence,
+    GuestOpportunity,
+    build_intelligence,
+    list_opportunities,
+)
 from app.services.messaging import deliver_message, process_due_messages
 from app.services.state_machine import (
     APPROVAL_TRANSITIONS,
@@ -406,28 +412,73 @@ def list_properties(user: AuthUser, db: Session = Depends(get_db)) -> list[Prope
     return db.query(Property).filter(Property.tenant_id == user.tenant_id).all()
 
 
-@router.get("/guests", response_model=list[GuestOut])
+@router.get("/guests", response_model=list[GuestIntelligence])
 def list_guests(
     user: AuthUser,
     skip: PageSkip = 0,
     limit: PageLimit = 100,
+    q: str | None = Query(default=None, description="Search name, email, tags"),
+    min_spend: float | None = Query(default=None, ge=0),
+    min_stays: int | None = Query(default=None, ge=0),
+    birthday_month: bool = Query(default=False),
+    inactive_days: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-) -> list[Guest]:
-    return (
+) -> list[GuestIntelligence]:
+    rows = (
         db.query(Guest)
         .filter(Guest.tenant_id == user.tenant_id)
         .order_by(Guest.ltv_score.desc())
-        .offset(skip)
-        .limit(limit)
         .all()
     )
+    today = date.today()
+    enriched = [build_intelligence(db, g) for g in rows]
+    if q:
+        needle = q.lower()
+        enriched = [
+            g
+            for g in enriched
+            if needle in g.name.lower()
+            or needle in (g.email or "").lower()
+            or any(needle in t.lower() for t in g.tags)
+            or needle in (g.ai_summary or "").lower()
+        ]
+    if min_spend is not None:
+        enriched = [g for g in enriched if float(g.lifetime_spend) >= min_spend]
+    if min_stays is not None:
+        enriched = [g for g in enriched if g.stay_count >= min_stays]
+    if birthday_month:
+        enriched = [
+            g
+            for g in enriched
+            if g.birthday and g.birthday.month == today.month
+        ]
+    if inactive_days is not None:
+        enriched = [
+            g
+            for g in enriched
+            if g.days_since_last_visit is not None
+            and g.days_since_last_visit >= inactive_days
+        ]
+    return enriched[skip : skip + limit]
 
 
-@router.get("/guests/{guest_id}", response_model=GuestOut)
-def get_guest(guest_id: str, user: AuthUser, db: Session = Depends(get_db)) -> Guest:
-    return get_tenant_entity(
+@router.get("/guests/opportunities", response_model=list[GuestOpportunity])
+def guest_opportunities(
+    user: AuthUser,
+    limit: int = Query(default=8, ge=1, le=20),
+    db: Session = Depends(get_db),
+) -> list[GuestOpportunity]:
+    return list_opportunities(db, user.tenant_id, limit=limit)
+
+
+@router.get("/guests/{guest_id}", response_model=GuestIntelligence)
+def get_guest(
+    guest_id: str, user: AuthUser, db: Session = Depends(get_db)
+) -> GuestIntelligence:
+    guest = get_tenant_entity(
         db, Guest, guest_id, user.tenant_id, not_found="Guest not found"
     )
+    return build_intelligence(db, guest)
 
 
 @router.get("/reservations", response_model=list[ReservationOut])
