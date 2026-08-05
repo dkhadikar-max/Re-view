@@ -15,6 +15,7 @@ from app.models.entities import (
     AIDecision,
     Approval,
     ApprovalStatus,
+    CelebrateRewardConfig,
     Connector,
     Guest,
     Message,
@@ -35,6 +36,7 @@ from app.models.entities import (
     Workflow,
 )
 from app.schemas import UserOut
+from app.services.currency import convert_from_eur, currency_for_country
 
 
 class HotelSignupRequest(BaseModel):
@@ -58,6 +60,7 @@ class HotelSignupResponse(BaseModel):
     hotel_name: str
     property_name: str
     tenant_id: str
+    currency: str = "EUR"
 
 
 def _tenant_id_from_name(hotel_name: str) -> str:
@@ -84,6 +87,12 @@ def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
     """Rich sample so Operations, Intelligence, Celebrate, and ROI look alive."""
     today = date.today()
     now = datetime.utcnow()
+    currency = (getattr(prop, "currency", None) or currency_for_country(prop.country)).upper()
+    prop.currency = currency
+
+    def money(eur: float) -> float:
+        return convert_from_eur(eur, currency)
+
     samples = [
         {
             "name": "Marie Dupont",
@@ -185,8 +194,8 @@ def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
             country=g["country"],
             language=g["language"],
             stay_count=g["stays"],
-            lifetime_spend=g["spend"],
-            average_booking=g["spend"] / max(g["stays"], 1),
+            lifetime_spend=money(g["spend"]),
+            average_booking=money(g["spend"]) / max(g["stays"], 1),
             travel_type=g["travel_type"],
             purpose=g.get("purpose"),
             preferred_room=g.get("room"),
@@ -235,8 +244,8 @@ def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
             check_out=cout,
             adults=2,
             children=guests[idx].children,
-            total_amount=amount,
-            currency="EUR",
+            total_amount=money(amount),
+            currency=currency,
             special_requests=(
                 "Late checkout, sparkling water, no feather pillows"
                 if idx == 0
@@ -256,8 +265,8 @@ def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
             name="Spa Package",
             category="upsell",
             description="90-minute couples spa",
-            price=95.0,
-            currency="EUR",
+            price=money(95.0),
+            currency=currency,
             status=OfferStatus.accepted,
             confidence=0.91,
             accepted_at=now - timedelta(days=38),
@@ -271,8 +280,8 @@ def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
             name="Late Checkout",
             category="upsell",
             description="Checkout at 2 PM",
-            price=40.0,
-            currency="EUR",
+            price=money(40.0),
+            currency=currency,
             status=OfferStatus.offered,
             confidence=0.84,
         )
@@ -434,6 +443,26 @@ def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
         )
     )
 
+    # Celebrate config uses the hotel country currency (not the INR default)
+    existing_cfg = (
+        db.query(CelebrateRewardConfig)
+        .filter(CelebrateRewardConfig.tenant_id == tenant_id)
+        .first()
+    )
+    if not existing_cfg:
+        db.add(
+            CelebrateRewardConfig(
+                tenant_id=tenant_id,
+                currency=currency,
+                birthday_min_spend=money(80),
+                anniversary_min_spend=money(150),
+            )
+        )
+    else:
+        existing_cfg.currency = currency
+        existing_cfg.birthday_min_spend = money(80)
+        existing_cfg.anniversary_min_spend = money(150)
+
 
 def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupResponse:
     email = str(payload.email).lower().strip()
@@ -450,6 +479,8 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
         tenant_id = _tenant_id_from_name(payload.hotel_name)
 
     hotel = payload.hotel_name.strip()
+    country = payload.country.strip() or "Germany"
+    currency = currency_for_country(country)
     db.add(
         Tenant(
             id=tenant_id,
@@ -474,8 +505,9 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
         tenant_id=tenant_id,
         name=hotel,
         type="hotel",
-        city=payload.city.strip(),
-        country=payload.country.strip(),
+        city=payload.city.strip() or "Berlin",
+        country=country,
+        currency=currency,
         timezone="UTC",
         brand_voice="Warm, professional hospitality — personal, never pushy.",
         google_rating=4.6,
@@ -525,11 +557,13 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
         access_token=token,
         message=(
             f"Welcome to Revisit, {user.name.split()[0]}. "
-            "Your hotel workspace is ready with sample guests so you can explore immediately."
+            f"Your hotel workspace is ready in {currency} with sample guests "
+            "so you can explore immediately."
         ),
         user=UserOut.model_validate(user),
         hotel_name=hotel,
         property_name=prop.name,
         tenant_id=tenant_id,
+        currency=currency,
         dashboard_path="/",
     )

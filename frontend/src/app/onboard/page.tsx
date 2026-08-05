@@ -7,6 +7,7 @@ import { Check, Building2 } from "lucide-react";
 import { api, setToken } from "@/lib/api";
 import { Button } from "@/components/ui";
 import { ARGUS, REVISIT } from "@/lib/brand";
+import { currencyForCountry } from "@/lib/currency";
 
 export default function HotelSignupPage() {
   const router = useRouter();
@@ -20,6 +21,8 @@ export default function HotelSignupPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+
+  const previewCurrency = currencyForCountry(country.trim() || "Germany");
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -182,6 +185,15 @@ export default function HotelSignupPage() {
               />
             </label>
             <label className="text-xs text-ink-500">
+              Currency
+              <input
+                readOnly
+                value={previewCurrency}
+                title="Set automatically from country"
+                className="mt-1 w-full rounded-xl border border-ink-200 bg-ink-50 px-3 py-2.5 text-sm text-ink-700 outline-none"
+              />
+            </label>
+            <label className="text-xs text-ink-500">
               Rooms
               <input
                 type="number"
@@ -194,8 +206,9 @@ export default function HotelSignupPage() {
             </label>
           </div>
           <p className="mt-3 text-xs text-ink-500">
-            Your trial includes sample guests, arrivals, approvals, and revenue so
-            you can see how {REVISIT.name} works immediately.
+            Workspace currency is set from your country ({previewCurrency}). Sample
+            guests and revenue use that currency so you can see how {REVISIT.name}{" "}
+            works immediately.
           </p>
 
           {error && (

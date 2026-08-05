@@ -37,8 +37,8 @@ export default function SettingsPage() {
           </p>
           <h2 className="mt-2 font-display text-3xl">{property.name}</h2>
           <p className="mt-1 text-ink-300">
-            {property.city}, {property.country} · {property.rooms} rooms ·{" "}
-            {property.google_rating}★ Google
+            {property.city}, {property.country} · {property.currency || "EUR"} ·{" "}
+            {property.rooms} rooms · {property.google_rating}★ Google
           </p>
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-200">
             Brand voice: {property.brand_voice}

@@ -337,6 +337,7 @@ def seed_database(db: Session) -> None:
         type="resort",
         city="Nice",
         country="France",
+        currency="EUR",
         timezone="Europe/Paris",
         brand_voice="Warm Mediterranean hospitality — elegant, personal, never pushy.",
         google_rating=4.7,

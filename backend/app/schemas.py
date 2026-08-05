@@ -235,6 +235,7 @@ class PropertyOut(ORMModel):
     type: str
     city: str
     country: str
+    currency: str = "EUR"
     timezone: str
     brand_voice: str
     google_rating: float

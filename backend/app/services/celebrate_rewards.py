@@ -82,7 +82,21 @@ def get_or_create_config(db: Session, tenant_id: str) -> CelebrateRewardConfig:
     )
     if config:
         return config
-    config = CelebrateRewardConfig(tenant_id=tenant_id)
+
+    from app.services.currency import convert_from_eur, currency_for_country
+
+    prop = db.query(Property).filter(Property.tenant_id == tenant_id).first()
+    currency = (
+        (getattr(prop, "currency", None) or "").upper()
+        if prop
+        else ""
+    ) or currency_for_country(prop.country if prop else None)
+    config = CelebrateRewardConfig(
+        tenant_id=tenant_id,
+        currency=currency,
+        birthday_min_spend=convert_from_eur(80, currency),
+        anniversary_min_spend=convert_from_eur(150, currency),
+    )
     db.add(config)
     db.flush()
     return config

@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import RateLimitMiddleware, RequestContextMiddleware
 from app.db.seed import ensure_owner_account, register_handlers, seed_database
+from app.db.schema_patches import ensure_schema_patches
 from app.db.session import Base, SessionLocal, engine
 from app.schemas import HealthOut
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     if settings.auto_create_tables:
         Base.metadata.create_all(bind=engine)
+        ensure_schema_patches()
     register_handlers()
     if settings.seed_on_startup and settings.environment != "test":
         db = SessionLocal()

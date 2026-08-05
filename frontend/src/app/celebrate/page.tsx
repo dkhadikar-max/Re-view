@@ -144,7 +144,7 @@ export default function CelebratePage() {
         <Stat
           label="Coupons redeemed"
           value={dash.coupons_redeemed}
-          hint={`Revenue ${formatCurrency(dash.revenue_generated, config.currency === "INR" ? "INR" : "EUR")}`}
+          hint={`Revenue ${formatCurrency(dash.revenue_generated, config.currency || "EUR")}`}
           accent="sea"
           delay={120}
         />
@@ -153,12 +153,12 @@ export default function CelebratePage() {
         <Stat label="Repeat visits" value={dash.repeat_visits} delay={160} />
         <Stat
           label="Avg spend (enrolled)"
-          value={formatCurrency(dash.average_spend, config.currency === "INR" ? "INR" : "EUR")}
+          value={formatCurrency(dash.average_spend, config.currency || "EUR")}
           delay={200}
         />
         <Stat
           label="Discount cost (est.)"
-          value={formatCurrency(dash.estimated_discount_cost, config.currency === "INR" ? "INR" : "EUR")}
+          value={formatCurrency(dash.estimated_discount_cost, config.currency || "EUR")}
           delay={240}
         />
         <Stat label="ROI" value={dash.roi != null ? `${dash.roi}x` : "—"} delay={280} />

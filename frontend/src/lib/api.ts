@@ -405,6 +405,7 @@ export type Property = {
   type: string;
   city: string;
   country: string;
+  currency: string;
   brand_voice: string;
   google_rating: number;
   rooms: number;
@@ -469,6 +470,7 @@ export const api = {
       hotel_name: string;
       property_name: string;
       tenant_id: string;
+      currency: string;
       user: User;
     }>("/api/demo/hotel-signup", {
       method: "POST",

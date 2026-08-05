@@ -136,6 +136,7 @@ class Property(Base):
     type: Mapped[str] = mapped_column(String(64), default="hotel")
     city: Mapped[str] = mapped_column(String(128))
     country: Mapped[str] = mapped_column(String(128))
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     brand_voice: Mapped[str] = mapped_column(Text, default="Warm, professional, and helpful.")
     google_rating: Mapped[float] = mapped_column(Float, default=4.5)
