@@ -98,6 +98,7 @@ from app.services.guest_intelligence import (
     build_intelligence,
     list_opportunities,
 )
+from app.services.hotel_signup import ensure_trial_demo_data
 from app.services.messaging import deliver_message, process_due_messages
 from app.services.state_machine import (
     APPROVAL_TRANSITIONS,
@@ -227,6 +228,13 @@ async def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Trial workspaces always show demo data so hotels understand how Revisit works
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if tenant and tenant.plan == "trial":
+        if ensure_trial_demo_data(db, tenant.id):
+            db.commit()
+
     token = create_access_token(
         user_id=user.id,
         tenant_id=user.tenant_id,
