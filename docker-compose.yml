@@ -1,0 +1,54 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: sqlite:///./revisit.db
+      REDIS_URL: redis://redis:6379/0
+      USE_MOCK_AI: "true"
+      OPENAI_MODEL: gpt-5.5
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      JWT_SECRET: dev-only-change-me-in-production-use-32chars+
+      SEED_ON_STARTUP: "true"
+      AUTO_CREATE_TABLES: "true"
+      EMAIL_PROVIDER: resend
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      INTERNAL_API_URL: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: npm run dev -- -H 0.0.0.0 -p 3000

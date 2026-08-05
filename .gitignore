@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Build
+frontend/.next/
+frontend/out/
+dist/
+*.db
+backend/revisit.db
+backend/gra.db
+
+# Env
+.env
+.env.local
+.env.*.local
+*.pem
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Misc
+.turbo/
+coverage/
+*.webp
