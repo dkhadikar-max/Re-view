@@ -1,0 +1,4 @@
+{
+  "name": "Re-view",
+  "install": "bash .cursor/install.sh"
+}
