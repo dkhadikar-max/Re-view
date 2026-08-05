@@ -79,7 +79,8 @@ uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Demo: `manager@azurecoast.demo` / `ChangeMe123!`
+Demo owner: set `OWNER_EMAIL` / `OWNER_PASSWORD` (default email `dkhadikar@gmail.com`).
+Hotels evaluating the product can create a trial at `/onboard`.
 
 ### Railway deploy
 

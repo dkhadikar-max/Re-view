@@ -25,7 +25,7 @@ def test_login_and_me(client, auth_header):
     body = me.json()
     assert body["email"] == DEMO_EMAIL
     assert body["tenant_id"] == "demo-hotel"
-    assert body["role"] == "manager"
+    assert body["role"] == "admin"
 
 
 def test_bad_login(client):
@@ -87,7 +87,7 @@ def test_approval_queues_message_not_sends(client, auth_header):
         json={"action": "approve"},
     )
     assert r.status_code == 200
-    assert r.json()["reviewed_by"] == "Sofia Marino"
+    assert r.json()["reviewed_by"] == "Deepanshu"
     # Message should be queued, not sent
     messages = client.get("/api/messages", headers=auth_header).json()
     related = next(m for m in messages if m["id"] == approval["related_id"])

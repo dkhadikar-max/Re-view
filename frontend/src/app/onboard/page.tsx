@@ -97,11 +97,6 @@ export default function HotelSignupPage() {
             <Link href="/login" className="text-sea-700 underline-offset-2 hover:underline">
               Sign in
             </Link>
-            {" · "}
-            Prefer the shared demo?{" "}
-            <Link href="/login" className="text-sea-700 underline-offset-2 hover:underline">
-              manager@azurecoast.demo
-            </Link>
           </p>
         </aside>
 
