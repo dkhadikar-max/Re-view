@@ -322,6 +322,9 @@ class Offer(Base):
     currency: Mapped[str] = mapped_column(String(8), default="EUR")
     status: Mapped[OfferStatus] = mapped_column(Enum(OfferStatus), default=OfferStatus.offered)
     confidence: Mapped[float] = mapped_column(Float, default=0.8)
+    payment_link_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    payment_session_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 

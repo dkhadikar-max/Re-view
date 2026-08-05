@@ -1,57 +1,151 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import Message, MessageChannel, MessageStatus
+from app.integrations.email_providers import get_email_client
+from app.integrations.whatsapp import whatsapp_client
+from app.models.entities import Guest, Message, MessageChannel, MessageStatus
 from app.services.state_machine import MESSAGE_TRANSITIONS, transition
 
 logger = logging.getLogger(__name__)
 
 
-class MessagingProvider:
-    """Delivery adapter. Real providers plug in here."""
-
-    name = "mock"
-
-    def send(self, message: Message) -> str:
-        provider_id = f"{self.name}_{uuid.uuid4().hex[:12]}"
-        logger.info(
-            "Delivered message %s via %s channel=%s provider_id=%s",
-            message.id,
-            self.name,
-            message.channel,
-            provider_id,
-        )
-        return provider_id
-
-
-PROVIDERS = {
-    MessageChannel.whatsapp: MessagingProvider(),
-    MessageChannel.email: MessagingProvider(),
-    MessageChannel.sms: MessagingProvider(),
-}
+def _recipient_for(db: Session, message: Message) -> str:
+    guest = db.get(Guest, message.guest_id)
+    if not guest:
+        raise ValueError("Guest missing for message")
+    if message.channel == MessageChannel.whatsapp:
+        if not guest.phone:
+            raise ValueError("Guest has no phone for WhatsApp")
+        return guest.phone
+    if message.channel == MessageChannel.email:
+        if not guest.email:
+            raise ValueError("Guest has no email")
+        return guest.email
+    # SMS fallback to phone
+    if not guest.phone:
+        raise ValueError("Guest has no phone for SMS")
+    return guest.phone
 
 
 def deliver_message(db: Session, message: Message) -> Message:
     if message.status not in (MessageStatus.queued,):
         raise ValueError(f"Cannot deliver message in status {message.status}")
-    provider = PROVIDERS.get(message.channel, MessagingProvider())
+
+    to = _recipient_for(db, message)
     try:
-        provider_id = provider.send(message)
+        if message.channel == MessageChannel.whatsapp:
+            result = whatsapp_client.send(to=to, body=message.body, subject=message.subject)
+        elif message.channel == MessageChannel.email:
+            result = get_email_client().send(
+                to=to, body=message.body, subject=message.subject
+            )
+        else:
+            # SMS: reuse WhatsApp mock path until Twilio is added
+            result = whatsapp_client.send(to=to, body=message.body, subject=message.subject)
+
         transition(message.status, MessageStatus.sent, MESSAGE_TRANSITIONS, "message")
         message.status = MessageStatus.sent
-        message.provider_message_id = provider_id
+        message.provider_message_id = result.provider_message_id
         message.sent_at = datetime.utcnow()
         db.flush()
+        logger.info(
+            "Delivered message %s via %s → %s",
+            message.id,
+            result.provider,
+            result.provider_message_id,
+        )
     except Exception:
         transition(message.status, MessageStatus.failed, MESSAGE_TRANSITIONS, "message")
         message.status = MessageStatus.failed
         db.flush()
         raise
+    return message
+
+
+def apply_provider_status(
+    db: Session, provider_message_id: str, status: str
+) -> Message | None:
+    message = (
+        db.query(Message)
+        .filter(Message.provider_message_id == provider_message_id)
+        .first()
+    )
+    if not message:
+        return None
+    status = status.lower()
+    if status == "delivered" and message.status == MessageStatus.sent:
+        transition(message.status, MessageStatus.delivered, MESSAGE_TRANSITIONS, "message")
+        message.status = MessageStatus.delivered
+    elif status == "read" and message.status in (
+        MessageStatus.sent,
+        MessageStatus.delivered,
+    ):
+        if message.status == MessageStatus.sent:
+            transition(message.status, MessageStatus.delivered, MESSAGE_TRANSITIONS, "message")
+            message.status = MessageStatus.delivered
+        # read tracked via notes on guest for V1
+        guest = db.get(Guest, message.guest_id)
+        if guest:
+            note = f"WhatsApp read receipt for message {message.id}"
+            guest.notes = f"{guest.notes}\n{note}" if guest.notes else note
+    elif status == "failed":
+        transition(message.status, MessageStatus.failed, MESSAGE_TRANSITIONS, "message")
+        message.status = MessageStatus.failed
+    db.flush()
+    return message
+
+
+def ingest_inbound_whatsapp(
+    db: Session,
+    *,
+    tenant_id: str,
+    from_phone: str,
+    body: str,
+    provider_message_id: str | None = None,
+    contact_name: str | None = None,
+) -> Message | None:
+    """Reply webhook → store inbound message → update guest memory."""
+    phone_digits = "".join(ch for ch in from_phone if ch.isdigit())
+    guests = db.query(Guest).filter(Guest.tenant_id == tenant_id).all()
+    guest = None
+    for g in guests:
+        if g.phone and "".join(ch for ch in g.phone if ch.isdigit()).endswith(
+            phone_digits[-10:]
+        ):
+            guest = g
+            break
+    if not guest:
+        logger.warning("Inbound WhatsApp from unknown phone %s", from_phone)
+        return None
+
+    message = Message(
+        tenant_id=tenant_id,
+        guest_id=guest.id,
+        channel=MessageChannel.whatsapp,
+        direction="inbound",
+        language=guest.language or "en",
+        subject="WhatsApp reply",
+        body=body,
+        status=MessageStatus.delivered,
+        message_type="inbound_reply",
+        provider_message_id=provider_message_id,
+        sent_at=datetime.utcnow(),
+    )
+    db.add(message)
+    # Guest memory enrichment
+    memory = f"Inbound WhatsApp ({datetime.utcnow().isoformat()}): {body[:280]}"
+    guest.notes = f"{guest.notes}\n{memory}" if guest.notes else memory
+    if contact_name and not guest.name:
+        guest.name = contact_name
+    # Simple preference signal
+    lower = body.lower()
+    if any(w in lower for w in ("yes", "ok", "please", "book", "ja", "oui")):
+        guest.upsell_acceptance = min(1.0, float(guest.upsell_acceptance or 0) + 0.1)
+    db.flush()
     return message
 
 
@@ -68,7 +162,6 @@ def process_due_messages(db: Session, limit: int = 50) -> int:
         .limit(limit)
         .all()
     )
-    # Also send queued messages with no schedule (immediate)
     immediate = (
         db.query(Message)
         .filter(Message.status == MessageStatus.queued, Message.scheduled_at.is_(None))

@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   Gift,
+  Plug,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import { setToken, type User } from "@/lib/api";
 
 const nav = [
   { href: "/", label: "Operations", icon: LayoutDashboard },
+  { href: "/analytics", label: "Sales Analytics", icon: TrendingUp },
   { href: "/guests", label: "Guest Memory", icon: Users },
   { href: "/celebrate", label: "Celebrate Rewards", icon: Gift },
   { href: "/reservations", label: "Reservations", icon: CalendarDays },
@@ -35,6 +37,7 @@ const nav = [
   { href: "/intelligence", label: "Intelligence", icon: Sparkles },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/activity", label: "Event Stream", icon: Activity },
+  { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

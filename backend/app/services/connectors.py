@@ -85,6 +85,12 @@ CONNECTORS: dict[str, PMSConnector] = {
 
 
 def sync_connector(db: Session, tenant_id: str, provider: str = "Cloudbeds") -> dict[str, Any]:
+    """Delegate Cloudbeds to the production PMS sync path (mock or live)."""
+    if provider == "Cloudbeds":
+        from app.services.pms_sync import sync_cloudbeds
+
+        return sync_cloudbeds(db, tenant_id)
+
     connector = (
         db.query(Connector)
         .filter(Connector.tenant_id == tenant_id, Connector.provider == provider)

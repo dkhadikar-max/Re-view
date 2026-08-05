@@ -31,6 +31,17 @@ export default function RevenuePage() {
     }
   }
 
+  async function paymentLink(id: string) {
+    setBusy(id);
+    try {
+      const link = await api.createPaymentLink(id);
+      await load();
+      if (link.url) window.open(link.url, "_blank", "noopener,noreferrer");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!stats) {
     return (
       <div className="flex h-64 items-center justify-center text-ink-400">
@@ -43,7 +54,7 @@ export default function RevenuePage() {
     <div>
       <TopBar
         title="Revenue Engine"
-        subtitle="Upsells, repeat bookings, and guest lifetime value — tracked in one place."
+        subtitle="Upsells → Stripe payment link → paid webhook → guest memory."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -92,6 +103,16 @@ export default function RevenuePage() {
                     <td className="py-3">
                       <p className="font-medium text-ink-900">{o.name}</p>
                       <p className="text-xs text-ink-400">{o.description}</p>
+                      {o.payment_link_url && (
+                        <a
+                          href={o.payment_link_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-block text-xs text-sea-700 underline"
+                        >
+                          Payment link
+                        </a>
+                      )}
                     </td>
                     <td className="py-3 text-ink-600">{o.guest_name}</td>
                     <td className="py-3">
@@ -101,18 +122,31 @@ export default function RevenuePage() {
                       {Math.round(o.confidence * 100)}%
                     </td>
                     <td className="py-3">
-                      <Badge tone={o.status}>{o.status}</Badge>
+                      <Badge tone={o.paid_at ? "accepted" : o.status}>
+                        {o.paid_at ? "paid" : o.status}
+                      </Badge>
                     </td>
                     <td className="py-3">
-                      {o.status === "offered" && (
-                        <Button
-                          variant="secondary"
-                          disabled={busy === o.id}
-                          onClick={() => accept(o.id)}
-                        >
-                          Mark accepted
-                        </Button>
-                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {o.status === "offered" && (
+                          <>
+                            <Button
+                              variant="secondary"
+                              disabled={busy === o.id}
+                              onClick={() => paymentLink(o.id)}
+                            >
+                              Stripe link
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={busy === o.id}
+                              onClick={() => accept(o.id)}
+                            >
+                              Mark accepted
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

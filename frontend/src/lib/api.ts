@@ -189,6 +189,43 @@ export type Offer = {
   status: string;
   confidence: number;
   guest_name?: string;
+  payment_link_url?: string;
+  payment_session_id?: string;
+  paid_at?: string;
+};
+
+export type SalesAnalytics = {
+  review_rate: number;
+  repeat_guests: number;
+  repeat_guest_rate: number;
+  revenue_generated: number;
+  upsell_revenue: number;
+  room_revenue_active: number;
+  ai_messages: number;
+  ai_messages_sent: number;
+  upsell_conversion: number;
+  guest_satisfaction: number;
+  google_rating_proxy: number;
+  celebrations_enrolled: number;
+  period_days: number;
+  generated_at: string;
+};
+
+export type IntegrationStatus = {
+  provider: string;
+  priority: number;
+  configured: boolean;
+  mode: string;
+  detail: string;
+};
+
+export type V1Readiness = {
+  version: string;
+  milestone: string;
+  queue_backend: string;
+  integrations: IntegrationStatus[];
+  ready_for_first_hotel: boolean;
+  blockers: string[];
 };
 
 export type Task = {
@@ -323,6 +360,19 @@ export const api = {
     request(`/api/reservations/${reservationId}/decide`, { method: "POST" }),
   acceptOffer: (id: string) =>
     request(`/api/offers/${id}/accept`, { method: "POST" }),
+  createPaymentLink: (id: string) =>
+    request<{ id: string; url: string; mode: string }>(
+      `/api/offers/${id}/payment-link`,
+      { method: "POST" }
+    ),
+  salesAnalytics: (periodDays = 30) =>
+    request<SalesAnalytics>(`/api/analytics/sales?period_days=${periodDays}`),
+  integrationsStatus: () => request<V1Readiness>("/api/integrations/status"),
+  syncCloudbeds: () =>
+    request<{ imported: number; events_emitted: number; message: string }>(
+      "/api/connectors/cloudbeds/sync",
+      { method: "POST" }
+    ),
   completeTask: (id: string) =>
     request(`/api/tasks/${id}/complete`, { method: "POST" }),
   checkout: (id: string) =>

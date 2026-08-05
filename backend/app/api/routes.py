@@ -780,6 +780,14 @@ def _publish_review(
         )
     review.published_response = review.ai_draft_response
     review.responded = True
+    # Official Google Business Profile publish when configured (never scrape)
+    if (review.platform or "").lower() == "google":
+        from app.integrations.google_reviews import google_reviews_client
+
+        google_reviews_client.publish_reply(
+            review_name=review.id,
+            comment=review.ai_draft_response,
+        )
     write_audit(
         db,
         tenant_id=user.tenant_id,
@@ -787,7 +795,7 @@ def _publish_review(
         action=audit_action,
         entity_type="review",
         entity_id=review.id,
-        details={"rating": review.rating},
+        details={"rating": review.rating, "platform": review.platform},
     )
 
 

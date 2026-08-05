@@ -197,7 +197,56 @@ class AIOrchestrator:
         property_: Property,
         context: dict[str, Any] | None = None,
     ) -> AIDecision:
-        raw = self.provider.decide(guest, reservation, property_, context)
+        from app.integrations.openai_gateway import ai_gateway
+
+        gateway_context = {
+            "guest": {
+                "name": guest.name,
+                "country": guest.country,
+                "language": guest.language,
+                "travel_type": guest.travel_type,
+                "purpose": guest.purpose,
+                "children": guest.children,
+                "ltv_score": float(guest.ltv_score),
+                "communication_preference": guest.communication_preference,
+                "lifetime_spend": float(guest.lifetime_spend or 0),
+                "stay_count": guest.stay_count,
+            },
+            "reservation": {
+                "check_in": reservation.check_in.isoformat(),
+                "check_out": reservation.check_out.isoformat(),
+                "room_type": reservation.room_type,
+                "status": reservation.status.value
+                if hasattr(reservation.status, "value")
+                else reservation.status,
+                "total_amount": float(reservation.total_amount or 0),
+                "source": reservation.source,
+            },
+            "property": {
+                "name": property_.name,
+                "city": property_.city,
+                "country": property_.country,
+                "brand_voice": property_.brand_voice,
+            },
+            "extra": context or {},
+            "offer_catalog": [
+                "Airport Transfer",
+                "Airport Pickup",
+                "Late Checkout",
+                "Spa Package",
+                "Breakfast Upgrade",
+                "Baby Cot",
+                "Suite Upgrade",
+                "Champagne Welcome",
+            ],
+        }
+        try:
+            raw = ai_gateway.decide(gateway_context)
+            model_name = ai_gateway.model if ai_gateway.configured else self.provider.name
+        except Exception:  # noqa: BLE001
+            raw = self.provider.decide(guest, reservation, property_, context)
+            model_name = self.provider.name
+
         decision = AIDecision(
             tenant_id=guest.tenant_id,
             reservation_id=reservation.id,
@@ -210,7 +259,7 @@ class AIOrchestrator:
             confidence=float(raw.get("confidence") or 0),
             reasoning=raw.get("reasoning"),
             raw_output=json.dumps(raw, default=str),
-            model_name=self.provider.name,
+            model_name=model_name,
             validated=False,
             executed=False,
         )

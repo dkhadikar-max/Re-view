@@ -164,6 +164,9 @@ class OfferOut(ORMModel):
     confidence: float
     created_at: datetime
     accepted_at: Optional[datetime] = None
+    payment_link_url: Optional[str] = None
+    payment_session_id: Optional[str] = None
+    paid_at: Optional[datetime] = None
     guest_name: Optional[str] = None
 
 
