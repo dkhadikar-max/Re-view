@@ -223,9 +223,14 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
         likely_next = month_name[((last_res.check_in.month + 5 - 1) % 12) + 1]
 
     wine = None
-    if (guest.travel_type or "").lower() == "luxury":
+    if guest.notes:
+        for line in guest.notes.splitlines():
+            if line.lower().startswith("favorite wine:"):
+                wine = line.split(":", 1)[1].strip() or None
+                break
+    if not wine and (guest.travel_type or "").lower() == "luxury":
         wine = "Sauvignon Blanc"
-    elif (guest.country or "").lower() in {"france", "fr"}:
+    elif not wine and (guest.country or "").lower() in {"france", "fr"}:
         wine = "Champagne"
 
     avg_rating = None

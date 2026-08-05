@@ -1,10 +1,17 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui";
 import { ARGUS, REVISIT } from "@/lib/brand";
+
+function nextPath(): string {
+  if (typeof window === "undefined") return "/";
+  const n = new URLSearchParams(window.location.search).get("next");
+  return n && n.startsWith("/") ? n : "/";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,7 +26,7 @@ export default function LoginPage() {
     setError("");
     try {
       await api.login(email, password);
-      router.replace("/");
+      router.replace(nextPath());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -71,6 +78,15 @@ export default function LoginPage() {
         <p className="mt-4 text-xs text-ink-400">
           Demo: manager@azurecoast.demo / ChangeMe123!
         </p>
+        <p className="mt-3 text-center text-sm text-ink-600">
+          Showing a client?{" "}
+          <Link
+            href="/onboard"
+            className="font-medium text-sea-700 underline-offset-2 hover:underline"
+          >
+            Onboard them as a guest →
+          </Link>
+        </p>
         <p className="mt-3 text-center text-[11px] text-ink-400">
           A product of{" "}
           <a
@@ -79,10 +95,8 @@ export default function LoginPage() {
             rel="noreferrer"
             className="text-sea-700 underline-offset-2 hover:underline"
           >
-            {ARGUS.productLine}
+            {ARGUS.name}
           </a>
-          {" · "}
-          <span className="text-ink-500">{REVISIT.siteUrl.replace(/^https?:\/\//, "")}</span>
         </p>
       </form>
     </div>

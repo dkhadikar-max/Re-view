@@ -12,6 +12,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const isPublic =
     pathname === "/login" ||
+    pathname === "/onboard" ||
     (pathname.startsWith("/celebrate/") && pathname !== "/celebrate");
 
   useEffect(() => {

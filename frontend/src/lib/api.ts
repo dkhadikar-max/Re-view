@@ -432,6 +432,37 @@ export const api = {
   guest: (id: string) => request<Guest>(`/api/guests/${id}`),
   guestOpportunities: () =>
     request<GuestOpportunity[]>("/api/guests/opportunities"),
+  demoOnboard: (payload: {
+    name: string;
+    email?: string;
+    phone?: string;
+    country?: string;
+    language?: string;
+    travel_type?: string;
+    purpose?: string;
+    preferred_room?: string;
+    dietary_preferences?: string;
+    birthday?: string;
+    anniversary?: string;
+    children?: number;
+    pets?: boolean;
+    communication_preference?: string;
+    favorite_wine?: string;
+    remembers?: string[];
+    company_or_hotel?: string;
+    open_dashboard?: boolean;
+  }) =>
+    request<{
+      guest: Guest;
+      dashboard_path: string;
+      message: string;
+      access_token?: string;
+      property_name: string;
+    }>("/api/demo/onboard", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      auth: false,
+    }),
   reservations: () => request<Reservation[]>("/api/reservations"),
   messages: () => request<Message[]>("/api/messages"),
   reviews: () => request<Review[]>("/api/reviews"),
