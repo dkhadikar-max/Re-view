@@ -4,18 +4,21 @@
 
 Guest Revenue Agent is an AI intelligence layer for hotels, resorts, and vacation rentals. It sits above your existing PMS/CRM stack and autonomously manages the post-booking guest journey — messaging, reviews, upsells, and lifetime value — without replacing your current systems.
 
-## Phase 1 MVP
+## Phase 1 (hardened)
 
-- PMS sync simulation (Cloudbeds) + CSV import
+- JWT auth + RBAC (viewer/staff/manager/admin)
+- Tenant isolation on every query/mutation
+- PMS sync simulation (Cloudbeds) + validated CSV import
 - Guest Memory profiles (LTV, preferences, satisfaction)
-- Event-driven AI Decision Engine
-- Multilingual messaging (WhatsApp / Email / SMS)
+- Event outbox + workflow runner
+- AI decision provider interface with JSON schema validation
+- Multilingual messaging with delivery worker
 - Automated review requests + AI draft responses
 - Negative review escalation
-- Upsell offers
-- Approval workflow (AI never executes unchecked)
+- Approval workflow (AI cannot bypass gates)
+- Audit logging + structured request logs
 - Operations & revenue dashboard
-- Review intelligence themes
+- Pytest suite + GitHub Actions CI
 
 ## Stack
 
@@ -23,9 +26,10 @@ Guest Revenue Agent is an AI intelligence layer for hotels, resorts, and vacatio
 |-------|------|
 | Frontend | Next.js, TypeScript, Tailwind CSS |
 | Backend | FastAPI, Python 3.12 |
-| Database | SQLite (MVP) / PostgreSQL-ready |
-| AI | Heuristic orchestrator (swap in GPT via `OPENAI_API_KEY`) |
-| Events | In-process event bus (Redis Streams later) |
+| Auth | JWT (HS256) + bcrypt |
+| Database | SQLite (local) / PostgreSQL-ready + Alembic |
+| AI | Heuristic provider (default) or OpenAI-mode adapter |
+| Events | Transactional outbox (Redis Streams later) |
 
 ## Quick start
 
@@ -34,11 +38,15 @@ Guest Revenue Agent is an AI intelligence layer for hotels, resorts, and vacatio
 ```bash
 cd backend
 pip install -r requirements.txt
+cp ../.env.example .env   # optional
 uvicorn app.main:app --reload --port 8000
 ```
 
-API docs: http://127.0.0.1:8000/docs  
-Health: http://127.0.0.1:8000/health
+- API docs: http://127.0.0.1:8000/docs
+- Health: http://127.0.0.1:8000/health
+- Ready: http://127.0.0.1:8000/ready
+
+Demo login: `manager@azurecoast.demo` / `ChangeMe123!`
 
 ### Frontend
 
@@ -48,76 +56,75 @@ npm install
 npm run dev
 ```
 
-Dashboard: http://localhost:3000
+Dashboard: http://localhost:3000/login
 
-### Docker
+### Docker (dev)
 
 ```bash
 docker compose up --build
 ```
 
-## Demo property
+Browser traffic uses same-origin `/api` rewrites to the backend service (`INTERNAL_API_URL`).
 
-Seeded as **Azure Coast Resort** (Nice, France) with guests, reservations, messages, reviews, offers, approvals, and workflows.
+### Tests
 
-Useful demo actions:
+```bash
+cd backend && pytest -q
+cd frontend && npm run typecheck && npm run build
+```
 
-1. **Operations** — approve pending messages
-2. **Reservations** — create a reservation (triggers AI) or run **AI decide**
-3. **Settings** — **Sync Cloudbeds** to import new reservations
-4. **Reviews** — publish AI draft responses for negative reviews
-5. **Intelligence** — theme extraction from reviews
+### Migrations
+
+```bash
+cd backend
+alembic upgrade head
+# or generate: alembic revision --autogenerate -m "change"
+```
+
+## Security model
+
+- All `/api/*` routes (except login) require `Authorization: Bearer <jwt>`
+- Tenant ID is taken from the token — never from the client body
+- Mutations require `staff` or `manager` role
+- Approvals set `reviewed_by` from the authenticated user
+- Messages in `pending_approval` cannot be sent until approved (then queued for delivery)
+- CORS is an explicit allowlist (no `*`)
+- Rate limiting, request IDs, and security headers are enabled
 
 ## Architecture
 
 ```
-Booking channels → PMS → Guest Revenue Agent
-  AI Brain · Guest Memory · Decision Engine
-  Workflow Engine · Review Engine · Revenue Engine
-         ↓
-WhatsApp · Email · SMS · Google · Stripe · Dashboard
+Booking channels → PMS connector → Event outbox
+  → AI Decision (validated JSON) → Approval / Queue
+  → Messaging worker → Audit log → Dashboard
 ```
 
-Core principle: everything is event-driven.
-
-```
-Reservation Created → AI Thinks → Decides → Acts → Learns
-```
-
-AI output is always validated JSON. Actions requiring low confidence or commercial impact go through the **Approval Queue**.
-
-## API highlights
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/api/dashboard/stats` | Ops + revenue KPIs |
-| GET/POST | `/api/reservations` | List / create (emits events) |
-| POST | `/api/reservations/{id}/decide` | Run AI decision engine |
-| GET/POST | `/api/approvals/{id}` | Approve or reject AI actions |
-| POST | `/api/connectors/sync` | Simulate PMS pull |
-| POST | `/api/connectors/import-csv` | CSV reservation import |
-| GET | `/api/intelligence` | Review theme report |
+AI never executes unchecked commercial or low-confidence actions.
 
 ## Project layout
 
 ```
 backend/
   app/
-    api/routes.py          # REST API
-    models/entities.py     # Core tables
-    services/
-      ai_orchestrator.py   # Decision + messaging + review AI
-      event_bus.py         # Event bus
-    db/seed.py             # Demo data
+    api/routes.py
+    core/          # config, security, middleware, logging
+    models/
+    services/      # AI, events, workflows, messaging, connectors, audit
+    db/            # session, seed
+  alembic/
+  tests/
 frontend/
-  src/app/                 # Dashboard pages
+  src/app/         # dashboard pages + /login
+  src/lib/api.ts   # authenticated API client
 ```
 
-## Roadmap
+## Honest capability notes
 
-- **Phase 2** — deeper guest memory, offer engine, revenue analytics, segmentation
-- **Phase 3** — LTV prediction, multi-property, AI concierge, CRM integrations
-
-## Positioning
-
-Most competitors optimize reviews. GRA optimizes **guest lifetime value**.
+| Capability | Status |
+|------------|--------|
+| Auth / tenancy / approvals / audit | Implemented |
+| Event outbox + workers | Implemented (in-process tick) |
+| Workflow runner | Implemented (validated step machine) |
+| AI provider | Heuristic default; OpenAI adapter stub when key set |
+| Cloudbeds / WhatsApp / Email | Simulated adapters with sealed config storage |
+| Redis / Kafka | Not yet — swap event bus later |

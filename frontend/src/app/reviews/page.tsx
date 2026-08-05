@@ -41,7 +41,17 @@ export default function ReviewsPage() {
           </Panel>
         ) : (
           reviews.map((r, i) => {
-            const themes: string[] = r.themes ? JSON.parse(r.themes) : [];
+            const themes: string[] = Array.isArray(r.themes)
+              ? r.themes
+              : typeof r.themes === "string"
+                ? (() => {
+                    try {
+                      return JSON.parse(r.themes);
+                    } catch {
+                      return [];
+                    }
+                  })()
+                : [];
             return (
               <article
                 key={r.id}

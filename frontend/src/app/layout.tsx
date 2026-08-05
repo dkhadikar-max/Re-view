@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Outfit } from "next/font/google";
-import { Sidebar } from "@/components/Sidebar";
+import { AuthShell } from "@/components/AuthShell";
 import "./globals.css";
 
 const display = Fraunces({
@@ -29,12 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${display.variable} ${sans.variable} font-sans antialiased`}>
-        <div className="min-h-screen bg-hero-wash bg-grain">
-          <Sidebar />
-          <main className="ml-60 min-h-screen px-6 py-8 md:px-10">
-            {children}
-          </main>
-        </div>
+        <AuthShell>{children}</AuthShell>
       </body>
     </html>
   );

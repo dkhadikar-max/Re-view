@@ -7,12 +7,15 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -82,14 +85,45 @@ class OfferStatus(str, enum.Enum):
     expired = "expired"
 
 
+class EventStatus(str, enum.Enum):
+    pending = "pending"
+    processing = "processing"
+    processed = "processed"
+    failed = "failed"
+
+
+class WorkflowRunStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    waiting = "waiting"
+    completed = "completed"
+    failed = "failed"
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    plan: Mapped[str] = mapped_column(String(64), default="starter")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "email", name="uq_tenant_email"),
+        CheckConstraint("role IN ('viewer','staff','manager','admin')", name="ck_user_role"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    email: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(64), default="manager")
+    password_hash: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -97,7 +131,7 @@ class Property(Base):
     __tablename__ = "properties"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(64), default="hotel")
     city: Mapped[str] = mapped_column(String(128))
@@ -114,9 +148,18 @@ class Property(Base):
 
 class Guest(Base):
     __tablename__ = "guests"
+    __table_args__ = (
+        CheckConstraint("ltv_score >= 0 AND ltv_score <= 100", name="ck_guest_ltv"),
+        CheckConstraint(
+            "satisfaction_score >= 0 AND satisfaction_score <= 100", name="ck_guest_sat"
+        ),
+        CheckConstraint("lifetime_spend >= 0", name="ck_guest_spend"),
+        CheckConstraint("children >= 0", name="ck_guest_children"),
+        Index("ix_guests_tenant_email", "tenant_id", "email"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -124,8 +167,8 @@ class Guest(Base):
     country: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     language: Mapped[str] = mapped_column(String(32), default="en")
     stay_count: Mapped[int] = mapped_column(Integer, default=0)
-    lifetime_spend: Mapped[float] = mapped_column(Float, default=0.0)
-    average_booking: Mapped[float] = mapped_column(Float, default=0.0)
+    lifetime_spend: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    average_booking: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     travel_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     purpose: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     preferred_room: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -154,9 +197,18 @@ class Guest(Base):
 
 class Reservation(Base):
     __tablename__ = "reservations"
+    __table_args__ = (
+        CheckConstraint("total_amount >= 0", name="ck_res_amount"),
+        CheckConstraint("adults >= 1", name="ck_res_adults"),
+        CheckConstraint("children >= 0", name="ck_res_children"),
+        CheckConstraint("check_out > check_in", name="ck_res_dates"),
+        UniqueConstraint("tenant_id", "source", "external_id", name="uq_res_external"),
+        Index("ix_res_tenant_checkin", "tenant_id", "check_in"),
+        Index("ix_res_tenant_status", "tenant_id", "status"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"), index=True)
     guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"), index=True)
     external_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -169,9 +221,10 @@ class Reservation(Base):
     check_out: Mapped[date] = mapped_column(Date)
     adults: Mapped[int] = mapped_column(Integer, default=2)
     children: Mapped[int] = mapped_column(Integer, default=0)
-    total_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    total_amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     currency: Mapped[str] = mapped_column(String(8), default="EUR")
     special_requests: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -186,9 +239,10 @@ class Reservation(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (Index("ix_msg_tenant_status", "tenant_id", "status"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"), index=True)
     reservation_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("reservations.id"), nullable=True, index=True
@@ -203,6 +257,7 @@ class Message(Base):
     )
     message_type: Mapped[str] = mapped_column(String(64), default="general")
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    provider_message_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -213,9 +268,13 @@ class Message(Base):
 
 class Review(Base):
     __tablename__ = "reviews"
+    __table_args__ = (
+        CheckConstraint("rating >= 1 AND rating <= 5", name="ck_review_rating"),
+        Index("ix_review_tenant_rating", "tenant_id", "rating"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"), index=True)
     guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"), index=True)
     reservation_id: Mapped[Optional[str]] = mapped_column(
@@ -240,14 +299,15 @@ class Review(Base):
 
 class Offer(Base):
     __tablename__ = "offers"
+    __table_args__ = (CheckConstraint("price >= 0", name="ck_offer_price"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     reservation_id: Mapped[str] = mapped_column(ForeignKey("reservations.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     category: Mapped[str] = mapped_column(String(64), default="upsell")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    price: Mapped[float] = mapped_column(Float, default=0.0)
+    price: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     currency: Mapped[str] = mapped_column(String(8), default="EUR")
     status: Mapped[OfferStatus] = mapped_column(Enum(OfferStatus), default=OfferStatus.offered)
     confidence: Mapped[float] = mapped_column(Float, default=0.8)
@@ -261,21 +321,22 @@ class Campaign(Base):
     __tablename__ = "campaigns"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(64), default="cross_sell")
     status: Mapped[str] = mapped_column(String(32), default="active")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     conversions: Mapped[int] = mapped_column(Integer, default=0)
-    revenue: Mapped[float] = mapped_column(Float, default=0.0)
+    revenue: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (Index("ix_task_tenant_status", "tenant_id", "status"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.open)
@@ -293,34 +354,62 @@ class Workflow(Base):
     __tablename__ = "workflows"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
     trigger_event: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(32), default="active")
     definition: Mapped[str] = mapped_column(Text, default="{}")
+    version: Mapped[int] = mapped_column(Integer, default=1)
     runs: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class Event(Base):
-    __tablename__ = "events"
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    workflow_id: Mapped[str] = mapped_column(ForeignKey("workflows.id"), index=True)
+    trigger_event_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    status: Mapped[WorkflowRunStatus] = mapped_column(
+        Enum(WorkflowRunStatus), default=WorkflowRunStatus.pending
+    )
+    current_step: Mapped[int] = mapped_column(Integer, default=0)
+    context: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class Event(Base):
+    __tablename__ = "events"
+    __table_args__ = (Index("ix_event_tenant_status", "tenant_id", "status"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     event_type: Mapped[str] = mapped_column(String(128), index=True)
     payload: Mapped[str] = mapped_column(Text, default="{}")
     source: Mapped[str] = mapped_column(String(64), default="system")
+    status: Mapped[EventStatus] = mapped_column(Enum(EventStatus), default=EventStatus.pending)
     processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class AIDecision(Base):
     __tablename__ = "ai_decisions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
-    reservation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    guest_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    reservation_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("reservations.id"), nullable=True
+    )
+    guest_id: Mapped[Optional[str]] = mapped_column(ForeignKey("guests.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(128))
     channel: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     language: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
@@ -329,16 +418,19 @@ class AIDecision(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_output: Mapped[str] = mapped_column(Text, default="{}")
-    validated: Mapped[bool] = mapped_column(Boolean, default=True)
+    model_name: Mapped[str] = mapped_column(String(64), default="heuristic-v1")
+    validated: Mapped[bool] = mapped_column(Boolean, default=False)
+    validation_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     executed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_tenant_created", "tenant_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     actor: Mapped[str] = mapped_column(String(255), default="system")
     action: Mapped[str] = mapped_column(String(128))
     entity_type: Mapped[str] = mapped_column(String(64))
@@ -352,19 +444,22 @@ class Connector(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "provider", name="uq_tenant_provider"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     provider: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), default="connected")
-    config: Mapped[str] = mapped_column(Text, default="{}")
+    config_encrypted: Mapped[str] = mapped_column(Text, default="")
+    sync_cursor: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Approval(Base):
     __tablename__ = "approvals"
+    __table_args__ = (Index("ix_approval_tenant_status", "tenant_id", "status"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     approval_type: Mapped[str] = mapped_column(String(64))
     title: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text)
@@ -375,6 +470,7 @@ class Approval(Base):
     related_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     reviewed_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reviewed_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -383,7 +479,7 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
     title: Mapped[str] = mapped_column(String(255))
     body: Mapped[str] = mapped_column(Text)
     level: Mapped[str] = mapped_column(String(32), default="info")

@@ -1,16 +1,35 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# --- Guests ---
+class LoginRequest(BaseModel):
+    username: EmailStr
+    password: str = Field(min_length=8)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: "UserOut"
+
+
+class UserOut(ORMModel):
+    id: str
+    tenant_id: str
+    email: EmailStr
+    name: str
+    role: str
+
+
 class GuestOut(ORMModel):
     id: str
     property_id: str
@@ -38,7 +57,6 @@ class GuestOut(ORMModel):
     created_at: datetime
 
 
-# --- Reservations ---
 class ReservationOut(ORMModel):
     id: str
     property_id: str
@@ -59,26 +77,31 @@ class ReservationOut(ORMModel):
 
 
 class ReservationCreate(BaseModel):
-    guest_name: str
-    guest_email: Optional[str] = None
+    guest_name: str = Field(min_length=2, max_length=255)
+    guest_email: Optional[EmailStr] = None
     guest_phone: Optional[str] = None
     country: Optional[str] = "Germany"
-    language: str = "de"
-    travel_type: Optional[str] = "leisure"
+    language: str = Field(default="de", min_length=2, max_length=8)
+    travel_type: Literal["leisure", "business", "family", "luxury"] = "leisure"
     purpose: Optional[str] = None
-    children: int = 0
-    source: str = "direct"
-    room_type: str = "Deluxe Double"
+    children: int = Field(default=0, ge=0, le=10)
+    source: str = Field(default="direct", max_length=64)
+    room_type: str = Field(default="Deluxe Double", max_length=128)
     check_in: date
     check_out: date
-    adults: int = 2
-    total_amount: float = 280.0
-    currency: str = "EUR"
+    adults: int = Field(default=2, ge=1, le=10)
+    total_amount: float = Field(default=280.0, ge=0)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
     special_requests: Optional[str] = None
-    communication_preference: str = "whatsapp"
+    communication_preference: Literal["whatsapp", "email", "sms"] = "whatsapp"
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "ReservationCreate":
+        if self.check_out <= self.check_in:
+            raise ValueError("check_out must be after check_in")
+        return self
 
 
-# --- Messages ---
 class MessageOut(ORMModel):
     id: str
     guest_id: str
@@ -97,7 +120,6 @@ class MessageOut(ORMModel):
     guest_name: Optional[str] = None
 
 
-# --- Reviews ---
 class ReviewOut(ORMModel):
     id: str
     property_id: str
@@ -108,7 +130,7 @@ class ReviewOut(ORMModel):
     title: Optional[str] = None
     body: str
     sentiment: str
-    themes: Optional[str] = None
+    themes: list[str] = []
     ai_draft_response: Optional[str] = None
     published_response: Optional[str] = None
     responded: bool
@@ -119,13 +141,12 @@ class ReviewOut(ORMModel):
 class ReviewCreate(BaseModel):
     guest_id: str
     reservation_id: Optional[str] = None
-    platform: str = "google"
+    platform: str = Field(default="google", max_length=64)
     rating: int = Field(ge=1, le=5)
-    title: Optional[str] = None
-    body: str
+    title: Optional[str] = Field(default=None, max_length=255)
+    body: str = Field(min_length=5, max_length=5000)
 
 
-# --- Offers ---
 class OfferOut(ORMModel):
     id: str
     reservation_id: str
@@ -141,7 +162,6 @@ class OfferOut(ORMModel):
     guest_name: Optional[str] = None
 
 
-# --- Approvals ---
 class ApprovalOut(ORMModel):
     id: str
     approval_type: str
@@ -157,11 +177,9 @@ class ApprovalOut(ORMModel):
 
 
 class ApprovalAction(BaseModel):
-    action: str  # approve | reject
-    reviewed_by: str = "Manager"
+    action: Literal["approve", "reject"]
 
 
-# --- Tasks ---
 class TaskOut(ORMModel):
     id: str
     title: str
@@ -175,13 +193,13 @@ class TaskOut(ORMModel):
     due_at: Optional[datetime] = None
 
 
-# --- Events / AI ---
 class EventOut(ORMModel):
     id: str
     event_type: str
     payload: str
     source: str
     processed: bool
+    status: Optional[str] = None
     created_at: datetime
 
 
@@ -197,7 +215,9 @@ class AIDecisionOut(ORMModel):
     confidence: float
     reasoning: Optional[str] = None
     validated: bool
+    validation_error: Optional[str] = None
     executed: bool
+    model_name: Optional[str] = None
     created_at: datetime
 
 
@@ -218,6 +238,7 @@ class ConnectorOut(ORMModel):
     provider: str
     status: str
     last_sync_at: Optional[datetime] = None
+    sync_cursor: Optional[str] = None
     created_at: datetime
 
 
@@ -258,6 +279,11 @@ class DashboardStats(BaseModel):
     occupancy_pct: float
     active_reservations: int
     total_guests: int
+    metrics_note: str = (
+        "revenue_today = in-house reservation room revenue for stays covering today; "
+        "response_time_hours and ai_saved_hours are operational estimates derived from "
+        "sent messages and executed AI decisions."
+    )
 
 
 class IntelligenceTheme(BaseModel):
@@ -282,3 +308,30 @@ class SyncResult(BaseModel):
 class DecideResult(BaseModel):
     decision: AIDecisionOut
     execution: dict[str, Any]
+
+
+class WorkerResult(BaseModel):
+    events_processed: int
+    messages_delivered: int
+    workflows_advanced: int
+
+
+class AuditOut(ORMModel):
+    id: str
+    actor: str
+    action: str
+    entity_type: str
+    entity_id: str
+    details: Optional[str] = None
+    created_at: datetime
+
+
+class HealthOut(BaseModel):
+    status: str
+    service: str
+    version: str
+    database: str
+    environment: str
+
+
+TokenResponse.model_rebuild()

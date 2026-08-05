@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import hash_password
 from app.models.entities import (
     Approval,
     ApprovalStatus,
@@ -26,6 +27,7 @@ from app.models.entities import (
     Task,
     TaskPriority,
     TaskStatus,
+    Tenant,
     User,
     Workflow,
 )
@@ -34,50 +36,168 @@ from app.services.ai_orchestrator import (
     execute_decision,
     handle_negative_review,
 )
+from app.services.connectors import store_connector_secret
 from app.services.event_bus import event_bus
+from app.services.workflow_engine import register_workflow_handlers
+
+DEMO_TENANT = "demo-hotel"
+DEMO_EMAIL = "manager@azurecoast.demo"
+DEMO_PASSWORD = "ChangeMe123!"
 
 
 def _on_reservation_created(db: Session, event, payload: dict) -> None:
-    reservation = db.get(Reservation, payload["reservation_id"])
-    guest = db.get(Guest, payload["guest_id"])
-    property_ = db.get(Property, payload["property_id"])
+    reservation = (
+        db.query(Reservation)
+        .filter(
+            Reservation.id == payload["reservation_id"],
+            Reservation.tenant_id == event.tenant_id,
+        )
+        .first()
+    )
+    guest = (
+        db.query(Guest)
+        .filter(Guest.id == payload["guest_id"], Guest.tenant_id == event.tenant_id)
+        .first()
+    )
+    property_ = (
+        db.query(Property)
+        .filter(Property.id == payload["property_id"], Property.tenant_id == event.tenant_id)
+        .first()
+    )
     if not (reservation and guest and property_):
         return
     decision = ai_orchestrator.decide(db, guest, reservation, property_)
     execute_decision(db, decision, guest, reservation, property_)
-    wf = (
-        db.query(Workflow)
+
+
+def _on_guest_checked_out(db: Session, event, payload: dict) -> None:
+    reservation = (
+        db.query(Reservation)
         .filter(
-            Workflow.tenant_id == guest.tenant_id,
-            Workflow.trigger_event == "ReservationCreated",
+            Reservation.id == payload["reservation_id"],
+            Reservation.tenant_id == event.tenant_id,
         )
         .first()
     )
-    if wf:
-        wf.runs += 1
+    guest = (
+        db.query(Guest)
+        .filter(Guest.id == payload["guest_id"], Guest.tenant_id == event.tenant_id)
+        .first()
+    )
+    if not reservation or not guest:
+        return
+    property_ = (
+        db.query(Property)
+        .filter(Property.id == reservation.property_id, Property.tenant_id == event.tenant_id)
+        .first()
+    )
+    if not property_:
+        return
+    decision = ai_orchestrator.decide(
+        db, guest, reservation, property_, context={"force_action": "ReviewRequest"}
+    )
+    # Force review request path via validated decision override only if needed
+    if decision.validated and decision.action != "ReviewRequest":
+        # Create an explicit review-request decision
+        from app.models.entities import AIDecision
+
+        forced = AIDecision(
+            tenant_id=event.tenant_id,
+            reservation_id=reservation.id,
+            guest_id=guest.id,
+            action="ReviewRequest",
+            channel=guest.communication_preference
+            if guest.communication_preference in {"whatsapp", "email", "sms"}
+            else "email",
+            language=guest.language or "en",
+            timing="8 hours after checkout",
+            confidence=0.94,
+            reasoning="Checkout event triggered review request workflow.",
+            raw_output=json.dumps(
+                {
+                    "action": "ReviewRequest",
+                    "channel": guest.communication_preference
+                    if guest.communication_preference in {"whatsapp", "email", "sms"}
+                    else "email",
+                    "language": guest.language or "en",
+                    "timing": "8 hours after checkout",
+                    "offer": None,
+                    "confidence": 0.94,
+                    "reasoning": "Checkout event triggered review request workflow.",
+                    "execute_at": (datetime.utcnow() + timedelta(hours=8)).isoformat(),
+                }
+            ),
+            model_name="workflow-v1",
+            validated=True,
+        )
+        db.add(forced)
+        db.flush()
+        execute_decision(db, forced, guest, reservation, property_)
+    else:
+        execute_decision(db, decision, guest, reservation, property_)
+
+
+def _on_negative_review(db: Session, event, payload: dict) -> None:
+    review = (
+        db.query(Review)
+        .filter(Review.id == payload["review_id"], Review.tenant_id == event.tenant_id)
+        .first()
+    )
+    if not review or review.ai_draft_response:
+        return
+    guest = (
+        db.query(Guest)
+        .filter(Guest.id == review.guest_id, Guest.tenant_id == event.tenant_id)
+        .first()
+    )
+    property_ = (
+        db.query(Property)
+        .filter(Property.id == review.property_id, Property.tenant_id == event.tenant_id)
+        .first()
+    )
+    if guest and property_:
+        handle_negative_review(db, review, guest, property_)
 
 
 def register_handlers() -> None:
+    event_bus.reset()
     event_bus.subscribe("ReservationCreated", _on_reservation_created)
+    event_bus.subscribe("GuestCheckedOut", _on_guest_checked_out)
+    event_bus.subscribe("NegativeReviewReceived", _on_negative_review)
+    register_workflow_handlers()
 
 
 def seed_database(db: Session) -> None:
-    if db.query(Property).first():
+    if db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
         return
 
-    tenant = settings.default_tenant_id
     today = date.today()
+    db.add(Tenant(id=DEMO_TENANT, name="Azure Coast Hospitality", plan="growth"))
+    db.flush()
 
-    user = User(
-        tenant_id=tenant,
-        email="manager@azurecoast.demo",
-        name="Sofia Marino",
-        role="manager",
+    db.add(
+        User(
+            tenant_id=DEMO_TENANT,
+            email=DEMO_EMAIL,
+            name="Sofia Marino",
+            role="manager",
+            password_hash=hash_password(DEMO_PASSWORD),
+            is_active=True,
+        )
     )
-    db.add(user)
+    db.add(
+        User(
+            tenant_id=DEMO_TENANT,
+            email="staff@azurecoast.demo",
+            name="Alex Staff",
+            role="staff",
+            password_hash=hash_password(DEMO_PASSWORD),
+            is_active=True,
+        )
+    )
 
     prop = Property(
-        tenant_id=tenant,
+        tenant_id=DEMO_TENANT,
         name="Azure Coast Resort",
         type="resort",
         city="Nice",
@@ -93,36 +213,37 @@ def seed_database(db: Session) -> None:
     for provider in ["Cloudbeds", "Google Sheets", "WhatsApp", "Resend", "Stripe"]:
         db.add(
             Connector(
-                tenant_id=tenant,
+                tenant_id=DEMO_TENANT,
                 provider=provider,
                 status="connected" if provider != "Stripe" else "pending",
+                config_encrypted=store_connector_secret(f"{provider}-demo-token"),
                 last_sync_at=datetime.utcnow() - timedelta(hours=2)
                 if provider == "Cloudbeds"
                 else None,
+                sync_cursor="0" if provider == "Cloudbeds" else None,
             )
         )
 
-    workflows = [
-        ("Pre-arrival Welcome", "ReservationCreated"),
-        ("Checkout Review Request", "GuestCheckedOut"),
-        ("Negative Review Escalation", "NegativeReviewReceived"),
-        ("Cross-sell Reminder", "GuestCheckedOut"),
-    ]
-    for name, trigger in workflows:
+    for name, trigger, steps in [
+        ("Pre-arrival Welcome", "ReservationCreated", ["wait", "ai", "send", "complete"]),
+        ("Checkout Review Request", "GuestCheckedOut", ["wait", "ai", "send", "complete"]),
+        ("Negative Review Escalation", "NegativeReviewReceived", ["notify", "ai", "complete"]),
+        ("Cross-sell Reminder", "GuestCheckedOut", ["wait", "notify", "complete"]),
+    ]:
         db.add(
             Workflow(
-                tenant_id=tenant,
+                tenant_id=DEMO_TENANT,
                 name=name,
                 trigger_event=trigger,
                 status="active",
-                definition=json.dumps({"trigger": trigger, "steps": ["wait", "ai", "send"]}),
-                runs=12 if trigger == "ReservationCreated" else 5,
+                definition=json.dumps({"trigger": trigger, "steps": steps}),
+                runs=0,
             )
         )
 
     db.add(
         Campaign(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             name="45-Day Return Offer",
             type="cross_sell",
             status="active",
@@ -230,7 +351,7 @@ def seed_database(db: Session) -> None:
     guests: list[Guest] = []
     for g in guests_data:
         guest = Guest(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             property_id=prop.id,
             name=g["name"],
             email=g["email"],
@@ -256,23 +377,23 @@ def seed_database(db: Session) -> None:
     db.flush()
 
     reservations_spec = [
-        (0, today, today + timedelta(days=3), "confirmed", "Deluxe Double", "Booking.com", 420),
-        (1, today - timedelta(days=1), today + timedelta(days=2), "checked_in", "Junior Suite", "direct", 890),
-        (2, today, today + timedelta(days=5), "confirmed", "Family Suite", "Airbnb", 780),
-        (3, today - timedelta(days=4), today, "checked_out", "Standard Twin", "Expedia", 310),
-        (4, today + timedelta(days=2), today + timedelta(days=5), "confirmed", "Business King", "direct", 540),
-        (5, today - timedelta(days=2), today + timedelta(days=1), "checked_in", "Honeymoon Suite", "Website", 1200),
-        (0, today - timedelta(days=40), today - timedelta(days=37), "checked_out", "Deluxe Double", "Booking.com", 380),
-        (1, today + timedelta(days=14), today + timedelta(days=18), "confirmed", "Junior Suite", "direct", 1100),
+        (0, today, today + timedelta(days=3), "confirmed", "Deluxe Double", "Booking.com", 420, "BC-1001"),
+        (1, today - timedelta(days=1), today + timedelta(days=2), "checked_in", "Junior Suite", "direct", 890, "DR-1002"),
+        (2, today, today + timedelta(days=5), "confirmed", "Family Suite", "Airbnb", 780, "AB-1003"),
+        (3, today - timedelta(days=4), today, "checked_out", "Standard Twin", "Expedia", 310, "EX-1004"),
+        (4, today + timedelta(days=2), today + timedelta(days=5), "confirmed", "Business King", "direct", 540, "DR-1005"),
+        (5, today - timedelta(days=2), today + timedelta(days=1), "checked_in", "Honeymoon Suite", "Website", 1200, "WB-1006"),
+        (0, today - timedelta(days=40), today - timedelta(days=37), "checked_out", "Deluxe Double", "Booking.com", 380, "BC-1007"),
+        (1, today + timedelta(days=14), today + timedelta(days=18), "confirmed", "Junior Suite", "direct", 1100, "DR-1008"),
     ]
 
     reservations: list[Reservation] = []
-    for idx, cin, cout, status, room, source, amount in reservations_spec:
+    for idx, cin, cout, status, room, source, amount, external in reservations_spec:
         res = Reservation(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             property_id=prop.id,
             guest_id=guests[idx].id,
-            external_id=f"CB-{1000 + len(reservations)}",
+            external_id=external,
             source=source,
             status=ReservationStatus(status),
             room_type=room,
@@ -288,7 +409,6 @@ def seed_database(db: Session) -> None:
         reservations.append(res)
     db.flush()
 
-    # Messages
     msg_specs = [
         (0, 0, "welcome", "de", MessageStatus.sent, "whatsapp"),
         (0, 0, "upsell", "de", MessageStatus.pending_approval, "whatsapp"),
@@ -308,7 +428,7 @@ def seed_database(db: Session) -> None:
         )
         db.add(
             Message(
-                tenant_id=tenant,
+                tenant_id=DEMO_TENANT,
                 guest_id=guests[g_idx].id,
                 reservation_id=reservations[r_idx].id,
                 channel=MessageChannel(channel),
@@ -327,7 +447,6 @@ def seed_database(db: Session) -> None:
             )
         )
 
-    # Offers
     for r_idx, name, price, st in [
         (0, "Airport Transfer", 55.0, OfferStatus.offered),
         (1, "Spa Package", 95.0, OfferStatus.accepted),
@@ -335,68 +454,43 @@ def seed_database(db: Session) -> None:
         (5, "Champagne Welcome", 65.0, OfferStatus.offered),
         (1, "Late Checkout", 40.0, OfferStatus.accepted),
     ]:
-        offer = Offer(
-            tenant_id=tenant,
-            reservation_id=reservations[r_idx].id,
-            name=name,
-            category="upsell",
-            description=f"{name} for your stay",
-            price=price,
-            status=st,
-            confidence=0.9,
-            accepted_at=datetime.utcnow() - timedelta(hours=12)
-            if st == OfferStatus.accepted
-            else None,
+        db.add(
+            Offer(
+                tenant_id=DEMO_TENANT,
+                reservation_id=reservations[r_idx].id,
+                name=name,
+                category="upsell",
+                description=f"{name} for your stay",
+                price=price,
+                status=st,
+                confidence=0.9,
+                accepted_at=datetime.utcnow() - timedelta(hours=12)
+                if st == OfferStatus.accepted
+                else None,
+            )
         )
-        db.add(offer)
 
-    # Reviews
     reviews_data = [
-        (
-            3,
-            3,
-            2,
-            "Noisy room near the elevator",
-            "The location was great but our room was very noisy at night and the WiFi kept dropping. Staff were polite though.",
-            ReviewSentiment.negative,
-        ),
-        (
-            0,
-            6,
-            5,
-            "Perfect business stay",
-            "Excellent breakfast, fast check-in, and a quiet room. Will definitely return for my next trip to Nice.",
-            ReviewSentiment.positive,
-        ),
-        (
-            1,
-            None,
-            5,
-            "Anniversary magic",
-            "The spa and restaurant were outstanding. Clean rooms, beautiful pool, and the staff made our anniversary unforgettable.",
-            ReviewSentiment.positive,
-        ),
-        (
-            4,
-            None,
-            4,
-            "Solid stay",
-            "Good location and clean rooms. Parking was a bit tight but overall a pleasant stay.",
-            ReviewSentiment.positive,
-        ),
-        (
-            3,
-            None,
-            1,
-            "Disappointing checkout",
-            "Checkout was chaotic and nobody helped with our luggage. Very frustrated.",
-            ReviewSentiment.negative,
-        ),
+        (3, 3, 2, "Noisy room near the elevator",
+         "The location was great but our room was very noisy at night and the WiFi kept dropping. Staff were polite though.",
+         ReviewSentiment.negative),
+        (0, 6, 5, "Perfect business stay",
+         "Excellent breakfast, fast check-in, and a quiet room. Will definitely return for my next trip to Nice.",
+         ReviewSentiment.positive),
+        (1, None, 5, "Anniversary magic",
+         "The spa and restaurant were outstanding. Clean rooms, beautiful pool, and the staff made our anniversary unforgettable.",
+         ReviewSentiment.positive),
+        (4, None, 4, "Solid stay",
+         "Good location and clean rooms. Parking was a bit tight but overall a pleasant stay.",
+         ReviewSentiment.positive),
+        (3, None, 1, "Disappointing checkout",
+         "Checkout was chaotic and nobody helped with our luggage. Very frustrated.",
+         ReviewSentiment.negative),
     ]
 
     for g_idx, r_idx, rating, title, body, sentiment in reviews_data:
         review = Review(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             property_id=prop.id,
             guest_id=guests[g_idx].id,
             reservation_id=reservations[r_idx].id if r_idx is not None else None,
@@ -408,7 +502,7 @@ def seed_database(db: Session) -> None:
             themes=json.dumps(ai_orchestrator.analyze_review_themes(body)),
             ai_draft_response=ai_orchestrator.draft_review_response(
                 Review(
-                    tenant_id=tenant,
+                    tenant_id=DEMO_TENANT,
                     property_id=prop.id,
                     guest_id=guests[g_idx].id,
                     rating=rating,
@@ -426,17 +520,19 @@ def seed_database(db: Session) -> None:
         if rating <= 2:
             handle_negative_review(db, review, guests[g_idx], prop)
 
-    # Pending message approvals
     pending_msgs = (
         db.query(Message)
-        .filter(Message.status == MessageStatus.pending_approval)
+        .filter(
+            Message.tenant_id == DEMO_TENANT,
+            Message.status == MessageStatus.pending_approval,
+        )
         .all()
     )
     for msg in pending_msgs:
         guest = db.get(Guest, msg.guest_id)
         db.add(
             Approval(
-                tenant_id=tenant,
+                tenant_id=DEMO_TENANT,
                 approval_type="message",
                 title=f"Approve {msg.message_type} to {guest.name if guest else 'guest'}",
                 content=msg.body,
@@ -449,7 +545,7 @@ def seed_database(db: Session) -> None:
 
     db.add(
         Task(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             title="Confirm family suite baby cot setup",
             description="Rossi Family arriving today — ensure baby cot is prepared.",
             status=TaskStatus.open,
@@ -458,10 +554,9 @@ def seed_database(db: Session) -> None:
             due_at=datetime.utcnow() + timedelta(hours=4),
         )
     )
-
     db.add(
         Notification(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             title="1★ review received",
             body="Emily Chen left a critical review about checkout. Escalation task created.",
             level="critical",
@@ -469,7 +564,7 @@ def seed_database(db: Session) -> None:
     )
     db.add(
         Notification(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             title="Upsell accepted",
             body="Marie Dupont accepted Spa Package (+€95) and Late Checkout (+€40).",
             level="success",
@@ -477,18 +572,17 @@ def seed_database(db: Session) -> None:
     )
     db.add(
         Notification(
-            tenant_id=tenant,
+            tenant_id=DEMO_TENANT,
             title="Cloudbeds sync complete",
-            body="3 new reservations imported from Cloudbeds.",
+            body="Connector healthy. Use Sync to pull new reservations.",
             level="info",
         )
     )
 
-    # Emit events for a couple of upcoming reservations to show event trail
     for res in reservations[:3]:
-        event_bus.publish(
+        event_bus.publish_and_process(
             db,
-            tenant,
+            DEMO_TENANT,
             "ReservationCreated",
             {
                 "reservation_id": res.id,
@@ -496,6 +590,7 @@ def seed_database(db: Session) -> None:
                 "property_id": res.property_id,
             },
             source="seed",
+            idempotency_key=f"seed:ReservationCreated:{res.id}",
         )
 
     db.commit()

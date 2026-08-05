@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [syncMsg, setSyncMsg] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState("");
 
   async function load() {
     const [props, c, w] = await Promise.all([
@@ -25,15 +26,33 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    load().catch(console.error);
+    load().catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, []);
 
   async function sync() {
     setSyncing(true);
+    setError("");
     try {
       const res = await api.syncPms();
       setSyncMsg(res.message);
       await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function tick() {
+    setSyncing(true);
+    setError("");
+    try {
+      const res = await api.tickWorkers();
+      setSyncMsg(
+        `Workers: ${res.events_processed} events, ${res.messages_delivered} messages, ${res.workflows_advanced} workflows`
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Worker tick failed");
     } finally {
       setSyncing(false);
     }
@@ -66,13 +85,19 @@ export default function SettingsPage() {
         <Panel
           title="Connectors"
           action={
-            <Button variant="secondary" onClick={sync} disabled={syncing}>
-              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-              Sync Cloudbeds
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={tick} disabled={syncing}>
+                Run workers
+              </Button>
+              <Button variant="secondary" onClick={sync} disabled={syncing}>
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                Sync Cloudbeds
+              </Button>
+            </div>
           }
           className="[animation-delay:80ms]"
         >
+          {error && <p className="mb-3 text-sm text-coral-600">{error}</p>}
           {syncMsg && (
             <p className="mb-3 text-sm text-sea-700">{syncMsg}</p>
           )}

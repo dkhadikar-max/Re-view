@@ -13,11 +13,14 @@ from app.models.entities import (
     Reservation,
     Review,
     Task,
+    Tenant,
     User,
     Workflow,
+    WorkflowRun,
 )
 
 __all__ = [
+    "Tenant",
     "User",
     "Property",
     "Guest",
@@ -28,6 +31,7 @@ __all__ = [
     "Campaign",
     "Task",
     "Workflow",
+    "WorkflowRun",
     "Event",
     "AIDecision",
     "AuditLog",

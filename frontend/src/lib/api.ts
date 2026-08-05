@@ -1,20 +1,77 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_BASE =
+  typeof window === "undefined"
+    ? process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://127.0.0.1:8000"
+    : ""; // browser: same-origin /api via Next rewrite
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Request failed: ${res.status}`);
-  }
-  return res.json();
+type RequestOptions = RequestInit & { auth?: boolean };
+
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("gra_token");
 }
+
+export function setToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) localStorage.setItem("gra_token", token);
+  else localStorage.removeItem("gra_token");
+}
+
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
+  const headers = new Headers(init?.headers || {});
+  const useAuth = init?.auth !== false;
+  if (init?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  headers.set("Accept", "application/json");
+  if (useAuth) {
+    const token = getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/login")) {
+      setToken(null);
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
+    if (!res.ok) {
+      let detail = `Request failed: ${res.status}`;
+      try {
+        const body = await res.json();
+        detail =
+          typeof body.detail === "string"
+            ? body.detail
+            : JSON.stringify(body.detail || body);
+      } catch {
+        detail = await res.text();
+      }
+      throw new Error(detail || `Request failed: ${res.status}`);
+    }
+    if (res.status === 204) return undefined as T;
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export type User = {
+  id: string;
+  tenant_id: string;
+  email: string;
+  name: string;
+  role: string;
+};
 
 export type DashboardStats = {
   arrivals_today: number;
@@ -35,6 +92,7 @@ export type DashboardStats = {
   occupancy_pct: number;
   active_reservations: number;
   total_guests: number;
+  metrics_note?: string;
 };
 
 export type Guest = {
@@ -95,7 +153,7 @@ export type Review = {
   title?: string;
   body: string;
   sentiment: string;
-  themes?: string;
+  themes?: string[] | string;
   ai_draft_response?: string;
   published_response?: string;
   responded: boolean;
@@ -146,6 +204,7 @@ export type AIDecision = {
   offer?: string;
   confidence: number;
   reasoning?: string;
+  validated?: boolean;
   executed: boolean;
   created_at: string;
 };
@@ -155,6 +214,7 @@ export type EventItem = {
   event_type: string;
   source: string;
   processed: boolean;
+  status?: string;
   created_at: string;
 };
 
@@ -201,6 +261,25 @@ export type Property = {
 };
 
 export const api = {
+  login: async (email: string, password: string) => {
+    const body = new URLSearchParams();
+    body.set("username", email);
+    body.set("password", password);
+    const res = await request<{
+      access_token: string;
+      token_type: string;
+      expires_in: number;
+      user: User;
+    }>("/api/auth/login", {
+      method: "POST",
+      auth: false,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    setToken(res.access_token);
+    return res;
+  },
+  me: () => request<User>("/api/auth/me"),
   stats: () => request<DashboardStats>("/api/dashboard/stats"),
   properties: () => request<Property[]>("/api/properties"),
   guests: () => request<Guest[]>("/api/guests"),
@@ -222,7 +301,7 @@ export const api = {
   actApproval: (id: string, action: "approve" | "reject") =>
     request<Approval>(`/api/approvals/${id}`, {
       method: "POST",
-      body: JSON.stringify({ action, reviewed_by: "Sofia Marino" }),
+      body: JSON.stringify({ action }),
     }),
   syncPms: () =>
     request<{ imported: number; events_emitted: number; message: string }>(
@@ -244,4 +323,10 @@ export const api = {
     request(`/api/reservations/${id}/checkout`, { method: "POST" }),
   publishReviewResponse: (id: string) =>
     request(`/api/reviews/${id}/publish-response`, { method: "POST" }),
+  tickWorkers: () =>
+    request<{
+      events_processed: number;
+      messages_delivered: number;
+      workflows_advanced: number;
+    }>("/api/workers/tick", { method: "POST" }),
 };
