@@ -31,6 +31,13 @@ export const REVISIT = {
   title: "Revisit · Argus OS",
   /** Footer / attribution */
   productOf: `A product of ${ARGUS.productLine}`,
+  /** Login / brand vision — not the Celebrate loop */
+  vision: [
+    "Every guest known before they arrive",
+    "Every touchpoint guided by memory",
+    "Every commercial action human-approved",
+    "Lifetime that compounds stay after stay",
+  ],
   celebrateLoop: [
     "Guest leaves honest review",
     "Unlocks Birthday Reward",
