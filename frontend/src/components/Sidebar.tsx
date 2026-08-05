@@ -11,14 +11,12 @@ import {
   CheckSquare,
   Sparkles,
   Settings,
-  Activity,
   TrendingUp,
   ListTodo,
   LogOut,
   Menu,
   X,
   Gift,
-  Plug,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -37,8 +35,6 @@ const nav = [
   { href: "/revenue", label: "Revenue", icon: TrendingUp },
   { href: "/intelligence", label: "Intelligence", icon: Sparkles },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
-  { href: "/activity", label: "Event Stream", icon: Activity },
-  { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
