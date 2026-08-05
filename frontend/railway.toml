@@ -1,9 +1,11 @@
-# Railway: set Root Directory to `frontend`
-# Build uses Dockerfile; INTERNAL_API_URL must point at the API service.
+# Place this service's Railway settings as:
+# - Root Directory: (empty / repo root)
+# - Builder: Dockerfile
+# - Dockerfile path: frontend/Dockerfile
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "frontend/Dockerfile"
 
 [deploy]
 healthcheckPath = "/"

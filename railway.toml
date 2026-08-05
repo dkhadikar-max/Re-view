@@ -1,7 +1,5 @@
-# Place this service's Railway settings as:
-# - Root Directory: (empty / repo root)
-# - Builder: Dockerfile
-# - Dockerfile path: backend/Dockerfile
+# Default API service config if Railway watches repo root.
+# Prefer setting Dockerfile path per-service in the dashboard.
 
 [build]
 builder = "DOCKERFILE"
