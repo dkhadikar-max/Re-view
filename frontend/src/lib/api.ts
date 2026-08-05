@@ -112,6 +112,31 @@ export type DashboardStats = {
   metrics_note?: string;
 };
 
+export type GuestTimelineEvent = {
+  at: string;
+  label: string;
+  kind: string;
+};
+
+export type GuestNextBestAction = {
+  title: string;
+  detail: string;
+  recommendation: string;
+  expected_redemption: number;
+  expected_revenue: number;
+  action_label: string;
+};
+
+export type GuestOpportunity = {
+  guest_id: string;
+  guest_name: string;
+  title: string;
+  reason: string;
+  action_label: string;
+  priority: number;
+  health: string;
+};
+
 export type Guest = {
   id: string;
   name: string;
@@ -121,9 +146,12 @@ export type Guest = {
   language: string;
   stay_count: number;
   lifetime_spend: number;
+  average_booking?: number;
   travel_type?: string;
   purpose?: string;
+  preferred_room?: string;
   children: number;
+  pets?: boolean;
   communication_preference: string;
   ltv_score: number;
   satisfaction_score: number;
@@ -134,6 +162,27 @@ export type Guest = {
   birthday_locked?: boolean;
   anniversary_locked?: boolean;
   review_reward_unlocked?: boolean;
+  notes?: string;
+  // Living Guest Intelligence
+  loyalty_label?: string;
+  health?: string;
+  health_label?: string;
+  return_probability?: number;
+  upsell_probability?: number;
+  review_probability?: number;
+  churn_risk?: number;
+  preferred_channel?: string;
+  preferred_time?: string;
+  days_since_last_visit?: number | null;
+  likely_next_visit?: string | null;
+  favorite_wine?: string | null;
+  tags?: string[];
+  remembers?: string[];
+  ai_summary?: string;
+  recommendations?: string[];
+  next_best_action?: GuestNextBestAction | null;
+  timeline?: GuestTimelineEvent[];
+  avg_rating?: number | null;
 };
 
 export type Reservation = {
@@ -363,7 +412,26 @@ export const api = {
   me: () => request<User>("/api/auth/me"),
   stats: () => request<DashboardStats>("/api/dashboard/stats"),
   properties: () => request<Property[]>("/api/properties"),
-  guests: () => request<Guest[]>("/api/guests"),
+  guests: (params?: {
+    q?: string;
+    min_spend?: number;
+    min_stays?: number;
+    birthday_month?: boolean;
+    inactive_days?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set("q", params.q);
+    if (params?.min_spend != null) qs.set("min_spend", String(params.min_spend));
+    if (params?.min_stays != null) qs.set("min_stays", String(params.min_stays));
+    if (params?.birthday_month) qs.set("birthday_month", "true");
+    if (params?.inactive_days != null)
+      qs.set("inactive_days", String(params.inactive_days));
+    const query = qs.toString();
+    return request<Guest[]>(query ? `/api/guests?${query}` : "/api/guests");
+  },
+  guest: (id: string) => request<Guest>(`/api/guests/${id}`),
+  guestOpportunities: () =>
+    request<GuestOpportunity[]>("/api/guests/opportunities"),
   reservations: () => request<Reservation[]>("/api/reservations"),
   messages: () => request<Message[]>("/api/messages"),
   reviews: () => request<Review[]>("/api/reviews"),

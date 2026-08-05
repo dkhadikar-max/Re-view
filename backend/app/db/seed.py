@@ -286,6 +286,9 @@ def seed_database(db: Session) -> None:
             "spend": 2140,
             "stays": 4,
             "pref": "whatsapp",
+            "room": "Business King",
+            "reviews": 0,
+            "notes": "Remembers: Early breakfast\nRemembers: Desk near window",
         },
         {
             "name": "Marie Dupont",
@@ -300,8 +303,19 @@ def seed_database(db: Session) -> None:
             "sat": 95,
             "spend": 4800,
             "stays": 6,
-            "pref": "email",
+            "pref": "whatsapp",
             "dietary": "vegetarian",
+            "room": "Sea View Suite",
+            "birthday": today + timedelta(days=11),
+            "anniversary": date(today.year, 6, 5),
+            "reviews": 2,
+            "notes": (
+                "Remembers: Room 302\n"
+                "Remembers: Sparkling water\n"
+                "Remembers: No feather pillows\n"
+                "Remembers: Late checkout\n"
+                "Remembers: Anniversary package"
+            ),
         },
         {
             "name": "The Rossi Family",
@@ -317,6 +331,8 @@ def seed_database(db: Session) -> None:
             "spend": 1650,
             "stays": 2,
             "pref": "whatsapp",
+            "room": "Family Suite",
+            "notes": "Remembers: Baby cot\nRemembers: Connecting rooms",
         },
         {
             "name": "Emily Chen",
@@ -327,12 +343,14 @@ def seed_database(db: Session) -> None:
             "travel_type": "leisure",
             "purpose": "leisure",
             "children": 0,
-            "ltv": 55,
-            "sat": 62,
+            "ltv": 48,
+            "sat": 45,
             "spend": 890,
             "stays": 1,
             "pref": "email",
-            "complaints": 1,
+            "complaints": 2,
+            "room": "Standard Twin",
+            "reviews": 0,
         },
         {
             "name": "Lars Johansson",
@@ -348,6 +366,8 @@ def seed_database(db: Session) -> None:
             "spend": 1320,
             "stays": 3,
             "pref": "whatsapp",
+            "room": "Business King",
+            "birthday": today + timedelta(days=40),
         },
         {
             "name": "Ana Silva",
@@ -363,6 +383,9 @@ def seed_database(db: Session) -> None:
             "spend": 3100,
             "stays": 2,
             "pref": "whatsapp",
+            "room": "Honeymoon Suite",
+            "anniversary": date(today.year, 9, 12),
+            "notes": "Remembers: Champagne on arrival\nRemembers: Rose petals",
         },
     ]
 
@@ -381,14 +404,18 @@ def seed_database(db: Session) -> None:
             average_booking=g["spend"] / max(g["stays"], 1),
             travel_type=g["travel_type"],
             purpose=g.get("purpose"),
+            preferred_room=g.get("room"),
             children=g["children"],
             dietary_preferences=g.get("dietary"),
+            birthday=g.get("birthday"),
+            anniversary=g.get("anniversary"),
+            notes=g.get("notes"),
             communication_preference=g["pref"],
             ltv_score=g["ltv"],
             satisfaction_score=g["sat"],
             complaint_history=g.get("complaints", 0),
             upsell_acceptance=0.35 if g["travel_type"] == "luxury" else 0.2,
-            previous_reviews=1 if g["stays"] > 1 else 0,
+            previous_reviews=g.get("reviews", 1 if g["stays"] > 1 else 0),
         )
         db.add(guest)
         guests.append(guest)
@@ -421,7 +448,11 @@ def seed_database(db: Session) -> None:
             children=guests[idx].children,
             total_amount=amount,
             currency="EUR",
-            special_requests="Quiet room preferred" if idx == 1 else None,
+            special_requests=(
+                "Late checkout, sparkling water, no feather pillows"
+                if idx == 1
+                else ("Quiet room preferred" if idx == 0 else None)
+            ),
         )
         db.add(res)
         reservations.append(res)
