@@ -79,8 +79,8 @@ uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Demo owner: set `OWNER_EMAIL` / `OWNER_PASSWORD` (default email `dkhadikar@gmail.com`).
-Hotels evaluating the product can create a trial at `/onboard`.
+Sign in at `/login`. Hotels can create a trial workspace at `/onboard`.
+Set `OWNER_EMAIL` and `OWNER_PASSWORD` on the API service for the platform admin account.
 
 ### Railway deploy
 
