@@ -3,21 +3,32 @@ from __future__ import annotations
 import csv
 import io
 import json
+import uuid
 from datetime import date, datetime
-from typing import Optional
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import (
+    AuthUser,
+    ManagerUser,
+    StaffUser,
+    create_access_token,
+    verify_password,
+)
 from app.db.session import get_db
 from app.models.entities import (
     AIDecision,
     Approval,
     ApprovalStatus,
+    AuditLog,
     Connector,
     Event,
+    EventStatus,
     Guest,
     Message,
     MessageStatus,
@@ -31,12 +42,15 @@ from app.models.entities import (
     ReviewSentiment,
     Task,
     TaskStatus,
+    Tenant,
+    User,
     Workflow,
 )
 from app.schemas import (
     AIDecisionOut,
     ApprovalAction,
     ApprovalOut,
+    AuditOut,
     ConnectorOut,
     DashboardStats,
     DecideResult,
@@ -44,6 +58,7 @@ from app.schemas import (
     GuestOut,
     IntelligenceReport,
     IntelligenceTheme,
+    LoginRequest,
     MessageOut,
     NotificationOut,
     OfferOut,
@@ -54,6 +69,9 @@ from app.schemas import (
     ReviewOut,
     SyncResult,
     TaskOut,
+    TokenResponse,
+    UserOut,
+    WorkerResult,
     WorkflowOut,
 )
 from app.services.ai_orchestrator import (
@@ -61,37 +79,178 @@ from app.services.ai_orchestrator import (
     execute_decision,
     handle_negative_review,
 )
+from app.services.audit import write_audit
+from app.services.connectors import sync_connector
 from app.services.event_bus import event_bus
+from app.services.messaging import deliver_message, process_due_messages
+from app.services.state_machine import (
+    APPROVAL_TRANSITIONS,
+    MESSAGE_TRANSITIONS,
+    OFFER_TRANSITIONS,
+    RESERVATION_TRANSITIONS,
+    TASK_TRANSITIONS,
+    transition,
+)
+from app.services.tenancy import get_tenant_entity
+from app.services.workflow_engine import process_waiting_workflows
 
 router = APIRouter()
 
+PageSkip = Annotated[int, Query(ge=0)]
+PageLimit = Annotated[int, Query(ge=1, le=200)]
 
-def tenant_filter(model, tenant_id: str = settings.default_tenant_id):
-    return model.tenant_id == tenant_id
+
+class _TenantScopedSession:
+    """Session proxy that scopes worker service model queries to one tenant."""
+
+    def __init__(self, db: Session, tenant_id: str) -> None:
+        self._db = db
+        self._tenant_id = tenant_id
+
+    def query(self, *entities: Any):
+        query = self._db.query(*entities)
+        if len(entities) == 1 and hasattr(entities[0], "tenant_id"):
+            query = query.filter(entities[0].tenant_id == self._tenant_id)
+        return query
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._db, name)
 
 
-# ---------- Dashboard ----------
+def _review_out(review: Review, guest_name: str | None = None) -> ReviewOut:
+    try:
+        themes = json.loads(review.themes or "[]")
+    except (json.JSONDecodeError, TypeError):
+        themes = []
+    if not isinstance(themes, list):
+        themes = []
+    data = {
+        field: getattr(review, field)
+        for field in ReviewOut.model_fields
+        if hasattr(review, field)
+    }
+    data["themes"] = [str(theme) for theme in themes]
+    data["sentiment"] = (
+        review.sentiment.value if hasattr(review.sentiment, "value") else review.sentiment
+    )
+    data["guest_name"] = guest_name
+    return ReviewOut.model_validate(data)
+
+
+def _reservation_out(
+    reservation: Reservation, guest_name: str | None = None
+) -> ReservationOut:
+    item = ReservationOut.model_validate(reservation)
+    item.status = (
+        reservation.status.value
+        if hasattr(reservation.status, "value")
+        else str(reservation.status)
+    )
+    item.total_amount = float(reservation.total_amount)
+    item.guest_name = guest_name
+    return item
+
+
+def _event_out(event: Event) -> EventOut:
+    item = EventOut.model_validate(event)
+    item.status = event.status.value if hasattr(event.status, "value") else event.status
+    return item
+
+
+def _property_for_tenant(db: Session, tenant_id: str) -> Property:
+    property_ = db.query(Property).filter(Property.tenant_id == tenant_id).first()
+    if not property_:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No property configured for tenant",
+        )
+    return property_
+
+
+async def _login_payload(request: Request) -> LoginRequest:
+    content_type = request.headers.get("content-type", "").lower()
+    try:
+        if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            form = await request.form()
+            raw = {"username": form.get("username"), "password": form.get("password")}
+        else:
+            raw = await request.json()
+        return LoginRequest.model_validate(raw)
+    except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A valid username and password are required",
+        ) from exc
+
+
+@router.post("/auth/login", response_model=TokenResponse)
+async def login(
+    payload: Annotated[LoginRequest, Depends(_login_payload)],
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    user = (
+        db.query(User)
+        .join(Tenant, Tenant.id == User.tenant_id)
+        .filter(
+            func.lower(User.email) == payload.username.lower(),
+            User.is_active.is_(True),
+            Tenant.is_active.is_(True),
+        )
+        .first()
+    )
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+    )
+    return TokenResponse(
+        access_token=token,
+        expires_in=settings.access_token_expire_minutes * 60,
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.get("/auth/me", response_model=UserOut)
+def auth_me(user: AuthUser) -> UserOut:
+    return UserOut.model_validate(user)
+
+
 @router.get("/dashboard/stats", response_model=DashboardStats)
-def dashboard_stats(db: Session = Depends(get_db)):
-    tenant = settings.default_tenant_id
+def dashboard_stats(user: AuthUser, db: Session = Depends(get_db)) -> DashboardStats:
+    tenant_id = user.tenant_id
     today = date.today()
-    prop = db.query(Property).filter(Property.tenant_id == tenant).first()
+    property_ = db.query(Property).filter(Property.tenant_id == tenant_id).first()
 
     arrivals = (
         db.query(Reservation)
-        .filter(Reservation.tenant_id == tenant, Reservation.check_in == today)
-        .filter(Reservation.status != ReservationStatus.cancelled)
+        .filter(
+            Reservation.tenant_id == tenant_id,
+            Reservation.check_in == today,
+            Reservation.status != ReservationStatus.cancelled,
+        )
         .count()
     )
     departures = (
         db.query(Reservation)
-        .filter(Reservation.tenant_id == tenant, Reservation.check_out == today)
+        .filter(
+            Reservation.tenant_id == tenant_id,
+            Reservation.check_out == today,
+            Reservation.status != ReservationStatus.cancelled,
+        )
         .count()
     )
     pending_messages = (
         db.query(Message)
         .filter(
-            Message.tenant_id == tenant,
+            Message.tenant_id == tenant_id,
             Message.status.in_(
                 [MessageStatus.queued, MessageStatus.pending_approval, MessageStatus.draft]
             ),
@@ -100,34 +259,41 @@ def dashboard_stats(db: Session = Depends(get_db)):
     )
     negative_reviews = (
         db.query(Review)
-        .filter(Review.tenant_id == tenant, Review.rating <= 2, Review.responded.is_(False))
+        .filter(
+            Review.tenant_id == tenant_id,
+            Review.rating <= 2,
+            Review.responded.is_(False),
+        )
         .count()
     )
     pending_approvals = (
         db.query(Approval)
-        .filter(Approval.tenant_id == tenant, Approval.status == ApprovalStatus.pending)
+        .filter(
+            Approval.tenant_id == tenant_id,
+            Approval.status == ApprovalStatus.pending,
+        )
         .count()
     )
     upsells_waiting = (
         db.query(Offer)
-        .filter(Offer.tenant_id == tenant, Offer.status == OfferStatus.offered)
+        .filter(Offer.tenant_id == tenant_id, Offer.status == OfferStatus.offered)
         .count()
     )
     open_tasks = (
         db.query(Task)
-        .filter(Task.tenant_id == tenant, Task.status == TaskStatus.open)
+        .filter(Task.tenant_id == tenant_id, Task.status == TaskStatus.open)
         .count()
     )
     upsell_revenue = (
-        db.query(func.coalesce(func.sum(Offer.price), 0.0))
-        .filter(Offer.tenant_id == tenant, Offer.status == OfferStatus.accepted)
+        db.query(func.coalesce(func.sum(Offer.price), 0))
+        .filter(Offer.tenant_id == tenant_id, Offer.status == OfferStatus.accepted)
         .scalar()
-        or 0.0
+        or 0
     )
-    today_rev = (
-        db.query(func.coalesce(func.sum(Reservation.total_amount), 0.0))
+    revenue_today = (
+        db.query(func.coalesce(func.sum(Reservation.total_amount), 0))
         .filter(
-            Reservation.tenant_id == tenant,
+            Reservation.tenant_id == tenant_id,
             Reservation.check_in <= today,
             Reservation.check_out >= today,
             Reservation.status.in_(
@@ -135,34 +301,60 @@ def dashboard_stats(db: Session = Depends(get_db)):
             ),
         )
         .scalar()
-        or 0.0
+        or 0
     )
     repeat_guests = (
-        db.query(Guest).filter(Guest.tenant_id == tenant, Guest.stay_count > 1).count()
+        db.query(Guest)
+        .filter(Guest.tenant_id == tenant_id, Guest.stay_count > 1)
+        .count()
     )
-    avg_spend = (
-        db.query(func.coalesce(func.avg(Guest.average_booking), 0.0))
-        .filter(Guest.tenant_id == tenant)
+    average_spend = (
+        db.query(func.coalesce(func.avg(Guest.average_booking), 0))
+        .filter(Guest.tenant_id == tenant_id)
         .scalar()
-        or 0.0
+        or 0
     )
-    total_reviews = db.query(Review).filter(Review.tenant_id == tenant).count()
     reviewed_guests = (
-        db.query(Guest).filter(Guest.tenant_id == tenant, Guest.previous_reviews > 0).count()
+        db.query(Guest)
+        .filter(Guest.tenant_id == tenant_id, Guest.previous_reviews > 0)
+        .count()
     )
-    total_guests = db.query(Guest).filter(Guest.tenant_id == tenant).count()
+    total_guests = db.query(Guest).filter(Guest.tenant_id == tenant_id).count()
     active = (
         db.query(Reservation)
         .filter(
-            Reservation.tenant_id == tenant,
+            Reservation.tenant_id == tenant_id,
+            Reservation.check_in <= today,
+            Reservation.check_out >= today,
             Reservation.status.in_(
                 [ReservationStatus.confirmed, ReservationStatus.checked_in]
             ),
         )
         .count()
     )
-    rooms = prop.rooms if prop else 40
-    occupancy = min(100.0, round((active / rooms) * 100, 1)) if rooms else 0
+    sent_messages = (
+        db.query(Message)
+        .filter(
+            Message.tenant_id == tenant_id,
+            Message.status.in_([MessageStatus.sent, MessageStatus.delivered]),
+            Message.sent_at.isnot(None),
+        )
+        .all()
+    )
+    response_samples = [
+        max(0.0, (message.sent_at - message.created_at).total_seconds() / 3600)
+        for message in sent_messages
+        if message.sent_at and message.created_at
+    ]
+    response_time = (
+        sum(response_samples) / len(response_samples) if response_samples else 1.4
+    )
+    executed_decisions = (
+        db.query(AIDecision)
+        .filter(AIDecision.tenant_id == tenant_id, AIDecision.executed.is_(True))
+        .count()
+    )
+    rooms = property_.rooms if property_ else 0
 
     return DashboardStats(
         arrivals_today=arrivals,
@@ -172,79 +364,100 @@ def dashboard_stats(db: Session = Depends(get_db)):
         pending_approvals=pending_approvals,
         upsells_waiting=upsells_waiting,
         open_tasks=open_tasks,
-        revenue_today=round(float(today_rev) * 0.35 + float(upsell_revenue), 2),
+        revenue_today=round(float(revenue_today), 2),
         upsell_revenue=round(float(upsell_revenue), 2),
         repeat_guests=repeat_guests,
-        average_spend=round(float(avg_spend), 2),
+        average_spend=round(float(average_spend), 2),
         review_conversion=round(
-            (reviewed_guests / total_guests * 100) if total_guests else 0, 1
+            reviewed_guests / total_guests * 100 if total_guests else 0, 1
         ),
-        google_rating=prop.google_rating if prop else 4.5,
-        response_time_hours=1.4,
-        ai_saved_hours=18.5,
-        occupancy_pct=occupancy,
+        google_rating=float(property_.google_rating) if property_ else 0.0,
+        response_time_hours=round(response_time, 2),
+        ai_saved_hours=round(executed_decisions * 0.25, 2),
+        occupancy_pct=round(min(100.0, active / rooms * 100), 1) if rooms else 0.0,
         active_reservations=active,
         total_guests=total_guests,
     )
 
 
-# ---------- Properties ----------
 @router.get("/properties", response_model=list[PropertyOut])
-def list_properties(db: Session = Depends(get_db)):
-    return db.query(Property).filter(Property.tenant_id == settings.default_tenant_id).all()
+def list_properties(user: AuthUser, db: Session = Depends(get_db)) -> list[Property]:
+    return db.query(Property).filter(Property.tenant_id == user.tenant_id).all()
 
 
-# ---------- Guests ----------
 @router.get("/guests", response_model=list[GuestOut])
-def list_guests(db: Session = Depends(get_db)):
+def list_guests(
+    user: AuthUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[Guest]:
     return (
         db.query(Guest)
-        .filter(Guest.tenant_id == settings.default_tenant_id)
+        .filter(Guest.tenant_id == user.tenant_id)
         .order_by(Guest.ltv_score.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
 
 
 @router.get("/guests/{guest_id}", response_model=GuestOut)
-def get_guest(guest_id: str, db: Session = Depends(get_db)):
-    guest = db.get(Guest, guest_id)
-    if not guest:
-        raise HTTPException(404, "Guest not found")
-    return guest
+def get_guest(
+    guest_id: str, user: AuthUser, db: Session = Depends(get_db)
+) -> Guest:
+    return get_tenant_entity(
+        db, Guest, guest_id, user.tenant_id, not_found="Guest not found"
+    )
 
 
-# ---------- Reservations ----------
 @router.get("/reservations", response_model=list[ReservationOut])
 def list_reservations(
-    status: Optional[str] = None,
+    user: AuthUser,
+    reservation_status: str | None = Query(default=None, alias="status"),
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
     db: Session = Depends(get_db),
-):
-    q = db.query(Reservation).filter(Reservation.tenant_id == settings.default_tenant_id)
-    if status:
-        q = q.filter(Reservation.status == status)
-    rows = q.order_by(Reservation.check_in.asc()).all()
-    out = []
-    for r in rows:
-        guest = db.get(Guest, r.guest_id)
-        item = ReservationOut.model_validate(r)
-        item.guest_name = guest.name if guest else None
-        item.status = r.status.value if hasattr(r.status, "value") else r.status
-        out.append(item)
-    return out
+) -> list[ReservationOut]:
+    query = db.query(Reservation).filter(Reservation.tenant_id == user.tenant_id)
+    if reservation_status:
+        try:
+            normalized_status = ReservationStatus(reservation_status)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid reservation status",
+            ) from exc
+        query = query.filter(Reservation.status == normalized_status)
+    rows = (
+        query.order_by(Reservation.check_in.asc()).offset(skip).limit(limit).all()
+    )
+    guest_ids = {row.guest_id for row in rows}
+    guests = {
+        guest.id: guest.name
+        for guest in db.query(Guest)
+        .filter(Guest.tenant_id == user.tenant_id, Guest.id.in_(guest_ids))
+        .all()
+    }
+    return [_reservation_out(row, guests.get(row.guest_id)) for row in rows]
 
 
-@router.post("/reservations", response_model=ReservationOut)
-def create_reservation(payload: ReservationCreate, db: Session = Depends(get_db)):
-    tenant = settings.default_tenant_id
-    prop = db.query(Property).filter(Property.tenant_id == tenant).first()
-    if not prop:
-        raise HTTPException(400, "No property configured")
-
+@router.post(
+    "/reservations",
+    response_model=ReservationOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_reservation(
+    payload: ReservationCreate,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> ReservationOut:
+    property_ = _property_for_tenant(db, user.tenant_id)
     guest = Guest(
-        tenant_id=tenant,
-        property_id=prop.id,
+        tenant_id=user.tenant_id,
+        property_id=property_.id,
         name=payload.guest_name,
-        email=payload.guest_email,
+        email=str(payload.guest_email) if payload.guest_email else None,
         phone=payload.guest_phone,
         country=payload.country,
         language=payload.language,
@@ -260,11 +473,11 @@ def create_reservation(payload: ReservationCreate, db: Session = Depends(get_db)
     )
     db.add(guest)
     db.flush()
-
     reservation = Reservation(
-        tenant_id=tenant,
-        property_id=prop.id,
+        tenant_id=user.tenant_id,
+        property_id=property_.id,
         guest_id=guest.id,
+        external_id=f"MAN-{uuid.uuid4()}",
         source=payload.source,
         status=ReservationStatus.confirmed,
         room_type=payload.room_type,
@@ -273,150 +486,229 @@ def create_reservation(payload: ReservationCreate, db: Session = Depends(get_db)
         adults=payload.adults,
         children=payload.children,
         total_amount=payload.total_amount,
-        currency=payload.currency,
+        currency=payload.currency.upper(),
         special_requests=payload.special_requests,
-        external_id=f"MAN-{datetime.utcnow().strftime('%H%M%S')}",
     )
     db.add(reservation)
     db.flush()
-
-    event_bus.publish(
+    event_bus.publish_and_process(
         db,
-        tenant,
+        user.tenant_id,
+        "GuestProfileCreated",
+        {"guest_id": guest.id, "property_id": property_.id},
+        source="api",
+        idempotency_key=f"GuestProfileCreated:{guest.id}",
+    )
+    event_bus.publish_and_process(
+        db,
+        user.tenant_id,
         "ReservationCreated",
         {
             "reservation_id": reservation.id,
             "guest_id": guest.id,
-            "property_id": prop.id,
+            "property_id": property_.id,
         },
         source="api",
-    )
-    event_bus.publish(
-        db,
-        tenant,
-        "GuestProfileCreated",
-        {"guest_id": guest.id},
-        source="api",
+        idempotency_key=f"ReservationCreated:{reservation.id}",
     )
     db.commit()
     db.refresh(reservation)
-
-    out = ReservationOut.model_validate(reservation)
-    out.guest_name = guest.name
-    out.status = reservation.status.value
-    return out
+    return _reservation_out(reservation, guest.name)
 
 
 @router.post("/reservations/{reservation_id}/decide", response_model=DecideResult)
-def decide_for_reservation(reservation_id: str, db: Session = Depends(get_db)):
-    reservation = db.get(Reservation, reservation_id)
-    if not reservation:
-        raise HTTPException(404, "Reservation not found")
-    guest = db.get(Guest, reservation.guest_id)
-    property_ = db.get(Property, reservation.property_id)
+def decide_for_reservation(
+    reservation_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> DecideResult:
+    reservation = get_tenant_entity(
+        db,
+        Reservation,
+        reservation_id,
+        user.tenant_id,
+        not_found="Reservation not found",
+    )
+    guest = get_tenant_entity(
+        db, Guest, reservation.guest_id, user.tenant_id, not_found="Guest not found"
+    )
+    property_ = get_tenant_entity(
+        db,
+        Property,
+        reservation.property_id,
+        user.tenant_id,
+        not_found="Property not found",
+    )
     decision = ai_orchestrator.decide(db, guest, reservation, property_)
     execution = execute_decision(db, decision, guest, reservation, property_)
     db.commit()
     db.refresh(decision)
     return DecideResult(
-        decision=AIDecisionOut.model_validate(decision),
-        execution=execution,
+        decision=AIDecisionOut.model_validate(decision), execution=execution
     )
 
 
 @router.post("/reservations/{reservation_id}/checkout")
-def checkout_reservation(reservation_id: str, db: Session = Depends(get_db)):
-    reservation = db.get(Reservation, reservation_id)
-    if not reservation:
-        raise HTTPException(404, "Reservation not found")
-    reservation.status = ReservationStatus.checked_out
-    guest = db.get(Guest, reservation.guest_id)
-    property_ = db.get(Property, reservation.property_id)
-
-    event_bus.publish(
+def checkout_reservation(
+    reservation_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    reservation = get_tenant_entity(
         db,
-        reservation.tenant_id,
+        Reservation,
+        reservation_id,
+        user.tenant_id,
+        not_found="Reservation not found",
+    )
+    reservation.status = transition(
+        reservation.status,
+        ReservationStatus.checked_out,
+        RESERVATION_TRANSITIONS,
+        "reservation",
+    )
+    event_bus.publish_and_process(
+        db,
+        user.tenant_id,
         "GuestCheckedOut",
-        {"reservation_id": reservation.id, "guest_id": guest.id},
+        {"reservation_id": reservation.id, "guest_id": reservation.guest_id},
         source="api",
+        idempotency_key=f"GuestCheckedOut:{reservation.id}",
     )
-
-    decision = AIDecision(
-        tenant_id=reservation.tenant_id,
-        reservation_id=reservation.id,
-        guest_id=guest.id,
-        action="ReviewRequest",
-        channel=guest.communication_preference,
-        language=guest.language,
-        timing="8 hours after checkout",
-        confidence=0.94,
-        reasoning="Guest checked out — schedule review request.",
-        raw_output=json.dumps({"action": "ReviewRequest"}),
-        validated=True,
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="checkout",
+        entity_type="reservation",
+        entity_id=reservation.id,
+        details={"status": ReservationStatus.checked_out.value},
     )
-    db.add(decision)
-    db.flush()
-    execute_decision(db, decision, guest, reservation, property_)
     db.commit()
-    return {"ok": True, "status": "checked_out"}
+    return {"ok": True, "status": ReservationStatus.checked_out.value}
 
 
-# ---------- Messages ----------
 @router.get("/messages", response_model=list[MessageOut])
-def list_messages(db: Session = Depends(get_db)):
+def list_messages(
+    user: AuthUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[MessageOut]:
     rows = (
         db.query(Message)
-        .filter(Message.tenant_id == settings.default_tenant_id)
+        .filter(Message.tenant_id == user.tenant_id)
         .order_by(Message.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
-    out = []
-    for m in rows:
-        guest = db.get(Guest, m.guest_id)
-        item = MessageOut.model_validate(m)
-        item.guest_name = guest.name if guest else None
-        item.channel = m.channel.value if hasattr(m.channel, "value") else m.channel
-        item.status = m.status.value if hasattr(m.status, "value") else m.status
-        out.append(item)
-    return out
+    guest_ids = {row.guest_id for row in rows}
+    guests = {
+        guest.id: guest.name
+        for guest in db.query(Guest)
+        .filter(Guest.tenant_id == user.tenant_id, Guest.id.in_(guest_ids))
+        .all()
+    }
+    output: list[MessageOut] = []
+    for row in rows:
+        item = MessageOut.model_validate(row)
+        item.channel = row.channel.value if hasattr(row.channel, "value") else row.channel
+        item.status = row.status.value if hasattr(row.status, "value") else row.status
+        item.guest_name = guests.get(row.guest_id)
+        output.append(item)
+    return output
 
 
 @router.post("/messages/{message_id}/send")
-def send_message(message_id: str, db: Session = Depends(get_db)):
-    message = db.get(Message, message_id)
-    if not message:
-        raise HTTPException(404, "Message not found")
-    message.status = MessageStatus.sent
-    message.sent_at = datetime.utcnow()
+def send_message(
+    message_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    message = get_tenant_entity(
+        db, Message, message_id, user.tenant_id, not_found="Message not found"
+    )
+    if message.status == MessageStatus.pending_approval:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Message requires approval before it can be sent",
+        )
+    if message.status != MessageStatus.queued:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only queued messages can be sent",
+        )
+    deliver_message(db, message)
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="send",
+        entity_type="message",
+        entity_id=message.id,
+        details={"channel": message.channel.value},
+    )
     db.commit()
-    return {"ok": True, "status": "sent"}
+    return {"ok": True, "status": MessageStatus.sent.value}
 
 
-# ---------- Reviews ----------
 @router.get("/reviews", response_model=list[ReviewOut])
-def list_reviews(db: Session = Depends(get_db)):
+def list_reviews(
+    user: AuthUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[ReviewOut]:
     rows = (
         db.query(Review)
-        .filter(Review.tenant_id == settings.default_tenant_id)
+        .filter(Review.tenant_id == user.tenant_id)
         .order_by(Review.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
-    out = []
-    for r in rows:
-        guest = db.get(Guest, r.guest_id)
-        item = ReviewOut.model_validate(r)
-        item.guest_name = guest.name if guest else None
-        item.sentiment = r.sentiment.value if hasattr(r.sentiment, "value") else r.sentiment
-        out.append(item)
-    return out
+    guest_ids = {row.guest_id for row in rows}
+    guests = {
+        guest.id: guest.name
+        for guest in db.query(Guest)
+        .filter(Guest.tenant_id == user.tenant_id, Guest.id.in_(guest_ids))
+        .all()
+    }
+    return [_review_out(row, guests.get(row.guest_id)) for row in rows]
 
 
-@router.post("/reviews", response_model=ReviewOut)
-def create_review(payload: ReviewCreate, db: Session = Depends(get_db)):
-    guest = db.get(Guest, payload.guest_id)
-    if not guest:
-        raise HTTPException(404, "Guest not found")
-    property_ = db.get(Property, guest.property_id)
+@router.post(
+    "/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED
+)
+def create_review(
+    payload: ReviewCreate,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> ReviewOut:
+    guest = get_tenant_entity(
+        db, Guest, payload.guest_id, user.tenant_id, not_found="Guest not found"
+    )
+    property_ = get_tenant_entity(
+        db,
+        Property,
+        guest.property_id,
+        user.tenant_id,
+        not_found="Property not found",
+    )
+    if payload.reservation_id:
+        reservation = get_tenant_entity(
+            db,
+            Reservation,
+            payload.reservation_id,
+            user.tenant_id,
+            not_found="Reservation not found",
+        )
+        if reservation.guest_id != guest.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Reservation does not belong to guest",
+            )
     sentiment = (
         ReviewSentiment.negative
         if payload.rating <= 2
@@ -425,8 +717,8 @@ def create_review(payload: ReviewCreate, db: Session = Depends(get_db)):
         else ReviewSentiment.neutral
     )
     review = Review(
-        tenant_id=guest.tenant_id,
-        property_id=guest.property_id,
+        tenant_id=user.tenant_id,
+        property_id=property_.id,
         guest_id=guest.id,
         reservation_id=payload.reservation_id,
         platform=payload.platform,
@@ -435,406 +727,636 @@ def create_review(payload: ReviewCreate, db: Session = Depends(get_db)):
         body=payload.body,
         sentiment=sentiment,
         themes=json.dumps(ai_orchestrator.analyze_review_themes(payload.body)),
-        ai_draft_response=ai_orchestrator.draft_review_response(
-            Review(
-                tenant_id=guest.tenant_id,
-                property_id=guest.property_id,
-                guest_id=guest.id,
-                rating=payload.rating,
-                body=payload.body,
-                sentiment=sentiment,
-            ),
-            property_,
-            guest,
-        ),
     )
     db.add(review)
     db.flush()
     if payload.rating <= 2:
-        handle_negative_review(db, review, guest, property_)
-        event_bus.publish(
+        event_bus.publish_and_process(
             db,
-            guest.tenant_id,
+            user.tenant_id,
             "NegativeReviewReceived",
             {"review_id": review.id, "rating": payload.rating},
             source="api",
+            idempotency_key=f"NegativeReviewReceived:{review.id}",
+        )
+    else:
+        review.ai_draft_response = ai_orchestrator.draft_review_response(
+            review, property_, guest
         )
     db.commit()
     db.refresh(review)
-    out = ReviewOut.model_validate(review)
-    out.guest_name = guest.name
-    out.sentiment = review.sentiment.value
-    return out
+    return _review_out(review, guest.name)
+
+
+def _publish_review(
+    db: Session, review: Review, *, user: Any, audit_action: str = "publish_response"
+) -> None:
+    if not review.ai_draft_response:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No draft response available",
+        )
+    review.published_response = review.ai_draft_response
+    review.responded = True
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action=audit_action,
+        entity_type="review",
+        entity_id=review.id,
+        details={"rating": review.rating},
+    )
 
 
 @router.post("/reviews/{review_id}/publish-response")
-def publish_review_response(review_id: str, db: Session = Depends(get_db)):
-    review = db.get(Review, review_id)
-    if not review:
-        raise HTTPException(404, "Review not found")
-    if not review.ai_draft_response:
-        raise HTTPException(400, "No draft response available")
-    review.published_response = review.ai_draft_response
-    review.responded = True
+def publish_review_response(
+    review_id: str,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    review = get_tenant_entity(
+        db, Review, review_id, user.tenant_id, not_found="Review not found"
+    )
+    if review.rating <= 3:
+        approved = (
+            db.query(Approval)
+            .filter(
+                Approval.tenant_id == user.tenant_id,
+                Approval.related_type == "review",
+                Approval.related_id == review.id,
+                Approval.status == ApprovalStatus.approved,
+            )
+            .first()
+        )
+        if not approved:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="An approved review response approval is required",
+            )
+    _publish_review(db, review, user=user)
     db.commit()
     return {"ok": True}
 
 
-# ---------- Approvals ----------
 @router.get("/approvals", response_model=list[ApprovalOut])
-def list_approvals(status: Optional[str] = None, db: Session = Depends(get_db)):
-    q = db.query(Approval).filter(Approval.tenant_id == settings.default_tenant_id)
-    if status:
-        q = q.filter(Approval.status == status)
-    rows = q.order_by(Approval.created_at.desc()).all()
-    out = []
-    for a in rows:
-        item = ApprovalOut.model_validate(a)
-        item.status = a.status.value if hasattr(a.status, "value") else a.status
-        out.append(item)
-    return out
+def list_approvals(
+    user: AuthUser,
+    approval_status: str | None = Query(default=None, alias="status"),
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[ApprovalOut]:
+    query = db.query(Approval).filter(Approval.tenant_id == user.tenant_id)
+    if approval_status:
+        try:
+            normalized_status = ApprovalStatus(approval_status)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid approval status",
+            ) from exc
+        query = query.filter(Approval.status == normalized_status)
+    rows = (
+        query.order_by(Approval.created_at.desc()).offset(skip).limit(limit).all()
+    )
+    output: list[ApprovalOut] = []
+    for row in rows:
+        item = ApprovalOut.model_validate(row)
+        item.status = row.status.value if hasattr(row.status, "value") else row.status
+        output.append(item)
+    return output
 
 
 @router.post("/approvals/{approval_id}", response_model=ApprovalOut)
 def act_on_approval(
-    approval_id: str, payload: ApprovalAction, db: Session = Depends(get_db)
-):
-    approval = db.get(Approval, approval_id)
-    if not approval:
-        raise HTTPException(404, "Approval not found")
-    if payload.action not in ("approve", "reject"):
-        raise HTTPException(400, "action must be approve or reject")
-
-    approval.status = (
-        ApprovalStatus.approved if payload.action == "approve" else ApprovalStatus.rejected
+    approval_id: str,
+    payload: ApprovalAction,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> ApprovalOut:
+    approval = get_tenant_entity(
+        db, Approval, approval_id, user.tenant_id, not_found="Approval not found"
     )
-    approval.reviewed_by = payload.reviewed_by
+    target = (
+        ApprovalStatus.approved
+        if payload.action == "approve"
+        else ApprovalStatus.rejected
+    )
+    approval.status = transition(
+        approval.status, target, APPROVAL_TRANSITIONS, "approval"
+    )
+    approval.reviewed_by = user.name
+    approval.reviewed_by_user_id = user.id
     approval.reviewed_at = datetime.utcnow()
 
-    if (
-        payload.action == "approve"
-        and approval.related_type == "message"
-        and approval.related_id
-    ):
-        message = db.get(Message, approval.related_id)
-        if message:
-            message.status = MessageStatus.sent
-            message.sent_at = datetime.utcnow()
+    if approval.related_type == "message" and approval.related_id:
+        message = get_tenant_entity(
+            db,
+            Message,
+            approval.related_id,
+            user.tenant_id,
+            not_found="Related message not found",
+        )
+        message_target = (
+            MessageStatus.queued
+            if target == ApprovalStatus.approved
+            else MessageStatus.draft
+        )
+        message.status = transition(
+            message.status, message_target, MESSAGE_TRANSITIONS, "message"
+        )
     elif (
-        payload.action == "approve"
+        target == ApprovalStatus.approved
         and approval.related_type == "review"
         and approval.related_id
     ):
-        review = db.get(Review, approval.related_id)
-        if review and review.ai_draft_response:
-            review.published_response = review.ai_draft_response
-            review.responded = True
-    elif (
-        payload.action == "reject"
-        and approval.related_type == "message"
-        and approval.related_id
-    ):
-        message = db.get(Message, approval.related_id)
-        if message:
-            message.status = MessageStatus.draft
+        review = get_tenant_entity(
+            db,
+            Review,
+            approval.related_id,
+            user.tenant_id,
+            not_found="Related review not found",
+        )
+        _publish_review(db, review, user=user, audit_action="approval_publish_response")
 
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action=payload.action,
+        entity_type="approval",
+        entity_id=approval.id,
+        details={
+            "related_type": approval.related_type,
+            "related_id": approval.related_id,
+        },
+    )
     db.commit()
     db.refresh(approval)
-    out = ApprovalOut.model_validate(approval)
-    out.status = approval.status.value
-    return out
+    item = ApprovalOut.model_validate(approval)
+    item.status = approval.status.value
+    return item
 
 
-# ---------- Offers / Tasks / Events ----------
 @router.get("/offers", response_model=list[OfferOut])
-def list_offers(db: Session = Depends(get_db)):
+def list_offers(
+    user: AuthUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[OfferOut]:
     rows = (
         db.query(Offer)
-        .filter(Offer.tenant_id == settings.default_tenant_id)
+        .filter(Offer.tenant_id == user.tenant_id)
         .order_by(Offer.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
-    out = []
-    for o in rows:
-        res = db.get(Reservation, o.reservation_id)
-        guest = db.get(Guest, res.guest_id) if res else None
-        item = OfferOut.model_validate(o)
-        item.status = o.status.value if hasattr(o.status, "value") else o.status
-        item.guest_name = guest.name if guest else None
-        out.append(item)
-    return out
+    reservation_ids = {row.reservation_id for row in rows}
+    reservations = {
+        row.id: row.guest_id
+        for row in db.query(Reservation)
+        .filter(
+            Reservation.tenant_id == user.tenant_id,
+            Reservation.id.in_(reservation_ids),
+        )
+        .all()
+    }
+    guest_ids = set(reservations.values())
+    guests = {
+        row.id: row.name
+        for row in db.query(Guest)
+        .filter(Guest.tenant_id == user.tenant_id, Guest.id.in_(guest_ids))
+        .all()
+    }
+    output: list[OfferOut] = []
+    for row in rows:
+        item = OfferOut.model_validate(row)
+        item.status = row.status.value if hasattr(row.status, "value") else row.status
+        item.price = float(row.price)
+        item.guest_name = guests.get(reservations.get(row.reservation_id, ""))
+        output.append(item)
+    return output
 
 
 @router.post("/offers/{offer_id}/accept")
-def accept_offer(offer_id: str, db: Session = Depends(get_db)):
-    offer = db.get(Offer, offer_id)
-    if not offer:
-        raise HTTPException(404, "Offer not found")
-    offer.status = OfferStatus.accepted
+def accept_offer(
+    offer_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    offer = get_tenant_entity(
+        db, Offer, offer_id, user.tenant_id, not_found="Offer not found"
+    )
+    if offer.status == OfferStatus.accepted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Offer has already been accepted",
+        )
+    offer.status = transition(
+        offer.status, OfferStatus.accepted, OFFER_TRANSITIONS, "offer"
+    )
     offer.accepted_at = datetime.utcnow()
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="accept",
+        entity_type="offer",
+        entity_id=offer.id,
+        details={"revenue": float(offer.price)},
+    )
     db.commit()
-    return {"ok": True, "revenue": offer.price}
+    return {"ok": True, "revenue": float(offer.price)}
 
 
 @router.get("/tasks", response_model=list[TaskOut])
-def list_tasks(db: Session = Depends(get_db)):
+def list_tasks(
+    user: AuthUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[TaskOut]:
     rows = (
         db.query(Task)
-        .filter(Task.tenant_id == settings.default_tenant_id)
+        .filter(Task.tenant_id == user.tenant_id)
         .order_by(Task.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
-    out = []
-    for t in rows:
-        item = TaskOut.model_validate(t)
-        item.status = t.status.value if hasattr(t.status, "value") else t.status
-        item.priority = t.priority.value if hasattr(t.priority, "value") else t.priority
-        out.append(item)
-    return out
+    output: list[TaskOut] = []
+    for row in rows:
+        item = TaskOut.model_validate(row)
+        item.status = row.status.value if hasattr(row.status, "value") else row.status
+        item.priority = (
+            row.priority.value if hasattr(row.priority, "value") else row.priority
+        )
+        output.append(item)
+    return output
 
 
 @router.post("/tasks/{task_id}/complete")
-def complete_task(task_id: str, db: Session = Depends(get_db)):
-    task = db.get(Task, task_id)
-    if not task:
-        raise HTTPException(404, "Task not found")
-    task.status = TaskStatus.done
+def complete_task(
+    task_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    task = get_tenant_entity(
+        db, Task, task_id, user.tenant_id, not_found="Task not found"
+    )
+    task.status = transition(
+        task.status, TaskStatus.done, TASK_TRANSITIONS, "task"
+    )
     db.commit()
     return {"ok": True}
 
 
 @router.get("/events", response_model=list[EventOut])
-def list_events(db: Session = Depends(get_db)):
-    return (
+def list_events(
+    user: AuthUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[EventOut]:
+    rows = (
         db.query(Event)
-        .filter(Event.tenant_id == settings.default_tenant_id)
+        .filter(Event.tenant_id == user.tenant_id)
         .order_by(Event.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [_event_out(row) for row in rows]
+
+
+@router.get("/ai-decisions", response_model=list[AIDecisionOut])
+def list_decisions(
+    user: AuthUser, db: Session = Depends(get_db)
+) -> list[AIDecision]:
+    return (
+        db.query(AIDecision)
+        .filter(AIDecision.tenant_id == user.tenant_id)
+        .order_by(AIDecision.created_at.desc())
         .limit(100)
         .all()
     )
 
 
-@router.get("/ai-decisions", response_model=list[AIDecisionOut])
-def list_decisions(db: Session = Depends(get_db)):
-    return (
-        db.query(AIDecision)
-        .filter(AIDecision.tenant_id == settings.default_tenant_id)
-        .order_by(AIDecision.created_at.desc())
-        .limit(50)
-        .all()
-    )
-
-
 @router.get("/workflows", response_model=list[WorkflowOut])
-def list_workflows(db: Session = Depends(get_db)):
+def list_workflows(
+    user: AuthUser, db: Session = Depends(get_db)
+) -> list[Workflow]:
     return (
         db.query(Workflow)
-        .filter(Workflow.tenant_id == settings.default_tenant_id)
+        .filter(Workflow.tenant_id == user.tenant_id)
+        .order_by(Workflow.created_at.desc())
         .all()
     )
 
 
 @router.get("/connectors", response_model=list[ConnectorOut])
-def list_connectors(db: Session = Depends(get_db)):
+def list_connectors(
+    user: AuthUser, db: Session = Depends(get_db)
+) -> list[Connector]:
     return (
         db.query(Connector)
-        .filter(Connector.tenant_id == settings.default_tenant_id)
+        .filter(Connector.tenant_id == user.tenant_id)
+        .order_by(Connector.created_at.desc())
         .all()
     )
 
 
 @router.get("/notifications", response_model=list[NotificationOut])
-def list_notifications(db: Session = Depends(get_db)):
+def list_notifications(
+    user: AuthUser, db: Session = Depends(get_db)
+) -> list[Notification]:
     return (
         db.query(Notification)
-        .filter(Notification.tenant_id == settings.default_tenant_id)
+        .filter(Notification.tenant_id == user.tenant_id)
         .order_by(Notification.created_at.desc())
         .all()
     )
 
 
 @router.get("/intelligence", response_model=IntelligenceReport)
-def intelligence_report(db: Session = Depends(get_db)):
-    reviews = db.query(Review).filter(Review.tenant_id == settings.default_tenant_id).all()
-    counts: dict[str, dict] = {}
-    for r in reviews:
-        themes = json.loads(r.themes or "[]")
-        for t in themes:
-            entry = counts.setdefault(t, {"mentions": 0, "pos": 0, "neg": 0})
+def intelligence_report(
+    user: AuthUser, db: Session = Depends(get_db)
+) -> IntelligenceReport:
+    reviews = db.query(Review).filter(Review.tenant_id == user.tenant_id).all()
+    counts: dict[str, dict[str, int]] = {}
+    for review in reviews:
+        try:
+            themes = json.loads(review.themes or "[]")
+        except (json.JSONDecodeError, TypeError):
+            themes = []
+        if not isinstance(themes, list):
+            continue
+        for raw_theme in themes:
+            theme = str(raw_theme)
+            entry = counts.setdefault(theme, {"mentions": 0, "positive": 0, "negative": 0})
             entry["mentions"] += 1
-            if r.rating >= 4:
-                entry["pos"] += 1
-            elif r.rating <= 2:
-                entry["neg"] += 1
-
-    themes_out = []
-    for theme, data in sorted(counts.items(), key=lambda x: -x[1]["mentions"]):
-        sent = "positive" if data["pos"] >= data["neg"] else "negative"
-        if data["pos"] == data["neg"]:
-            sent = "neutral"
-        themes_out.append(
-            IntelligenceTheme(theme=theme, mentions=data["mentions"], sentiment=sent)
+            if review.rating >= 4:
+                entry["positive"] += 1
+            elif review.rating <= 2:
+                entry["negative"] += 1
+    themes_out: list[IntelligenceTheme] = []
+    for theme, values in sorted(
+        counts.items(), key=lambda item: (-item[1]["mentions"], item[0])
+    ):
+        sentiment = (
+            "positive"
+            if values["positive"] > values["negative"]
+            else "negative"
+            if values["negative"] > values["positive"]
+            else "neutral"
         )
-
-    most_praised = next((t.theme for t in themes_out if t.sentiment == "positive"), None)
-    main_complaint = next((t.theme for t in themes_out if t.sentiment == "negative"), None)
+        themes_out.append(
+            IntelligenceTheme(
+                theme=theme,
+                mentions=values["mentions"],
+                sentiment=sentiment,
+            )
+        )
     return IntelligenceReport(
         themes=themes_out,
-        most_praised=most_praised,
-        main_complaint=main_complaint,
+        most_praised=next(
+            (theme.theme for theme in themes_out if theme.sentiment == "positive"),
+            None,
+        ),
+        main_complaint=next(
+            (theme.theme for theme in themes_out if theme.sentiment == "negative"),
+            None,
+        ),
         total_reviews=len(reviews),
     )
 
 
-# ---------- PMS Sync / CSV Import ----------
 @router.post("/connectors/sync", response_model=SyncResult)
-def sync_pms(db: Session = Depends(get_db)):
-    """Simulate a Cloudbeds / PMS pull of new reservations."""
-    tenant = settings.default_tenant_id
-    prop = db.query(Property).filter(Property.tenant_id == tenant).first()
-    if not prop:
-        raise HTTPException(400, "No property")
-
-    samples = [
-        ("Yuki Tanaka", "Japan", "en", "leisure", today_plus(5), today_plus(8), 460),
-        ("Carlos Mendoza", "Spain", "es", "family", today_plus(1), today_plus(4), 620),
-    ]
-    imported = 0
-    events = 0
-    for name, country, lang, travel, cin, cout, amount in samples:
-        existing = db.query(Guest).filter(Guest.name == name, Guest.tenant_id == tenant).first()
-        if existing:
-            continue
-        guest = Guest(
-            tenant_id=tenant,
-            property_id=prop.id,
-            name=name,
-            country=country,
-            language=lang,
-            travel_type=travel,
-            children=2 if travel == "family" else 0,
-            communication_preference="whatsapp",
-            stay_count=1,
-            lifetime_spend=amount,
-            average_booking=amount,
-            ltv_score=58,
-            satisfaction_score=70,
-            email=f"{name.lower().replace(' ', '.')}@sync.demo",
-        )
-        db.add(guest)
-        db.flush()
-        res = Reservation(
-            tenant_id=tenant,
-            property_id=prop.id,
-            guest_id=guest.id,
-            external_id=f"CB-SYNC-{datetime.utcnow().strftime('%H%M%S')}-{imported}",
-            source="Cloudbeds",
-            status=ReservationStatus.confirmed,
-            room_type="Deluxe Double",
-            check_in=cin,
-            check_out=cout,
-            total_amount=amount,
-            currency="EUR",
-        )
-        db.add(res)
-        db.flush()
-        event_bus.publish(
-            db,
-            tenant,
-            "ReservationCreated",
-            {
-                "reservation_id": res.id,
-                "guest_id": guest.id,
-                "property_id": prop.id,
-            },
-            source="cloudbeds",
-        )
-        imported += 1
-        events += 1
-
-    connector = (
-        db.query(Connector)
-        .filter(Connector.tenant_id == tenant, Connector.provider == "Cloudbeds")
-        .first()
+def sync_pms(
+    user: ManagerUser, db: Session = Depends(get_db)
+) -> SyncResult:
+    try:
+        result = sync_connector(db, user.tenant_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="sync",
+        entity_type="connector",
+        entity_id="Cloudbeds",
+        details=result,
     )
-    if connector:
-        connector.last_sync_at = datetime.utcnow()
-        connector.status = "connected"
     db.commit()
     return SyncResult(
-        imported=imported,
-        events_emitted=events,
-        message=f"Synced {imported} reservations from Cloudbeds",
+        imported=result["imported"],
+        events_emitted=result["events_emitted"],
+        message=f"Synced {result['imported']} reservations from Cloudbeds",
     )
 
 
-def today_plus(days: int) -> date:
-    from datetime import timedelta
-
-    return date.today() + timedelta(days=days)
+def _csv_payload(row: dict[str, str | None], line_number: int) -> ReservationCreate:
+    raw = {
+        "guest_name": (row.get("name") or "").strip(),
+        "guest_email": (row.get("email") or "").strip() or None,
+        "guest_phone": (row.get("phone") or "").strip() or None,
+        "country": (row.get("country") or "").strip() or None,
+        "language": (row.get("language") or "en").strip(),
+        "travel_type": (row.get("travel_type") or "leisure").strip().lower(),
+        "purpose": (row.get("purpose") or "").strip() or None,
+        "children": row.get("children") or 0,
+        "source": "csv",
+        "room_type": (row.get("room_type") or "Standard").strip(),
+        "check_in": row.get("check_in"),
+        "check_out": row.get("check_out"),
+        "adults": row.get("adults") or 2,
+        "total_amount": row.get("amount") or 0,
+        "currency": (row.get("currency") or "EUR").strip().upper(),
+        "special_requests": (row.get("special_requests") or "").strip() or None,
+        "communication_preference": (row.get("channel") or "email").strip().lower(),
+    }
+    try:
+        return ReservationCreate.model_validate(raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": f"Invalid CSV row {line_number}", "errors": exc.errors()},
+        ) from exc
 
 
 @router.post("/connectors/import-csv", response_model=SyncResult)
-async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Import reservations from CSV: name,email,country,language,check_in,check_out,amount,room_type"""
-    tenant = settings.default_tenant_id
-    prop = db.query(Property).filter(Property.tenant_id == tenant).first()
-    if not prop:
-        raise HTTPException(400, "No property")
-
-    content = (await file.read()).decode("utf-8")
-    reader = csv.DictReader(io.StringIO(content))
-    imported = 0
-    events = 0
-    for row in reader:
-        guest = Guest(
-            tenant_id=tenant,
-            property_id=prop.id,
-            name=row.get("name", "Guest"),
-            email=row.get("email"),
-            country=row.get("country"),
-            language=row.get("language", "en"),
-            travel_type=row.get("travel_type", "leisure"),
-            communication_preference=row.get("channel", "email"),
-            stay_count=1,
-            lifetime_spend=float(row.get("amount", 200)),
-            average_booking=float(row.get("amount", 200)),
-            ltv_score=50,
-            satisfaction_score=70,
+async def import_csv(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> SyncResult:
+    content = await file.read(settings.csv_max_bytes + 1)
+    if len(content) > settings.csv_max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"CSV exceeds {settings.csv_max_bytes} bytes",
         )
-        db.add(guest)
-        db.flush()
-        res = Reservation(
-            tenant_id=tenant,
-            property_id=prop.id,
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CSV must be UTF-8 encoded",
+        ) from exc
+    reader = csv.DictReader(io.StringIO(text))
+    required = {"name", "check_in", "check_out", "amount"}
+    headers = set(reader.fieldnames or [])
+    if not required.issubset(headers):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"CSV is missing required columns: {sorted(required - headers)}",
+        )
+    raw_rows = list(reader)
+    if len(raw_rows) > settings.csv_max_rows:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"CSV exceeds {settings.csv_max_rows} rows",
+        )
+    if not raw_rows:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CSV contains no data rows",
+        )
+    payloads = [
+        _csv_payload(row, line_number)
+        for line_number, row in enumerate(raw_rows, start=2)
+    ]
+    property_ = _property_for_tenant(db, user.tenant_id)
+    imported = 0
+    emitted = 0
+    for payload in payloads:
+        guest = None
+        if payload.guest_email:
+            guest = (
+                db.query(Guest)
+                .filter(
+                    Guest.tenant_id == user.tenant_id,
+                    func.lower(Guest.email) == str(payload.guest_email).lower(),
+                )
+                .first()
+            )
+        is_new_guest = guest is None
+        if guest is None:
+            guest = Guest(
+                tenant_id=user.tenant_id,
+                property_id=property_.id,
+                name=payload.guest_name,
+                email=str(payload.guest_email) if payload.guest_email else None,
+                phone=payload.guest_phone,
+                country=payload.country,
+                language=payload.language,
+                travel_type=payload.travel_type,
+                purpose=payload.purpose,
+                children=payload.children,
+                communication_preference=payload.communication_preference,
+                stay_count=1,
+                lifetime_spend=payload.total_amount,
+                average_booking=payload.total_amount,
+                ltv_score=50,
+                satisfaction_score=70,
+            )
+            db.add(guest)
+            db.flush()
+        else:
+            previous_stays = guest.stay_count
+            guest.name = payload.guest_name
+            guest.phone = payload.guest_phone or guest.phone
+            guest.country = payload.country or guest.country
+            guest.language = payload.language
+            guest.travel_type = payload.travel_type
+            guest.communication_preference = payload.communication_preference
+            guest.stay_count = previous_stays + 1
+            guest.lifetime_spend = float(guest.lifetime_spend) + payload.total_amount
+            guest.average_booking = float(guest.lifetime_spend) / guest.stay_count
+        reservation = Reservation(
+            tenant_id=user.tenant_id,
+            property_id=property_.id,
             guest_id=guest.id,
+            external_id=f"CSV-{uuid.uuid4()}",
             source="csv",
             status=ReservationStatus.confirmed,
-            room_type=row.get("room_type", "Standard"),
-            check_in=date.fromisoformat(row["check_in"]),
-            check_out=date.fromisoformat(row["check_out"]),
-            total_amount=float(row.get("amount", 200)),
-            currency=row.get("currency", "EUR"),
-            external_id=f"CSV-{imported}",
+            room_type=payload.room_type,
+            check_in=payload.check_in,
+            check_out=payload.check_out,
+            adults=payload.adults,
+            children=payload.children,
+            total_amount=payload.total_amount,
+            currency=payload.currency.upper(),
+            special_requests=payload.special_requests,
         )
-        db.add(res)
+        db.add(reservation)
         db.flush()
-        event_bus.publish(
+        if is_new_guest:
+            event_bus.publish_and_process(
+                db,
+                user.tenant_id,
+                "GuestProfileCreated",
+                {"guest_id": guest.id, "property_id": property_.id},
+                source="csv",
+                idempotency_key=f"GuestProfileCreated:csv:{guest.id}",
+            )
+            emitted += 1
+        event_bus.publish_and_process(
             db,
-            tenant,
+            user.tenant_id,
             "ReservationCreated",
             {
-                "reservation_id": res.id,
+                "reservation_id": reservation.id,
                 "guest_id": guest.id,
-                "property_id": prop.id,
+                "property_id": property_.id,
             },
             source="csv",
+            idempotency_key=f"ReservationCreated:csv:{reservation.external_id}",
         )
         imported += 1
-        events += 1
+        emitted += 1
     db.commit()
     return SyncResult(
         imported=imported,
-        events_emitted=events,
+        events_emitted=emitted,
         message=f"Imported {imported} rows from CSV",
+    )
+
+
+@router.post("/workers/tick", response_model=WorkerResult)
+def worker_tick(
+    user: ManagerUser, db: Session = Depends(get_db)
+) -> WorkerResult:
+    scoped_db = _TenantScopedSession(db, user.tenant_id)
+    events_processed = event_bus.process_pending(scoped_db)  # type: ignore[arg-type]
+    messages_delivered = process_due_messages(scoped_db)  # type: ignore[arg-type]
+    workflows_advanced = process_waiting_workflows(scoped_db)  # type: ignore[arg-type]
+    db.commit()
+    return WorkerResult(
+        events_processed=events_processed,
+        messages_delivered=messages_delivered,
+        workflows_advanced=workflows_advanced,
+    )
+
+
+@router.get("/audit-logs", response_model=list[AuditOut])
+def list_audit_logs(
+    user: ManagerUser,
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[AuditLog]:
+    return (
+        db.query(AuditLog)
+        .filter(AuditLog.tenant_id == user.tenant_id)
+        .order_by(AuditLog.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
     )
