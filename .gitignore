@@ -12,6 +12,7 @@ frontend/.next/
 frontend/out/
 dist/
 *.db
+backend/revisit.db
 backend/gra.db
 
 # Env

@@ -1,1 +1,1 @@
-"""Guest Revenue Agent backend."""
+"""Revisit backend."""

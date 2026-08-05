@@ -7,14 +7,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "Guest Revenue Agent"
+    app_name: str = "Revisit"
     app_version: str = "1.0.0-rc"
     environment: str = Field(default="development", description="development|staging|production|test")
     debug: bool = False
     public_base_url: str = "http://127.0.0.1:8000"
     frontend_base_url: str = "http://localhost:3000"
 
-    database_url: str = "sqlite:///./gra.db"
+    database_url: str = "sqlite:///./revisit.db"
     redis_url: str = "redis://127.0.0.1:6379/0"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     whatsapp_access_token: str = ""
     whatsapp_phone_number_id: str = ""
     whatsapp_business_account_id: str = ""
-    whatsapp_verify_token: str = "gra-whatsapp-verify"
+    whatsapp_verify_token: str = "revisit-whatsapp-verify"
     whatsapp_app_secret: str = ""
     whatsapp_api_version: str = "v21.0"
 

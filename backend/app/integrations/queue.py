@@ -35,14 +35,14 @@ class JobQueue:
     def enqueue(self, job_type: str, payload: dict[str, Any]) -> str:
         job = {"type": job_type, "payload": payload}
         if self._redis is not None:
-            self._redis.lpush("gra:jobs", json.dumps(job))
+            self._redis.lpush("revisit:jobs", json.dumps(job))
             return "redis"
         self._memory.append(job)
         return "memory"
 
     def dequeue(self, timeout: int = 1) -> Optional[dict[str, Any]]:
         if self._redis is not None:
-            item = self._redis.brpop("gra:jobs", timeout=timeout)
+            item = self._redis.brpop("revisit:jobs", timeout=timeout)
             if not item:
                 return None
             return json.loads(item[1])
@@ -52,7 +52,7 @@ class JobQueue:
 
     def depth(self) -> int:
         if self._redis is not None:
-            return int(self._redis.llen("gra:jobs"))
+            return int(self._redis.llen("revisit:jobs"))
         return len(self._memory)
 
 

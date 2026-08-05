@@ -9,13 +9,20 @@ type RequestOptions = RequestInit & { auth?: boolean };
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("gra_token");
+  return (
+    localStorage.getItem("revisit_token") || localStorage.getItem("gra_token")
+  );
 }
 
 export function setToken(token: string | null) {
   if (typeof window === "undefined") return;
-  if (token) localStorage.setItem("gra_token", token);
-  else localStorage.removeItem("gra_token");
+  if (token) {
+    localStorage.setItem("revisit_token", token);
+    localStorage.removeItem("gra_token");
+  } else {
+    localStorage.removeItem("revisit_token");
+    localStorage.removeItem("gra_token");
+  }
 }
 
 async function request<T>(path: string, init?: RequestOptions): Promise<T> {

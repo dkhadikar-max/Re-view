@@ -42,7 +42,7 @@ export default function AnalyticsPage() {
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-800 p-6 text-white opacity-0">
         <p className="text-xs uppercase tracking-wider text-ink-300">
-          Guest Revenue Agent · last {data.period_days} days
+          Revisit · last {data.period_days} days
         </p>
         <h2 className="mt-2 font-display text-3xl">One paying hotel. These numbers.</h2>
         <p className="mt-2 max-w-2xl text-sm text-ink-200">

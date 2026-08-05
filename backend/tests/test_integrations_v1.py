@@ -72,7 +72,7 @@ def test_whatsapp_webhook_verify_and_inbound(client: TestClient, auth_header: di
         "/api/webhooks/whatsapp",
         params={
             "hub.mode": "subscribe",
-            "hub.verify_token": "gra-whatsapp-verify",
+            "hub.verify_token": "revisit-whatsapp-verify",
             "hub.challenge": "12345",
         },
     )

@@ -1,4 +1,4 @@
-"""Service cost & account ownership for GRA V1.
+"""Service cost & account ownership for Revisit V1.
 
 Platform (Yours) owns AI + data plane.
 Client hotel owns PMS, messaging, email, payments, and Google credentials.

@@ -1,8 +1,8 @@
-# Guest Revenue Agent (GRA)
+# Revisit
 
 **The AI employee that manages every guest after booking.**
 
-Guest Revenue Agent is an AI intelligence layer for hotels. V1.0 targets **one paying hotel** with production integrations — not 100 features.
+Revisit is an AI intelligence layer for hotels. V1.0 targets **one paying hotel** with production integrations — not 100 features.
 
 ## Account ownership (who pays / who connects)
 
@@ -20,7 +20,7 @@ Guest Revenue Agent is an AI intelligence layer for hotels. V1.0 targets **one p
 | Stripe | No monthly fee | Transaction fees | **Client** |
 | Google Business Profile | Free API (quotas) | — | **Client** |
 
-Rule of thumb: **we run the AI + database**; the hotel connects their PMS, WhatsApp, email, Stripe, and Google.
+Rule of thumb: **Revisit runs the AI + database**; the hotel connects their PMS, WhatsApp, email, Stripe, and Google.
 
 API: `GET /api/integrations/ownership` and fields on `GET /api/integrations/status`.
 

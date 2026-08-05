@@ -134,7 +134,7 @@ def integrations_status(user: AuthUser) -> V1Readiness:
         blockers = []
     return V1Readiness(
         version=settings.app_version,
-        milestone="V1.0 — one paying hotel",
+        milestone="Revisit V1.0 — one paying hotel",
         queue_backend=get_queue().backend,
         integrations=items,
         ownership=SERVICE_OWNERSHIP,

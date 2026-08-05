@@ -16,9 +16,9 @@ const sans = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Guest Revenue Agent",
+  title: "Revisit",
   description:
-    "The AI employee that manages every guest after booking — revenue, reviews, and lifetime value.",
+    "Revisit — the AI employee that manages every guest after booking: revenue, reviews, and lifetime value.",
 };
 
 export default function RootLayout({

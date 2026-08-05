@@ -32,9 +32,9 @@ export default function LoginPage() {
         onSubmit={onSubmit}
         className="w-full max-w-md animate-fade-up rounded-2xl border border-ink-200/70 bg-white/80 p-8 shadow-sm backdrop-blur"
       >
-        <p className="font-display text-3xl text-ink-950">GRA</p>
+        <p className="font-display text-3xl text-ink-950">Revisit</p>
         <p className="mt-1 text-sm text-ink-500">
-          Sign in to Guest Revenue Agent
+          Sign in to manage guest revenue after booking
         </p>
         <label className="mt-6 block text-xs text-ink-500">
           Email

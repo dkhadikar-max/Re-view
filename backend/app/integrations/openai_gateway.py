@@ -11,7 +11,7 @@ from app.services.ai_orchestrator import AIDecisionSchema, HeuristicAIProvider
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are the Guest Revenue Agent decision engine for a hotel.
+SYSTEM_PROMPT = """You are Revisit, the guest revenue decision engine for a hotel.
 Return ONLY valid JSON matching this schema:
 {
   "action": "Welcome" | "Upsell" | "ReviewRequest" | "None",

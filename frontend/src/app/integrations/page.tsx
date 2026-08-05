@@ -47,8 +47,8 @@ export default function IntegrationsPage() {
   return (
     <div>
       <TopBar
-        title="V1 Integrations"
-        subtitle="We run AI + Postgres + Redis. The hotel connects PMS, WhatsApp, email, Stripe, Google."
+        title="Integrations"
+        subtitle="Revisit runs AI + Postgres + Redis. The hotel connects PMS, WhatsApp, email, Stripe, Google."
       />
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-sea-800 via-ink-900 to-ink-950 p-6 text-white opacity-0">

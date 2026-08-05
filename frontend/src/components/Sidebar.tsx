@@ -55,9 +55,9 @@ export function Sidebar({ user }: { user: User | null }) {
     <>
       <div className="relative overflow-hidden border-b border-white/10 px-5 py-6">
         <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-sea-500/20 blur-2xl" />
-        <p className="font-display text-2xl tracking-tight text-white">GRA</p>
+        <p className="font-display text-2xl tracking-tight text-white">Revisit</p>
         <p className="mt-1 text-xs leading-relaxed text-ink-300">
-          Guest Revenue Agent
+          Guest revenue, after booking
         </p>
       </div>
 

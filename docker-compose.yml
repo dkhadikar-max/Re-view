@@ -15,7 +15,7 @@ services:
       - "8000:8000"
     environment:
       ENVIRONMENT: development
-      DATABASE_URL: sqlite:///./gra.db
+      DATABASE_URL: sqlite:///./revisit.db
       REDIS_URL: redis://redis:6379/0
       USE_MOCK_AI: "true"
       OPENAI_MODEL: gpt-5.5
