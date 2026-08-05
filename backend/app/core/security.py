@@ -139,6 +139,26 @@ def require_staff(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Cu
     return user
 
 
+def is_platform_owner(user: CurrentUser) -> bool:
+    """True for the Argus/Revisit platform owner (Deepanshu / OWNER_EMAIL)."""
+    owner = (settings.owner_email or "").strip().lower()
+    if not owner:
+        return False
+    return user.email.strip().lower() == owner
+
+
+def require_platform_owner(
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    if not is_platform_owner(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform owner access required",
+        )
+    return user
+
+
 AuthUser = Annotated[CurrentUser, Depends(get_current_user)]
 ManagerUser = Annotated[CurrentUser, Depends(require_manager)]
 StaffUser = Annotated[CurrentUser, Depends(require_staff)]
+PlatformOwner = Annotated[CurrentUser, Depends(require_platform_owner)]

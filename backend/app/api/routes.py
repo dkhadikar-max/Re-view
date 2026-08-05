@@ -27,6 +27,7 @@ from app.core.security import (
     ManagerUser,
     StaffUser,
     create_access_token,
+    is_platform_owner,
     verify_password,
 )
 from app.db.session import get_db
@@ -257,13 +258,40 @@ async def login(
     return TokenResponse(
         access_token=token,
         expires_in=settings.access_token_expire_minutes * 60,
-        user=UserOut.model_validate(user),
+        user=_user_out(user),
     )
 
 
 @router.get("/auth/me", response_model=UserOut)
 def auth_me(user: AuthUser) -> UserOut:
-    return UserOut.model_validate(user)
+    return UserOut(
+        id=user.id,
+        tenant_id=user.tenant_id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_platform_admin=is_platform_owner(user),
+    )
+
+
+def _user_out(user: User) -> UserOut:
+    from app.core.security import CurrentUser
+
+    current = CurrentUser(
+        id=user.id,
+        tenant_id=user.tenant_id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+    )
+    return UserOut(
+        id=user.id,
+        tenant_id=user.tenant_id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_platform_admin=is_platform_owner(current),
+    )
 
 
 @router.get("/dashboard/stats", response_model=DashboardStats)

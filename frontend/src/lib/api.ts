@@ -88,6 +88,50 @@ export type User = {
   email: string;
   name: string;
   role: string;
+  is_platform_admin?: boolean;
+};
+
+export type AdminClient = {
+  tenant_id: string;
+  hotel_name: string;
+  plan: string;
+  is_active: boolean;
+  signed_up_at: string;
+  manager_name?: string | null;
+  manager_email?: string | null;
+  manager_role?: string | null;
+  city?: string | null;
+  country?: string | null;
+  currency: string;
+  rooms: number;
+  guest_count: number;
+  reservation_count: number;
+  upsell_revenue: number;
+  is_demo: boolean;
+};
+
+export type PlatformAnalytics = {
+  total_hotels: number;
+  trial_hotels: number;
+  active_hotels: number;
+  paying_hotels: number;
+  total_managers: number;
+  signups_last_7_days: number;
+  signups_last_30_days: number;
+  total_guests: number;
+  total_reservations: number;
+  total_upsell_revenue: number;
+  by_plan: { plan: string; hotels: number }[];
+  by_country: { country: string; hotels: number; currency: string }[];
+  recent_signups: {
+    tenant_id: string;
+    hotel_name: string;
+    manager_email?: string | null;
+    country?: string | null;
+    currency: string;
+    signed_up_at: string;
+  }[];
+  generated_at: string;
 };
 
 export type DashboardStats = {
@@ -524,6 +568,8 @@ export const api = {
   roiMetrics: (periodDays = 30) =>
     request<ROIMetrics>(`/api/analytics/roi?period_days=${periodDays}`),
   integrationsStatus: () => request<V1Readiness>("/api/integrations/status"),
+  adminClients: () => request<AdminClient[]>("/api/admin/clients"),
+  adminAnalytics: () => request<PlatformAnalytics>("/api/admin/analytics"),
   syncCloudbeds: () =>
     request<{ imported: number; events_emitted: number; message: string }>(
       "/api/connectors/cloudbeds/sync",

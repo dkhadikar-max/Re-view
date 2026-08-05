@@ -28,6 +28,7 @@ class UserOut(ORMModel):
     email: EmailStr
     name: str
     role: str
+    is_platform_admin: bool = False
 
 
 class GuestOut(ORMModel):

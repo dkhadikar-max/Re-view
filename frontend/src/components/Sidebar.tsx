@@ -17,8 +17,9 @@ import {
   Menu,
   X,
   Gift,
+  Shield,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { setToken, type User } from "@/lib/api";
 import { ARGUS, REVISIT } from "@/lib/brand";
@@ -49,6 +50,16 @@ export function Sidebar({
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
+  const items = useMemo(() => {
+    if (user?.is_platform_admin) {
+      return [
+        { href: "/admin", label: "Platform Admin", icon: Shield },
+        ...nav,
+      ];
+    }
+    return nav;
+  }, [user?.is_platform_admin]);
+
   function logout() {
     setToken(null);
     router.replace("/login");
@@ -70,7 +81,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4" aria-label="Main">
-        {nav.map((item) => {
+        {items.map((item) => {
           const active =
             item.href === "/"
               ? pathname === "/"
