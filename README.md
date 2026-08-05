@@ -80,7 +80,23 @@ cd frontend && npm install && npm run dev
 
 Demo: `manager@azurecoast.demo` / `ChangeMe123!`
 
-### Docker
+### Railway deploy
+
+`main` is currently empty (README only). Deploy from branch  
+`cursor/guest-revenue-agent-mvp-d9a8` **or merge PR #3 into `main` first**.
+
+Create **two services** in a Revisit Railway project:
+
+| Service | Root Directory | Notes |
+|---------|----------------|-------|
+| API | `backend` | Dockerfile; attach Postgres + Redis |
+| Web | `frontend` | Dockerfile; set `INTERNAL_API_URL` to the API public URL |
+
+API env (minimum): `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`.
+
+Web env: `INTERNAL_API_URL=https://<your-api>.up.railway.app`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`.
+
+### Docker (dev)
 
 ```bash
 docker compose up --build
