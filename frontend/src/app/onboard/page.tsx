@@ -144,13 +144,14 @@ export default function HotelSignupPage() {
               />
             </label>
             <label className="text-xs text-ink-500">
-              Password * (min 8)
+              Password *
               <input
                 type="password"
                 required
                 minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
                 className="mt-1 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-sea-500"
               />
             </label>

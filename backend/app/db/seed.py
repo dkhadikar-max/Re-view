@@ -66,19 +66,19 @@ def _owner_name() -> str:
     return (settings.owner_name or "Deepanshu").strip() or "Owner"
 
 
-def _owner_password() -> str:
+def _owner_password() -> str | None:
     if settings.owner_password:
         return settings.owner_password
     if settings.environment == "test":
         return "test-owner-password"
     if settings.environment == "development":
         return "LocalDevOwnerPass1!"
-    return "ChangeMe-Set-OWNER_PASSWORD"
+    return None
 
 
 # Resolved at import for tests; ensure_owner_account always uses live settings.
 DEMO_EMAIL = _owner_email()
-DEMO_PASSWORD = _owner_password()
+DEMO_PASSWORD = _owner_password() or "test-owner-password"
 
 
 def ensure_owner_account(db: Session) -> None:
@@ -87,8 +87,8 @@ def ensure_owner_account(db: Session) -> None:
         return
 
     email = _owner_email()
-    password = _owner_password()
     name = _owner_name()
+    password = _owner_password()
 
     legacy = (
         db.query(User)
@@ -111,7 +111,8 @@ def ensure_owner_account(db: Session) -> None:
                 user.name = name
                 user.role = "admin"
                 user.is_active = True
-                user.password_hash = hash_password(password)
+                if password:
+                    user.password_hash = hash_password(password)
                 continue
         user.is_active = False
 
@@ -124,8 +125,9 @@ def ensure_owner_account(db: Session) -> None:
         owner.name = name
         owner.role = "admin"
         owner.is_active = True
-        owner.password_hash = hash_password(password)
-    else:
+        if password:
+            owner.password_hash = hash_password(password)
+    elif password:
         db.add(
             User(
                 tenant_id=DEMO_TENANT,
@@ -137,7 +139,7 @@ def ensure_owner_account(db: Session) -> None:
             )
         )
 
-    if settings.environment == "test":
+    if settings.environment == "test" and password:
         mgr = (
             db.query(User)
             .filter(
@@ -289,6 +291,12 @@ def seed_database(db: Session) -> None:
         return
 
     today = date.today()
+    owner_password = _owner_password()
+    if not owner_password:
+        raise RuntimeError(
+            "OWNER_PASSWORD must be set before first seed in this environment"
+        )
+
     db.add(Tenant(id=DEMO_TENANT, name="Azure Coast Hospitality", plan="growth"))
     db.flush()
 
@@ -298,7 +306,7 @@ def seed_database(db: Session) -> None:
             email=_owner_email(),
             name=_owner_name(),
             role="admin",
-            password_hash=hash_password(_owner_password()),
+            password_hash=hash_password(owner_password),
             is_active=True,
         )
     )
@@ -309,7 +317,7 @@ def seed_database(db: Session) -> None:
                 email=TEST_MANAGER_EMAIL,
                 name="Test Manager",
                 role="manager",
-                password_hash=hash_password(_owner_password()),
+                password_hash=hash_password(owner_password),
                 is_active=True,
             )
         )
