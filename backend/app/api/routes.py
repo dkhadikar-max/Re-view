@@ -7,7 +7,16 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -131,7 +140,9 @@ def _review_out(review: Review, guest_name: str | None = None) -> ReviewOut:
     }
     data["themes"] = [str(theme) for theme in themes]
     data["sentiment"] = (
-        review.sentiment.value if hasattr(review.sentiment, "value") else review.sentiment
+        review.sentiment.value
+        if hasattr(review.sentiment, "value")
+        else review.sentiment
     )
     data["guest_name"] = guest_name
     return ReviewOut.model_validate(data)
@@ -172,7 +183,10 @@ def _property_for_tenant(db: Session, tenant_id: str) -> Property:
 async def _login_payload(request: Request) -> LoginRequest:
     content_type = request.headers.get("content-type", "").lower()
     try:
-        if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        if (
+            "application/x-www-form-urlencoded" in content_type
+            or "multipart/form-data" in content_type
+        ):
             form = await request.form()
             raw = {"username": form.get("username"), "password": form.get("password")}
         else:
@@ -254,7 +268,11 @@ def dashboard_stats(user: AuthUser, db: Session = Depends(get_db)) -> DashboardS
         .filter(
             Message.tenant_id == tenant_id,
             Message.status.in_(
-                [MessageStatus.queued, MessageStatus.pending_approval, MessageStatus.draft]
+                [
+                    MessageStatus.queued,
+                    MessageStatus.pending_approval,
+                    MessageStatus.draft,
+                ]
             ),
         )
         .count()
@@ -405,9 +423,7 @@ def list_guests(
 
 
 @router.get("/guests/{guest_id}", response_model=GuestOut)
-def get_guest(
-    guest_id: str, user: AuthUser, db: Session = Depends(get_db)
-) -> Guest:
+def get_guest(guest_id: str, user: AuthUser, db: Session = Depends(get_db)) -> Guest:
     return get_tenant_entity(
         db, Guest, guest_id, user.tenant_id, not_found="Guest not found"
     )
@@ -431,9 +447,7 @@ def list_reservations(
                 detail="Invalid reservation status",
             ) from exc
         query = query.filter(Reservation.status == normalized_status)
-    rows = (
-        query.order_by(Reservation.check_in.asc()).offset(skip).limit(limit).all()
-    )
+    rows = query.order_by(Reservation.check_in.asc()).offset(skip).limit(limit).all()
     guest_ids = {row.guest_id for row in rows}
     guests = {
         guest.id: guest.name
@@ -615,7 +629,9 @@ def list_messages(
     output: list[MessageOut] = []
     for row in rows:
         item = MessageOut.model_validate(row)
-        item.channel = row.channel.value if hasattr(row.channel, "value") else row.channel
+        item.channel = (
+            row.channel.value if hasattr(row.channel, "value") else row.channel
+        )
         item.status = row.status.value if hasattr(row.status, "value") else row.status
         item.guest_name = guests.get(row.guest_id)
         output.append(item)
@@ -680,9 +696,7 @@ def list_reviews(
     return [_review_out(row, guests.get(row.guest_id)) for row in rows]
 
 
-@router.post(
-    "/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED
-)
+@router.post("/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED)
 def create_review(
     payload: ReviewCreate,
     user: StaffUser,
@@ -822,9 +836,7 @@ def list_approvals(
                 detail="Invalid approval status",
             ) from exc
         query = query.filter(Approval.status == normalized_status)
-    rows = (
-        query.order_by(Approval.created_at.desc()).offset(skip).limit(limit).all()
-    )
+    rows = query.order_by(Approval.created_at.desc()).offset(skip).limit(limit).all()
     output: list[ApprovalOut] = []
     for row in rows:
         item = ApprovalOut.model_validate(row)
@@ -1012,9 +1024,7 @@ def complete_task(
     task = get_tenant_entity(
         db, Task, task_id, user.tenant_id, not_found="Task not found"
     )
-    task.status = transition(
-        task.status, TaskStatus.done, TASK_TRANSITIONS, "task"
-    )
+    task.status = transition(task.status, TaskStatus.done, TASK_TRANSITIONS, "task")
     db.commit()
     return {"ok": True}
 
@@ -1038,9 +1048,7 @@ def list_events(
 
 
 @router.get("/ai-decisions", response_model=list[AIDecisionOut])
-def list_decisions(
-    user: AuthUser, db: Session = Depends(get_db)
-) -> list[AIDecision]:
+def list_decisions(user: AuthUser, db: Session = Depends(get_db)) -> list[AIDecision]:
     return (
         db.query(AIDecision)
         .filter(AIDecision.tenant_id == user.tenant_id)
@@ -1051,9 +1059,7 @@ def list_decisions(
 
 
 @router.get("/workflows", response_model=list[WorkflowOut])
-def list_workflows(
-    user: AuthUser, db: Session = Depends(get_db)
-) -> list[Workflow]:
+def list_workflows(user: AuthUser, db: Session = Depends(get_db)) -> list[Workflow]:
     return (
         db.query(Workflow)
         .filter(Workflow.tenant_id == user.tenant_id)
@@ -1063,9 +1069,7 @@ def list_workflows(
 
 
 @router.get("/connectors", response_model=list[ConnectorOut])
-def list_connectors(
-    user: AuthUser, db: Session = Depends(get_db)
-) -> list[Connector]:
+def list_connectors(user: AuthUser, db: Session = Depends(get_db)) -> list[Connector]:
     return (
         db.query(Connector)
         .filter(Connector.tenant_id == user.tenant_id)
@@ -1101,7 +1105,9 @@ def intelligence_report(
             continue
         for raw_theme in themes:
             theme = str(raw_theme)
-            entry = counts.setdefault(theme, {"mentions": 0, "positive": 0, "negative": 0})
+            entry = counts.setdefault(
+                theme, {"mentions": 0, "positive": 0, "negative": 0}
+            )
             entry["mentions"] += 1
             if review.rating >= 4:
                 entry["positive"] += 1
@@ -1140,9 +1146,7 @@ def intelligence_report(
 
 
 @router.post("/connectors/sync", response_model=SyncResult)
-def sync_pms(
-    user: ManagerUser, db: Session = Depends(get_db)
-) -> SyncResult:
+def sync_pms(user: ManagerUser, db: Session = Depends(get_db)) -> SyncResult:
     try:
         result = sync_connector(db, user.tenant_id)
     except ValueError as exc:
@@ -1191,7 +1195,10 @@ def _csv_payload(row: dict[str, str | None], line_number: int) -> ReservationCre
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"message": f"Invalid CSV row {line_number}", "errors": exc.errors()},
+            detail={
+                "message": f"Invalid CSV row {line_number}",
+                "errors": exc.errors(),
+            },
         ) from exc
 
 
@@ -1324,9 +1331,7 @@ async def import_csv(
 
 
 @router.post("/workers/tick", response_model=WorkerResult)
-def worker_tick(
-    user: ManagerUser, db: Session = Depends(get_db)
-) -> WorkerResult:
+def worker_tick(user: ManagerUser, db: Session = Depends(get_db)) -> WorkerResult:
     scoped_db = _TenantScopedSession(db, user.tenant_id)
     events_processed = event_bus.process_pending(scoped_db)  # type: ignore[arg-type]
     messages_delivered = process_due_messages(scoped_db)  # type: ignore[arg-type]
