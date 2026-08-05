@@ -263,48 +263,15 @@ def _on_guest_checked_out(db: Session, event, payload: dict) -> None:
     )
     if not property_:
         return
+    # Zero-cost agent: review ask via templates (no LLM).
     decision = ai_orchestrator.decide(
-        db, guest, reservation, property_, context={"force_action": "ReviewRequest"}
+        db,
+        guest,
+        reservation,
+        property_,
+        context={"force_action": "ReviewRequest"},
     )
-    # Force review request path via validated decision override only if needed
-    if decision.validated and decision.action != "ReviewRequest":
-        # Create an explicit review-request decision
-        from app.models.entities import AIDecision
-
-        forced = AIDecision(
-            tenant_id=event.tenant_id,
-            reservation_id=reservation.id,
-            guest_id=guest.id,
-            action="ReviewRequest",
-            channel=guest.communication_preference
-            if guest.communication_preference in {"whatsapp", "email", "sms"}
-            else "email",
-            language=guest.language or "en",
-            timing="8 hours after checkout",
-            confidence=0.94,
-            reasoning="Checkout event triggered review request workflow.",
-            raw_output=json.dumps(
-                {
-                    "action": "ReviewRequest",
-                    "channel": guest.communication_preference
-                    if guest.communication_preference in {"whatsapp", "email", "sms"}
-                    else "email",
-                    "language": guest.language or "en",
-                    "timing": "8 hours after checkout",
-                    "offer": None,
-                    "confidence": 0.94,
-                    "reasoning": "Checkout event triggered review request workflow.",
-                    "execute_at": (datetime.utcnow() + timedelta(hours=8)).isoformat(),
-                }
-            ),
-            model_name="workflow-v1",
-            validated=True,
-        )
-        db.add(forced)
-        db.flush()
-        execute_decision(db, forced, guest, reservation, property_)
-    else:
-        execute_decision(db, decision, guest, reservation, property_)
+    execute_decision(db, decision, guest, reservation, property_)
 
 
 def _on_negative_review(db: Session, event, payload: dict) -> None:
@@ -426,9 +393,9 @@ def seed_database(db: Session) -> None:
         )
 
     for name, trigger, steps in [
-        ("Pre-arrival Welcome", "ReservationCreated", ["wait", "ai", "send", "complete"]),
-        ("Checkout Review Request", "GuestCheckedOut", ["wait", "ai", "send", "complete"]),
-        ("Negative Review Escalation", "NegativeReviewReceived", ["notify", "ai", "complete"]),
+        ("Pre-arrival Welcome", "ReservationCreated", ["wait", "template", "send", "complete"]),
+        ("Checkout Review Request", "GuestCheckedOut", ["wait", "template", "send", "complete"]),
+        ("Negative Review Escalation", "NegativeReviewReceived", ["notify", "template", "complete"]),
         ("Cross-sell Reminder", "GuestCheckedOut", ["wait", "notify", "complete"]),
     ]:
         db.add(

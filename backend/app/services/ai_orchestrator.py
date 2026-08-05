@@ -198,6 +198,11 @@ class AIOrchestrator:
         context: dict[str, Any] | None = None,
     ) -> AIDecision:
         from app.integrations.openai_gateway import ai_gateway
+        from app.services.zero_cost_agent import zero_cost_agent
+
+        # Default path: $0 template agent for repetitive guest ops.
+        if zero_cost_agent.can_handle(context):
+            return zero_cost_agent.decide(db, guest, reservation, property_, context)
 
         gateway_context = {
             "guest": {
@@ -315,7 +320,6 @@ class AIOrchestrator:
                     f"We're delighted you'll be staying at {property_.name} "
                     f"from {reservation.check_in} to {reservation.check_out}. "
                     f"Your {reservation.room_type} is ready for you.\n\n"
-                    f"({voice})\n\n"
                     f"Reply anytime if you need anything before arrival.\n\n"
                     f"— The {property_.name} team"
                 ),
@@ -332,6 +336,22 @@ class AIOrchestrator:
                     f"du {reservation.check_in} au {reservation.check_out}. "
                     f"Votre {reservation.room_type} vous attend.\n\n"
                     f"— L'équipe {property_.name}"
+                ),
+            },
+            "booking_reminder": {
+                "en": (
+                    f"{greeting} {first},\n\n"
+                    f"Friendly reminder: your stay at {property_.name} begins on "
+                    f"{reservation.check_in} ({reservation.room_type}). "
+                    f"We look forward to welcoming you.\n\n"
+                    f"Need a late check-in or airport transfer? Just reply.\n\n"
+                    f"— {property_.name}"
+                ),
+                "de": (
+                    f"{greeting} {first},\n\n"
+                    f"Erinnerung: Ihr Aufenthalt im {property_.name} beginnt am "
+                    f"{reservation.check_in}. Wir freuen uns auf Sie.\n\n"
+                    f"— {property_.name}"
                 ),
             },
             "upsell": {
@@ -367,13 +387,24 @@ class AIOrchestrator:
                     f"— Das Team von {property_.name}"
                 ),
             },
+            "feedback_request": {
+                "en": (
+                    f"{greeting} {first},\n\n"
+                    f"How was your stay at {property_.name}? "
+                    f"A quick reply with what went well (or what we can improve) "
+                    f"helps us take better care of you next time.\n\n"
+                    f"— The {property_.name} team"
+                ),
+            },
         }
         type_templates = templates.get(message_type, templates["welcome"])
         body = type_templates.get(lang) or type_templates.get("en", "")
         subject_map = {
             "welcome": f"Welcome to {property_.name}",
+            "booking_reminder": f"Reminder: your stay at {property_.name}",
             "upsell": "A special offer for your stay",
             "review_request": f"How was your stay at {property_.name}?",
+            "feedback_request": f"Quick feedback on {property_.name}?",
         }
         return {
             "subject": subject_map.get(message_type, f"Message from {property_.name}"),
@@ -471,7 +502,11 @@ def execute_decision(
 
     results: dict[str, Any] = {"decision_id": decision.id, "actions": []}
     if decision.action in ("Welcome", "Upsell", "ReviewRequest"):
-        msg_type = {
+        try:
+            raw_meta = json.loads(decision.raw_output or "{}")
+        except Exception:  # noqa: BLE001
+            raw_meta = {}
+        msg_type = raw_meta.get("message_type") or {
             "Welcome": "welcome",
             "Upsell": "upsell",
             "ReviewRequest": "review_request",
@@ -480,7 +515,11 @@ def execute_decision(
             guest, reservation, property_, msg_type, decision.offer, decision.language
         )
         channel = MessageChannel(decision.channel or "whatsapp")
-        needs_approval = decision.confidence < 0.85 or decision.action == "Upsell"
+        # Template agent is high-confidence; only Upsell always needs approval.
+        from_zero_cost = raw_meta.get("agent", "").startswith("zero-cost")
+        needs_approval = decision.action == "Upsell" or (
+            decision.confidence < 0.85 and not from_zero_cost
+        )
         scheduled = _parse_execute_at(
             decision.raw_output, datetime.utcnow() + timedelta(hours=1)
         )

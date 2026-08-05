@@ -535,7 +535,7 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
                 name=name,
                 trigger_event=trigger,
                 status="active",
-                definition='{"steps":["ai","send"]}',
+                definition='{"steps":["template","send"]}',
                 runs=0,
             )
         )

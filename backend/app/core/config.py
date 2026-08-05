@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-5.5"
     use_mock_ai: bool = True
+    # Prefer template + guest-memory agent ($0) for routine guest ops.
+    # Set ZERO_COST_AGENT_ENABLED=false to always use the LLM gateway when live.
+    zero_cost_agent_enabled: bool = True
+    # Optional: use LLM for upsell choice only (still templates for welcome/review).
+    llm_for_upsells: bool = False
+    # Optional: use LLM for negative review drafts (default = template drafts).
+    llm_for_review_replies: bool = False
 
     # Cloudbeds
     cloudbeds_client_id: str = ""

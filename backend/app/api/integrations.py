@@ -99,11 +99,29 @@ def integrations_status(user: AuthUser) -> V1Readiness:
             priority=4,
             configured=ai_gateway.configured,
             mode=ai_gateway.mode,
-            detail=f"Model: {settings.openai_model} · structured JSON only · platform key",
+            detail=(
+                f"Model: {settings.openai_model} · used only when require_llm / "
+                f"LLM_FOR_UPSELLS. Routine welcome/reminder/review = zero-cost agent "
+                f"({'on' if settings.zero_cost_agent_enabled else 'off'})"
+            ),
             account_owner="platform",
             account_label="Yours (initially)",
             free_tier="None",
             paid="Pay per token",
+        ),
+        IntegrationStatusOut(
+            provider="Zero-Cost Agent",
+            priority=0,
+            configured=settings.zero_cost_agent_enabled,
+            mode="live" if settings.zero_cost_agent_enabled else "off",
+            detail=(
+                "Templates + guest memory for welcome, booking reminders, "
+                "review/feedback asks, catalog upsells, review reply drafts — $0 AI"
+            ),
+            account_owner="platform",
+            account_label="Built-in",
+            free_tier="Always free",
+            paid="—",
         ),
         IntegrationStatusOut(
             provider="Google Reviews",
@@ -128,7 +146,10 @@ def integrations_status(user: AuthUser) -> V1Readiness:
             paid="Transaction fees",
         ),
     ]
-    required = {"Cloudbeds", "WhatsApp", "Email", "OpenAI", "Stripe"}
+    required = {"Cloudbeds", "WhatsApp", "Email", "Stripe"}
+    # OpenAI is optional when the zero-cost agent covers routine flows.
+    if not settings.zero_cost_agent_enabled:
+        required.add("OpenAI")
     blockers = [
         i.provider for i in items if i.provider in required and not i.configured
     ]

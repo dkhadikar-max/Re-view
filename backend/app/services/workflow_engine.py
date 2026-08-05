@@ -17,7 +17,7 @@ from app.services.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_STEPS = {"wait", "ai", "send", "notify", "complete"}
+ALLOWED_STEPS = {"wait", "ai", "template", "send", "notify", "complete"}
 
 
 class WorkflowDefinition(BaseModel):
@@ -96,6 +96,12 @@ def advance_workflow_run(db: Session, run: WorkflowRun) -> WorkflowRun:
             run.status = WorkflowRunStatus.running
         elif step == "ai":
             ctx["ai_executed"] = True
+            run.current_step += 1
+        elif step == "template":
+            # Zero-cost template agent step (no LLM).
+            ctx["template_executed"] = True
+            ctx["agent"] = "zero-cost-agent-v1"
+            ctx["cost_usd"] = 0.0
             run.current_step += 1
         elif step == "send":
             ctx["send_executed"] = True
