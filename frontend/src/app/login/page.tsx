@@ -81,6 +81,8 @@ export default function LoginPage() {
           >
             {ARGUS.productLine}
           </a>
+          {" · "}
+          <span className="text-ink-500">{REVISIT.siteUrl.replace(/^https?:\/\//, "")}</span>
         </p>
       </form>
     </div>
