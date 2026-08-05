@@ -114,7 +114,19 @@ Do **not** put a root `railway.toml` that pins one Dockerfile — Railway applie
 - Builder: Dockerfile  
 - Dockerfile path: `backend/Dockerfile`  
 - Healthcheck: `/ready`  
-- Env: `DATABASE_URL`, `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`, **`OWNER_EMAIL`**, **`OWNER_PASSWORD`** (required for `/admin` login)
+- Env: `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`, **`OWNER_EMAIL`**, **`OWNER_PASSWORD`** (required for `/admin` login)
+
+**Durable storage (required in production)**
+
+Container SQLite is **ephemeral on Railway** — every redeploy wipes hotels, trial signups, and the owner password. That is why `/admin` passwords and client lists kept resetting.
+
+1. On the **API** service in Railway: **Add Plugin → PostgreSQL**
+2. Link it so `DATABASE_URL` is injected (Railway’s `postgresql://…` or `postgres://…` URL is fine — the app rewrites it for `psycopg`)
+3. Set `OWNER_EMAIL` + `OWNER_PASSWORD` on the API service
+4. Redeploy the API
+5. Confirm `/ready` shows `"storage_durable": true` and `"storage_backend": "postgresql"`
+
+Temporary escape hatch: `ALLOW_EPHEMERAL_SQLITE=true` (API will start, but data will still be lost on the next deploy). After Postgres is attached, set `REQUIRE_DURABLE_STORAGE=true` so the API refuses to boot on SQLite again.
 
 Clear Custom Build Command on both.
 

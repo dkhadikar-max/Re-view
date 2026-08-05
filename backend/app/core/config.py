@@ -1,7 +1,13 @@
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.database_url import (
+    database_backend,
+    is_ephemeral_sqlite,
+    normalize_database_url,
+)
 
 
 class Settings(BaseSettings):
@@ -16,7 +22,13 @@ class Settings(BaseSettings):
     argus_site_url: str = "https://argusai.online"
     argus_product_line: str = "Argus OS"
 
+    # Production MUST use Postgres (Railway Postgres plugin). SQLite defaults are
+    # for local/dev only — container SQLite is wiped on every Railway redeploy.
     database_url: str = "sqlite:///./revisit.db"
+    # Escape hatch while attaching Postgres: ALLOW_EPHEMERAL_SQLITE=true
+    allow_ephemeral_sqlite: bool = False
+    # Set REQUIRE_DURABLE_STORAGE=true after Postgres is attached to refuse boot on SQLite
+    require_durable_storage: bool = False
     redis_url: str = "redis://127.0.0.1:6379/0"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
@@ -84,6 +96,11 @@ class Settings(BaseSettings):
         description="Password for owner_email. Set OWNER_PASSWORD in production.",
     )
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_db_url(cls, v: object) -> str:
+        return normalize_database_url(str(v) if v is not None else "")
+
     @field_validator("owner_email", mode="before")
     @classmethod
     def normalize_owner_email(cls, v: object) -> str:
@@ -96,6 +113,30 @@ class Settings(BaseSettings):
         raw = (str(v).strip() if v is not None else "")
         return raw or "Deepanshu"
 
+    @field_validator("environment")
+    @classmethod
+    def validate_environment(cls, v: str) -> str:
+        allowed = {"development", "staging", "production", "test"}
+        if v not in allowed:
+            raise ValueError(f"environment must be one of {allowed}")
+        return v
+
+    @model_validator(mode="after")
+    def reject_ephemeral_sqlite_in_production(self) -> "Settings":
+        if (
+            self.environment == "production"
+            and is_ephemeral_sqlite(self.database_url)
+            and self.require_durable_storage
+            and not self.allow_ephemeral_sqlite
+        ):
+            raise ValueError(
+                "Production cannot use container SQLite — data (passwords, trials, "
+                "hotels) is wiped on every Railway redeploy. Add Railway Postgres, "
+                "set DATABASE_URL to the Postgres URL, and redeploy. Temporary "
+                "escape hatch: ALLOW_EPHEMERAL_SQLITE=true (data will still be lost)."
+            )
+        return self
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
@@ -103,6 +144,15 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def database_backend(self) -> str:
+        return database_backend(self.database_url)
+
+    @property
+    def storage_durable(self) -> bool:
+        """False when using container-local SQLite (ephemeral on Railway)."""
+        return not is_ephemeral_sqlite(self.database_url)
 
     @property
     def cloudbeds_configured(self) -> bool:
@@ -131,14 +181,6 @@ class Settings(BaseSettings):
     @property
     def google_reviews_configured(self) -> bool:
         return bool(self.google_refresh_token and self.google_location_id)
-
-    @field_validator("environment")
-    @classmethod
-    def validate_environment(cls, v: str) -> str:
-        allowed = {"development", "staging", "production", "test"}
-        if v not in allowed:
-            raise ValueError(f"environment must be one of {allowed}")
-        return v
 
 
 @lru_cache

@@ -137,6 +137,9 @@ export type PlatformAnalytics = {
     signed_up_at: string;
   }[];
   generated_at: string;
+  storage_backend?: string;
+  storage_durable?: boolean;
+  storage_warning?: string | null;
 };
 
 export type DashboardStats = {

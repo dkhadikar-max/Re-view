@@ -18,6 +18,7 @@ from app.models.entities import (
     Tenant,
     User,
 )
+from app.core.config import settings
 from app.services.currency import currency_for_country
 
 
@@ -95,6 +96,10 @@ class PlatformAnalytics(BaseModel):
     generated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
+    storage_backend: str = "unknown"
+    storage_durable: bool = True
+    storage_warning: Optional[str] = None
+
 
 
 def _manager_for_tenant(db: Session, tenant_id: str) -> User | None:
@@ -245,4 +250,14 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
         by_country=by_country,
         recent_signups=recent,
         generated_at=now,
+        storage_backend=settings.database_backend,
+        storage_durable=settings.storage_durable,
+        storage_warning=(
+            None
+            if settings.storage_durable
+            else (
+                "Ephemeral SQLite — hotels, passwords, and trials reset on every "
+                "Railway redeploy. Add Railway Postgres and set DATABASE_URL on the API service."
+            )
+        ),
     )

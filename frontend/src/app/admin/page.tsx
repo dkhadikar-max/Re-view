@@ -149,6 +149,26 @@ export default function PlatformAdminPage() {
         subtitle={`${REVISIT.name} owner view — signups, trials, and client footprint.`}
       />
 
+      {analytics.storage_durable === false && (
+        <div
+          className="mb-6 rounded-xl border border-coral-300 bg-coral-50 p-4 text-sm text-coral-900"
+          role="alert"
+        >
+          <p className="font-medium">Storage is not durable</p>
+          <p className="mt-1 text-coral-800">
+            {analytics.storage_warning ||
+              "The API is using ephemeral SQLite. Hotels, passwords, and trials reset on every Railway redeploy."}
+          </p>
+          <p className="mt-2 text-xs text-coral-700">
+            Fix: Railway → API service → Add Postgres plugin → set{" "}
+            <code className="rounded bg-white/80 px-1">DATABASE_URL</code> to the
+            Postgres URL → set{" "}
+            <code className="rounded bg-white/80 px-1">OWNER_PASSWORD</code> →
+            redeploy. Backend: {analytics.storage_backend || "sqlite"}
+          </p>
+        </div>
+      )}
+
       <section className="mb-6 animate-fade-up overflow-hidden rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-700 p-6 text-white opacity-0">
         <div className="flex items-start gap-3">
           <Shield className="mt-1 h-5 w-5 text-sea-300" />

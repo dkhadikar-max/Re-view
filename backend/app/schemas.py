@@ -345,6 +345,10 @@ class HealthOut(BaseModel):
     database: str
     environment: str
     platform: str = "Argus OS"
+    storage_backend: str | None = None
+    storage_durable: bool | None = None
+    storage_warning: str | None = None
+
 
 
 TokenResponse.model_rebuild()

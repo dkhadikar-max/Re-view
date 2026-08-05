@@ -30,6 +30,19 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if not settings.storage_durable:
+        logger.critical(
+            "STORAGE NOT DURABLE: database_url uses SQLite (%s). "
+            "All hotels, passwords, and trials will be wiped on the next "
+            "container redeploy. Attach Railway Postgres and set DATABASE_URL.",
+            settings.database_backend,
+        )
+    else:
+        logger.info(
+            "Storage backend=%s durable=%s",
+            settings.database_backend,
+            settings.storage_durable,
+        )
     if settings.auto_create_tables:
         Base.metadata.create_all(bind=engine)
         ensure_schema_patches()
@@ -42,6 +55,20 @@ async def lifespan(_: FastAPI):
         finally:
             db.close()
     yield
+
+
+def _storage_fields() -> dict:
+    warning = None
+    if not settings.storage_durable:
+        warning = (
+            "Ephemeral SQLite — passwords, trials, and hotels reset on every "
+            "Railway redeploy. Add Postgres and set DATABASE_URL."
+        )
+    return {
+        "storage_backend": settings.database_backend,
+        "storage_durable": settings.storage_durable,
+        "storage_warning": warning,
+    }
 
 
 app = FastAPI(
@@ -114,6 +141,7 @@ def health():
         version=settings.app_version,
         database="unchecked",
         environment=settings.environment,
+        **_storage_fields(),
     )
 
 
@@ -133,6 +161,7 @@ def ready():
                 "version": settings.app_version,
                 "database": "error",
                 "environment": settings.environment,
+                **_storage_fields(),
             },
         )
     return HealthOut(
@@ -141,4 +170,5 @@ def ready():
         version=settings.app_version,
         database=db_status,
         environment=settings.environment,
+        **_storage_fields(),
     )
