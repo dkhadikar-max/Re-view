@@ -212,17 +212,28 @@ async def login(
     payload: Annotated[LoginRequest, Depends(_login_payload)],
     db: Session = Depends(get_db),
 ) -> TokenResponse:
-    user = (
+    email = str(payload.username).lower().strip()
+    password = payload.password
+
+    # Email is only unique per-tenant in the schema; the same address can exist on
+    # demo-hotel (owner) and a trial tenant. Match the password against every
+    # active candidate so trial re-login is not blocked by the owner row.
+    candidates = (
         db.query(User)
         .join(Tenant, Tenant.id == User.tenant_id)
         .filter(
-            func.lower(User.email) == payload.username.lower(),
+            func.lower(User.email) == email,
             User.is_active.is_(True),
             Tenant.is_active.is_(True),
         )
-        .first()
+        .order_by(User.created_at.asc())
+        .all()
     )
-    if not user or not verify_password(payload.password, user.password_hash):
+    user = next(
+        (c for c in candidates if verify_password(password, c.password_hash)),
+        None,
+    )
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

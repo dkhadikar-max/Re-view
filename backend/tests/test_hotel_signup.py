@@ -180,3 +180,58 @@ def test_shared_demo_still_works(client):
         data={"username": DEMO_EMAIL, "password": DEMO_PASSWORD},
     )
     assert login.status_code == 200
+
+
+def test_login_matches_trial_when_email_also_on_demo(client):
+    """Duplicate email across tenants must not block trial password re-login."""
+    trial_password = "TrialPass9!"
+    db = _db(client)
+    try:
+        db.add(
+            Tenant(
+                id="dup-email-trial",
+                name="Azure Coast Resort",
+                plan="trial",
+                is_active=True,
+            )
+        )
+        db.flush()
+        db.add(
+            User(
+                tenant_id="dup-email-trial",
+                email=DEMO_EMAIL,
+                name="Deepanshu Khadikar",
+                role="manager",
+                password_hash=hash_password(trial_password),
+                is_active=True,
+            )
+        )
+        db.add(
+            Property(
+                tenant_id="dup-email-trial",
+                name="Azure Coast Resort",
+                type="hotel",
+                city="Nice",
+                country="France",
+                rooms=48,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    trial_login = client.post(
+        "/api/auth/login",
+        data={"username": DEMO_EMAIL, "password": trial_password},
+    )
+    assert trial_login.status_code == 200, trial_login.text
+    assert trial_login.json()["user"]["tenant_id"] == "dup-email-trial"
+    assert trial_login.json()["user"]["role"] == "manager"
+
+    owner_login = client.post(
+        "/api/auth/login",
+        data={"username": DEMO_EMAIL, "password": DEMO_PASSWORD},
+    )
+    assert owner_login.status_code == 200
+    assert owner_login.json()["user"]["tenant_id"] == "demo-hotel"
+    assert owner_login.json()["user"]["role"] == "admin"
