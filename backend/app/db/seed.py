@@ -89,12 +89,24 @@ def ensure_owner_account(db: Session) -> None:
     no longer verifies — avoids wiping a working hash when env whitespace
     changes, while still rotating when the env password is updated.
     """
+    import logging
+
+    log = logging.getLogger("revisit.seed")
+
     if not db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
         return
 
     email = _owner_email()
     name = _owner_name()
     password = _owner_password()
+
+    if not password and settings.is_production:
+        log.warning(
+            "OWNER_PASSWORD is not set on the API service. "
+            "Platform owner %s keeps the existing DB password hash. "
+            "Set OWNER_PASSWORD on the API Railway service and redeploy to reset it.",
+            email,
+        )
 
     legacy = (
         db.query(User)
@@ -133,6 +145,7 @@ def ensure_owner_account(db: Session) -> None:
         owner.is_active = True
         if password and not verify_password(password, owner.password_hash):
             owner.password_hash = hash_password(password)
+            log.info("Synced platform owner password from OWNER_PASSWORD for %s", email)
     elif password:
         db.add(
             User(
@@ -143,6 +156,11 @@ def ensure_owner_account(db: Session) -> None:
                 password_hash=hash_password(password),
                 is_active=True,
             )
+        )
+        log.info("Created platform owner %s from OWNER_PASSWORD", email)
+    elif not owner:
+        log.error(
+            "No platform owner account and OWNER_PASSWORD is unset — /admin login will fail"
         )
 
     # Same email on other tenants (e.g. a trial) stays active — login matches by password.

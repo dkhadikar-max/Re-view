@@ -80,7 +80,16 @@ cd frontend && npm install && npm run dev
 ```
 
 Sign in at `/login`. Hotels can create a trial workspace at `/onboard`.
-Set `OWNER_EMAIL` and `OWNER_PASSWORD` on the API service for the platform admin account.
+
+**Platform owner (`/admin`)** — set these on the **API** Railway service (not the web service):
+
+| Variable | Example |
+|----------|---------|
+| `OWNER_EMAIL` | `dkhadikar@gmail.com` |
+| `OWNER_PASSWORD` | your chosen password (min 8 chars) |
+| `OWNER_NAME` | `Deepanshu` |
+
+After setting or changing `OWNER_PASSWORD`, **redeploy the API** service. On startup it syncs that password onto the owner account. Then sign in at `/login` (or open `/admin`) with `OWNER_EMAIL` + `OWNER_PASSWORD`. You can also change the password later under **Settings**.
 
 ### Railway deploy
 
@@ -105,7 +114,7 @@ Do **not** put a root `railway.toml` that pins one Dockerfile — Railway applie
 - Builder: Dockerfile  
 - Dockerfile path: `backend/Dockerfile`  
 - Healthcheck: `/ready`  
-- Env: `DATABASE_URL`, `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`
+- Env: `DATABASE_URL`, `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`, **`OWNER_EMAIL`**, **`OWNER_PASSWORD`** (required for `/admin` login)
 
 Clear Custom Build Command on both.
 
