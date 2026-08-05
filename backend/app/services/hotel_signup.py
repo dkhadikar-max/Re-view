@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func
@@ -13,13 +12,24 @@ from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, hash_password
 from app.models.entities import (
+    AIDecision,
+    Approval,
+    ApprovalStatus,
     Connector,
     Guest,
+    Message,
+    MessageChannel,
+    MessageStatus,
+    Offer,
+    OfferStatus,
     Property,
     Reservation,
     ReservationStatus,
     Review,
     ReviewSentiment,
+    Task,
+    TaskPriority,
+    TaskStatus,
     Tenant,
     User,
     Workflow,
@@ -35,6 +45,7 @@ class HotelSignupRequest(BaseModel):
     city: str = Field(default="Berlin", max_length=128)
     country: str = Field(default="Germany", max_length=128)
     rooms: int = Field(default=48, ge=5, le=2000)
+    # Accepted for API compatibility; trials always receive demo data.
     include_sample_data: bool = True
 
 
@@ -54,9 +65,25 @@ def _tenant_id_from_name(hotel_name: str) -> str:
     return f"{base}-{uuid.uuid4().hex[:6]}"
 
 
-def _seed_sample_guests(db: Session, tenant_id: str, prop: Property) -> None:
-    """Compact sample so Guest Intelligence / Operations look alive on first login."""
+def ensure_trial_demo_data(db: Session, tenant_id: str) -> bool:
+    """Seed rich demo data for a trial tenant if it has no guests yet.
+
+    Returns True when data was seeded. Safe to call on every trial login.
+    """
+    guest_count = db.query(Guest).filter(Guest.tenant_id == tenant_id).count()
+    if guest_count > 0:
+        return False
+    prop = db.query(Property).filter(Property.tenant_id == tenant_id).first()
+    if not prop:
+        return False
+    seed_trial_demo_data(db, tenant_id, prop)
+    return True
+
+
+def seed_trial_demo_data(db: Session, tenant_id: str, prop: Property) -> None:
+    """Rich sample so Operations, Intelligence, Celebrate, and ROI look alive."""
     today = date.today()
+    now = datetime.utcnow()
     samples = [
         {
             "name": "Marie Dupont",
@@ -79,6 +106,7 @@ def _seed_sample_guests(db: Session, tenant_id: str, prop: Property) -> None:
                 "Remembers: Late checkout"
             ),
             "birthday": today + timedelta(days=11),
+            "reviews": 2,
         },
         {
             "name": "Hans Mueller",
@@ -93,7 +121,25 @@ def _seed_sample_guests(db: Session, tenant_id: str, prop: Property) -> None:
             "spend": 2140,
             "stays": 4,
             "pref": "whatsapp",
-            "notes": "Remembers: Early breakfast",
+            "notes": "Remembers: Early breakfast\nRemembers: Desk near window",
+            "reviews": 0,
+        },
+        {
+            "name": "The Rossi Family",
+            "email": f"rossi@{tenant_id}.demo",
+            "country": "Italy",
+            "language": "it",
+            "travel_type": "family",
+            "purpose": "leisure",
+            "room": "Family Suite",
+            "ltv": 74,
+            "sat": 80,
+            "spend": 1650,
+            "stays": 2,
+            "pref": "whatsapp",
+            "notes": "Remembers: Baby cot",
+            "children": 2,
+            "reviews": 1,
         },
         {
             "name": "Emily Chen",
@@ -103,12 +149,29 @@ def _seed_sample_guests(db: Session, tenant_id: str, prop: Property) -> None:
             "travel_type": "leisure",
             "purpose": "leisure",
             "room": "Deluxe Double",
-            "ltv": 52,
-            "sat": 48,
+            "ltv": 48,
+            "sat": 45,
             "spend": 890,
             "stays": 1,
             "pref": "email",
-            "complaints": 1,
+            "complaints": 2,
+            "reviews": 0,
+        },
+        {
+            "name": "Ana Silva",
+            "email": f"ana@{tenant_id}.demo",
+            "country": "Portugal",
+            "language": "pt",
+            "travel_type": "luxury",
+            "purpose": "honeymoon",
+            "room": "Honeymoon Suite",
+            "ltv": 88,
+            "sat": 92,
+            "spend": 3100,
+            "stays": 2,
+            "pref": "whatsapp",
+            "notes": "Remembers: Champagne on arrival",
+            "reviews": 1,
         },
     ]
 
@@ -134,54 +197,240 @@ def _seed_sample_guests(db: Session, tenant_id: str, prop: Property) -> None:
             ltv_score=g["ltv"],
             satisfaction_score=g["sat"],
             complaint_history=g.get("complaints", 0),
-            upsell_acceptance=0.35 if g["travel_type"] == "luxury" else 0.2,
-            previous_reviews=1 if g["stays"] > 1 else 0,
-            children=0,
+            upsell_acceptance=0.4 if g["travel_type"] == "luxury" else 0.22,
+            previous_reviews=g.get("reviews", 0),
+            children=g.get("children", 0),
+            review_reward_unlocked=g.get("reviews", 0) > 0,
+            review_reward_unlocked_at=now - timedelta(days=20) if g.get("reviews", 0) > 0 else None,
         )
         db.add(guest)
         guests.append(guest)
     db.flush()
 
-    # Mix of live / past / upcoming stays
+    # Marie celebrate dates locked for Celebrate demo
+    guests[0].birthday_locked = True
+    guests[0].celebrate_dates_confirmed_at = now - timedelta(days=18)
+
     specs = [
         (0, today - timedelta(days=1), today + timedelta(days=2), "checked_in", 890),
         (1, today, today + timedelta(days=3), "confirmed", 420),
-        (2, today - timedelta(days=5), today - timedelta(days=2), "checked_out", 310),
+        (2, today, today + timedelta(days=4), "confirmed", 780),
+        (3, today - timedelta(days=4), today, "checked_out", 310),
+        (4, today - timedelta(days=2), today + timedelta(days=1), "checked_in", 1200),
+        (0, today - timedelta(days=40), today - timedelta(days=37), "checked_out", 820),
         (0, today + timedelta(days=21), today + timedelta(days=24), "confirmed", 1100),
+        (1, today - timedelta(days=55), today - timedelta(days=52), "checked_out", 540),
     ]
-    for idx, cin, cout, status, amount in specs:
-        db.add(
-            Reservation(
-                tenant_id=tenant_id,
-                property_id=prop.id,
-                guest_id=guests[idx].id,
-                external_id=f"TRIAL-{tenant_id[:8]}-{idx}-{cin.isoformat()}",
-                source="direct",
-                status=ReservationStatus(status),
-                room_type=guests[idx].preferred_room or "Deluxe Double",
-                check_in=cin,
-                check_out=cout,
-                adults=2,
-                children=0,
-                total_amount=amount,
-                currency="EUR",
-                special_requests="Late checkout" if idx == 0 else None,
-            )
+    reservations: list[Reservation] = []
+    for i, (idx, cin, cout, status, amount) in enumerate(specs):
+        res = Reservation(
+            tenant_id=tenant_id,
+            property_id=prop.id,
+            guest_id=guests[idx].id,
+            external_id=f"TRIAL-{tenant_id[:8]}-{i}",
+            source="direct" if i % 2 == 0 else "Booking.com",
+            status=ReservationStatus(status),
+            room_type=guests[idx].preferred_room or "Deluxe Double",
+            check_in=cin,
+            check_out=cout,
+            adults=2,
+            children=guests[idx].children,
+            total_amount=amount,
+            currency="EUR",
+            special_requests=(
+                "Late checkout, sparkling water, no feather pillows"
+                if idx == 0
+                else None
+            ),
         )
+        db.add(res)
+        reservations.append(res)
     db.flush()
+
+    # Accepted spa upsell for Marie (past stay)
+    past_marie = reservations[5]
+    db.add(
+        Offer(
+            tenant_id=tenant_id,
+            reservation_id=past_marie.id,
+            name="Spa Package",
+            category="upsell",
+            description="90-minute couples spa",
+            price=95.0,
+            currency="EUR",
+            status=OfferStatus.accepted,
+            confidence=0.91,
+            accepted_at=now - timedelta(days=38),
+            created_at=now - timedelta(days=39),
+        )
+    )
+    db.add(
+        Offer(
+            tenant_id=tenant_id,
+            reservation_id=reservations[0].id,
+            name="Late Checkout",
+            category="upsell",
+            description="Checkout at 2 PM",
+            price=40.0,
+            currency="EUR",
+            status=OfferStatus.offered,
+            confidence=0.84,
+        )
+    )
 
     db.add(
         Review(
             tenant_id=tenant_id,
             property_id=prop.id,
             guest_id=guests[0].id,
+            reservation_id=past_marie.id,
             platform="google",
             rating=5,
-            title="Wonderful stay",
-            body="Staff remembered every preference. We will return.",
+            title="Exceptional stay",
+            body="Staff remembered every preference. We will return for our anniversary.",
             sentiment=ReviewSentiment.positive,
             responded=True,
-            published_response="Thank you — we can't wait to welcome you again.",
+            published_response="Thank you — we look forward to welcoming you back.",
+            created_at=now - timedelta(days=36),
+        )
+    )
+    db.add(
+        Review(
+            tenant_id=tenant_id,
+            property_id=prop.id,
+            guest_id=guests[3].id,
+            reservation_id=reservations[3].id,
+            platform="google",
+            rating=2,
+            title="Room was noisy",
+            body="AC was loud overnight and check-in took too long.",
+            sentiment=ReviewSentiment.negative,
+            responded=False,
+            ai_draft_response=(
+                "We're sorry your stay fell short. Our team will follow up personally "
+                "and we'd like to make this right on your next visit."
+            ),
+            created_at=now - timedelta(days=1),
+        )
+    )
+
+    welcome = Message(
+        tenant_id=tenant_id,
+        guest_id=guests[1].id,
+        reservation_id=reservations[1].id,
+        channel=MessageChannel.whatsapp,
+        direction="outbound",
+        language="de",
+        subject="Welcome",
+        body="Hallo Hans — your Business King is ready. Breakfast from 6:30.",
+        status=MessageStatus.pending_approval,
+        message_type="welcome",
+        confidence=0.92,
+        created_at=now - timedelta(hours=1),
+    )
+    db.add(welcome)
+    db.flush()
+
+    db.add(
+        Approval(
+            tenant_id=tenant_id,
+            approval_type="message",
+            title="Approve WhatsApp welcome — Hans Mueller",
+            content=welcome.body,
+            status=ApprovalStatus.pending,
+            related_type="message",
+            related_id=welcome.id,
+            confidence=0.92,
+        )
+    )
+    db.add(
+        Approval(
+            tenant_id=tenant_id,
+            approval_type="review_response",
+            title="Approve reply — Emily Chen 2★ review",
+            content="Draft reply ready for the noisy-room review.",
+            status=ApprovalStatus.pending,
+            related_type="review",
+            related_id=None,
+            confidence=0.88,
+        )
+    )
+
+    db.add(
+        Message(
+            tenant_id=tenant_id,
+            guest_id=guests[0].id,
+            reservation_id=reservations[0].id,
+            channel=MessageChannel.whatsapp,
+            direction="outbound",
+            language="fr",
+            body="Bonjour Marie — Sea View Suite ready. Sparkling water in room.",
+            status=MessageStatus.sent,
+            message_type="welcome",
+            confidence=0.94,
+            sent_at=now - timedelta(hours=6),
+            created_at=now - timedelta(hours=7),
+        )
+    )
+
+    db.add(
+        Task(
+            tenant_id=tenant_id,
+            title="Follow up on Emily Chen negative review",
+            description="Call or WhatsApp within 2 hours; offer room change credit.",
+            status=TaskStatus.open,
+            priority=TaskPriority.high,
+            assignee="Front Office",
+            due_at=now + timedelta(hours=4),
+        )
+    )
+    db.add(
+        Task(
+            tenant_id=tenant_id,
+            title="Prepare Marie Dupont birthday amenity",
+            description="Vegetarian dessert + note; birthday in 11 days.",
+            status=TaskStatus.open,
+            priority=TaskPriority.medium,
+            assignee="F&B",
+            due_at=now + timedelta(days=9),
+        )
+    )
+
+    db.add(
+        AIDecision(
+            tenant_id=tenant_id,
+            reservation_id=reservations[1].id,
+            guest_id=guests[1].id,
+            action="Welcome",
+            channel="whatsapp",
+            language="de",
+            timing="on confirmation",
+            confidence=0.92,
+            reasoning="Business guest arriving today — send concise WhatsApp welcome.",
+            raw_output="{}",
+            model_name="trial-demo",
+            validated=True,
+            executed=True,
+            created_at=now - timedelta(hours=2),
+        )
+    )
+    db.add(
+        AIDecision(
+            tenant_id=tenant_id,
+            reservation_id=reservations[0].id,
+            guest_id=guests[0].id,
+            action="Upsell",
+            channel="whatsapp",
+            language="fr",
+            offer="Spa Package",
+            timing="day of arrival",
+            confidence=0.89,
+            reasoning="Luxury loyal guest — spa over discount.",
+            raw_output="{}",
+            model_name="trial-demo",
+            validated=True,
+            executed=True,
+            created_at=now - timedelta(days=1),
         )
     )
 
@@ -197,7 +446,6 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
         raise ValueError("An account with this email already exists. Please sign in.")
 
     tenant_id = _tenant_id_from_name(payload.hotel_name)
-    # Extremely unlikely collision, but be safe
     while db.query(Tenant).filter(Tenant.id == tenant_id).first():
         tenant_id = _tenant_id_from_name(payload.hotel_name)
 
@@ -260,8 +508,8 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
             )
         )
 
-    if payload.include_sample_data:
-        _seed_sample_guests(db, tenant_id, prop)
+    # Always seed demo data for trials so clients understand the product
+    seed_trial_demo_data(db, tenant_id, prop)
 
     db.commit()
     db.refresh(user)
@@ -275,7 +523,10 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
     )
     return HotelSignupResponse(
         access_token=token,
-        message=f"Welcome to Revisit, {user.name.split()[0]}. Your hotel workspace is ready.",
+        message=(
+            f"Welcome to Revisit, {user.name.split()[0]}. "
+            "Your hotel workspace is ready with sample guests so you can explore immediately."
+        ),
         user=UserOut.model_validate(user),
         hotel_name=hotel,
         property_name=prop.name,

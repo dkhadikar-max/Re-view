@@ -202,7 +202,6 @@ def build_roi_metrics(db: Session, tenant_id: str, period_days: int = 30) -> ROI
     celebrate_revenue = float(
         sum(float(c.redemption_amount or 0) for c in celebrate_redeemed)
     )
-    revenue_generated = round(upsell_revenue + celebrate_revenue + room_revenue_period * 0.0, 2)
     # Soft attribution: portion of repeat-guest stay revenue in period
     repeat_guest_ids = [
         row[0]

@@ -17,7 +17,6 @@ export default function HotelSignupPage() {
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("Germany");
   const [rooms, setRooms] = useState(48);
-  const [sampleData, setSampleData] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -35,7 +34,7 @@ export default function HotelSignupPage() {
         city: city.trim() || "Berlin",
         country: country.trim() || "Germany",
         rooms,
-        include_sample_data: sampleData,
+        include_sample_data: true,
       });
       setToken(res.access_token);
       setDone(true);
@@ -193,16 +192,11 @@ export default function HotelSignupPage() {
                 className="mt-1 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-sea-500"
               />
             </label>
-            <label className="flex cursor-pointer items-end gap-2 pb-2.5 text-sm text-ink-700">
-              <input
-                type="checkbox"
-                checked={sampleData}
-                onChange={(e) => setSampleData(e.target.checked)}
-                className="rounded border-ink-300 text-sea-600"
-              />
-              Include sample guests
-            </label>
           </div>
+          <p className="mt-3 text-xs text-ink-500">
+            Your trial includes sample guests, arrivals, approvals, and revenue so
+            you can see how Revisit works immediately.
+          </p>
 
           {error && (
             <p className="mt-4 text-sm text-coral-600" role="alert">
