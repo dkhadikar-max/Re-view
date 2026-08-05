@@ -1,0 +1,26 @@
+---
+description: AI agent safety, prompts, and structured output rules.
+globs:
+  - agents/**/*
+  - docs/PROMPTS.md
+  - docs/AI_AGENT.md
+alwaysApply: false
+---
+
+Never let the LLM execute actions directly.
+
+LLM returns structured JSON.
+
+Always validate AI output.
+
+No free-form execution.
+
+Use prompts from docs/PROMPTS.md
+
+Keep prompts modular.
+
+Store every AI decision.
+
+Maintain audit logs.
+
+Never expose API keys.

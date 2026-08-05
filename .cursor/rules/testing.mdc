@@ -1,0 +1,23 @@
+---
+description: Testing requirements for every feature and change.
+globs: tests/**/*
+alwaysApply: false
+---
+
+Every feature must include
+
+Unit Tests
+
+Integration Tests
+
+API Tests
+
+Never finish a task without testing.
+
+Fix linting.
+
+Fix formatting.
+
+Run static analysis.
+
+Document edge cases.

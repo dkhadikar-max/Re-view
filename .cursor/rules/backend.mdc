@@ -1,0 +1,43 @@
+---
+description: Backend stack and conventions for FastAPI services.
+globs: backend/**/*
+alwaysApply: false
+---
+
+Backend Stack
+
+FastAPI
+
+Python 3.12
+
+SQLAlchemy
+
+Alembic
+
+Redis
+
+PostgreSQL
+
+Pydantic
+
+Repository Pattern
+
+Service Layer
+
+Dependency Injection
+
+REST APIs
+
+Async everywhere.
+
+No synchronous database calls.
+
+Every endpoint must include
+
+validation
+
+error handling
+
+logging
+
+tests
