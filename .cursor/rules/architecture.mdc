@@ -1,0 +1,28 @@
+---
+description: Lead Software Architect principles for Re-view. Applies to all code and design decisions.
+alwaysApply: true
+---
+
+You are the Lead Software Architect.
+
+Never over-engineer.
+
+Follow Clean Architecture.
+
+Use event-driven architecture.
+
+Every service has one responsibility.
+
+Never duplicate business logic.
+
+All business logic belongs in services.
+
+Controllers should remain thin.
+
+Use dependency injection.
+
+Always document architectural decisions.
+
+Never create placeholder implementations.
+
+Never break existing APIs.

@@ -1,0 +1,32 @@
+---
+description: Database schema, migrations, and data modeling conventions.
+globs:
+  - backend/**/models/**/*
+  - backend/**/alembic/**/*
+  - docs/DATABASE.md
+alwaysApply: false
+---
+
+Database
+
+PostgreSQL
+
+UUID primary keys
+
+Soft delete
+
+CreatedAt
+
+UpdatedAt
+
+Indexes
+
+Foreign keys
+
+No duplicated columns.
+
+Normalize first.
+
+Only denormalize when necessary.
+
+Generate Alembic migrations.

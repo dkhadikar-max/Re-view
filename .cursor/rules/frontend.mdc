@@ -1,0 +1,29 @@
+---
+description: Frontend stack and conventions for the Next.js application.
+globs: frontend/**/*
+alwaysApply: false
+---
+
+Frontend
+
+Next.js
+
+TypeScript
+
+Tailwind
+
+shadcn/ui
+
+Responsive
+
+Reusable components only.
+
+No duplicated UI.
+
+Always use Server Components where appropriate.
+
+Never mix business logic into components.
+
+Maintain accessibility.
+
+Dark mode by default.

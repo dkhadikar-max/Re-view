@@ -1,0 +1,26 @@
+---
+description: Security requirements for all services and integrations.
+alwaysApply: true
+---
+
+Never hardcode secrets.
+
+Use environment variables.
+
+Encrypt sensitive data.
+
+Use RBAC.
+
+Validate webhooks.
+
+Rate limit APIs.
+
+Sanitize input.
+
+Prevent SQL Injection.
+
+Prevent XSS.
+
+Prevent CSRF.
+
+Never log sensitive information.
