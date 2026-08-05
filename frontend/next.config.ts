@@ -2,19 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  async rewrites() {
-    const destination = `${
-      process.env.INTERNAL_API_URL ||
-      process.env.NEXT_PUBLIC_API_URL ||
-      "http://127.0.0.1:8000"
-    }/api/:path*`;
-    return [
-      {
-        source: "/api/:path*",
-        destination,
-      },
-    ];
-  },
+  // API proxy is implemented at runtime in src/app/api/[...path]/route.ts
+  // so INTERNAL_API_URL can be set on Railway without rebuilding.
   async headers() {
     return [
       {

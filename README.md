@@ -94,9 +94,11 @@ Do **not** put a root `railway.toml` that pins one Dockerfile — Railway applie
 
 **Web (frontend) settings**
 - Builder: Dockerfile  
-- Dockerfile path: `frontend/Dockerfile` (override the dashboard if it still shows backend)  
+- Dockerfile path: `frontend/Dockerfile`  
 - Custom domain: `revisit.argusai.online`  
-- Env: `INTERNAL_API_URL=<API public URL>`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`, `NEXT_PUBLIC_REVISIT_SITE_URL=https://revisit.argusai.online`
+- Env (**required**): `INTERNAL_API_URL=https://<your-API-service>.up.railway.app`  
+  (private Railway URL is fine if both services share a network; public API URL always works)  
+- Also: `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`, `NEXT_PUBLIC_REVISIT_SITE_URL=https://revisit.argusai.online`
 
 **API settings**
 - Builder: Dockerfile  
