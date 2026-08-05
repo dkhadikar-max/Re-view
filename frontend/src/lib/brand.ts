@@ -12,5 +12,7 @@ export const ARGUS = {
 export const REVISIT = {
   name: "Revisit",
   tagline: "Guest revenue, after booking",
+  siteUrl:
+    process.env.NEXT_PUBLIC_REVISIT_SITE_URL || "https://revisit.argusai.online",
   parent: ARGUS,
 } as const;

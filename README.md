@@ -6,6 +6,7 @@
 
 Revisit is the hospitality revenue layer in the Argus decision operating system. V1.0 targets **one paying hotel** with production integrations — not 100 features.
 
+**Product URL:** [revisit.argusai.online](https://revisit.argusai.online)  
 **Parent platform:** [Argus OS](https://argusai.online) · [GitHub](https://github.com/dkhadikar-max/ARGUS-OS)
 
 ## For the Argus site
@@ -14,7 +15,7 @@ Suggested product blurb when linking from Argus:
 
 > **Revisit** — AI guest revenue after booking. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.
 
-Deep link once deployed: set `NEXT_PUBLIC_ARGUS_SITE_URL` / `ARGUS_SITE_URL` and point Argus at your Revisit production URL.
+Link the Argus product card to **https://revisit.argusai.online**.
 
 ## Account ownership (who pays / who connects)
 
@@ -93,9 +94,12 @@ Demo: `manager@azurecoast.demo` / `ChangeMe123!`
 
 Clear any Custom Build Command (do not use `npm run build` on the API).
 
-API env (minimum): `DATABASE_URL` (Postgres plugin), `REDIS_URL` (optional), `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`.
+API env (minimum): `DATABASE_URL` (Postgres plugin), `REDIS_URL` (optional), `JWT_SECRET`, `ENVIRONMENT=production`, `CORS_ORIGINS=https://revisit.argusai.online`, `FRONTEND_BASE_URL=https://revisit.argusai.online`, `ARGUS_SITE_URL=https://argusai.online`, `SEED_ON_STARTUP=true`, `AUTO_CREATE_TABLES=true`.
 
-Web env: `INTERNAL_API_URL=https://<your-api>.up.railway.app`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`.
+Web env: `INTERNAL_API_URL=https://<your-api>.up.railway.app`, `NEXT_PUBLIC_ARGUS_SITE_URL=https://argusai.online`, `NEXT_PUBLIC_REVISIT_SITE_URL=https://revisit.argusai.online`.
+
+**Custom domain (frontend):** on the Web service → Settings → Networking → Custom Domain → `revisit.argusai.online`.  
+At your DNS provider for `argusai.online`, add the CNAME Railway shows (usually `revisit` → `*.up.railway.app`).
 
 ### Docker (dev)
 
