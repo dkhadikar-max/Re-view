@@ -44,7 +44,11 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       .catch(() => {
         if (cancelled) return;
         setToken(null);
-        router.replace("/login");
+        const next =
+          pathname && pathname !== "/login" && pathname !== "/onboard"
+            ? `?next=${encodeURIComponent(pathname)}`
+            : "";
+        router.replace(`/login${next}`);
       });
     return () => {
       cancelled = true;

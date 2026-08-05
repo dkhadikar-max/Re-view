@@ -59,7 +59,12 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
     if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/login")) {
       setToken(null);
       if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
+        const here = `${window.location.pathname}${window.location.search}`;
+        const next =
+          here && here !== "/"
+            ? `?next=${encodeURIComponent(here)}`
+            : "";
+        window.location.href = `/login${next}`;
       }
     }
     if (!res.ok) {
