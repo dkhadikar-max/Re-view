@@ -74,7 +74,10 @@ def test_admin_clients_and_analytics(client):
     headers = _owner_headers(client)
     clients = client.get("/api/admin/clients", headers=headers)
     assert clients.status_code == 200
+    assert clients.headers.get("cache-control", "").startswith("no-store")
     rows = clients.json()
+    # Realtime view excludes seeded demo-hotel
+    assert all(c["tenant_id"] != "demo-hotel" for c in rows)
     assert any(c["hotel_name"] == "Admin View Inn" for c in rows)
     trial = next(c for c in rows if c["hotel_name"] == "Admin View Inn")
     assert trial["plan"] == "trial"
@@ -85,12 +88,19 @@ def test_admin_clients_and_analytics(client):
 
     analytics = client.get("/api/admin/analytics", headers=headers)
     assert analytics.status_code == 200
+    assert analytics.headers.get("cache-control", "").startswith("no-store")
     body = analytics.json()
-    assert body["total_hotels"] >= 2
+    assert body["realtime"] is True
+    assert body["excludes_demo"] is True
+    assert body["total_hotels"] >= 1
     assert body["trial_hotels"] >= 1
     assert any(s["hotel_name"] == "Admin View Inn" for s in body["recent_signups"])
     assert any(p["plan"] == "trial" for p in body["by_plan"])
     assert any(c["country"] == "India" for c in body["by_country"])
+    # Demo can still be fetched explicitly
+    with_demo = client.get("/api/admin/clients?include_demo=true", headers=headers)
+    assert with_demo.status_code == 200
+    assert any(c["tenant_id"] == "demo-hotel" for c in with_demo.json())
 
 
 def test_trial_manager_cannot_access_admin(client):

@@ -1,4 +1,8 @@
-"""Platform owner admin — client signups and cross-tenant analytics."""
+"""Platform owner admin — live cross-tenant signup and client analytics.
+
+Admin surfaces realtime DB queries only (no cached snapshots). Demo-hotel
+seed data is excluded so the owner sees real signups and activity.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.entities import (
     Guest,
     Offer,
@@ -18,8 +23,9 @@ from app.models.entities import (
     Tenant,
     User,
 )
-from app.core.config import settings
 from app.services.currency import currency_for_country
+
+DEMO_TENANT_ID = "demo-hotel"
 
 
 def _as_naive_utc(value: datetime | None) -> datetime | None:
@@ -29,6 +35,10 @@ def _as_naive_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value
     return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _now_utc_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class ClientOut(BaseModel):
@@ -93,13 +103,13 @@ class PlatformAnalytics(BaseModel):
     by_plan: list[PlanBreakdown]
     by_country: list[CountryBreakdown]
     recent_signups: list[RecentSignup]
-    generated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
-    )
+    generated_at: datetime = Field(default_factory=_now_utc_naive)
     storage_backend: str = "unknown"
     storage_durable: bool = True
     storage_warning: Optional[str] = None
-
+    # Explicit: admin metrics are live queries, demo excluded
+    realtime: bool = True
+    excludes_demo: bool = True
 
 
 def _manager_for_tenant(db: Session, tenant_id: str) -> User | None:
@@ -118,8 +128,12 @@ def _manager_for_tenant(db: Session, tenant_id: str) -> User | None:
     return users[0]
 
 
-def list_clients(db: Session) -> list[ClientOut]:
-    tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
+def list_clients(db: Session, *, include_demo: bool = False) -> list[ClientOut]:
+    """Live tenant list. Demo seed hotel excluded unless include_demo=True."""
+    q = db.query(Tenant).order_by(Tenant.created_at.desc())
+    if not include_demo:
+        q = q.filter(Tenant.id != DEMO_TENANT_ID)
+    tenants = q.all()
     out: list[ClientOut] = []
     for tenant in tenants:
         prop = db.query(Property).filter(Property.tenant_id == tenant.id).first()
@@ -159,25 +173,32 @@ def list_clients(db: Session) -> list[ClientOut]:
                 guest_count=guests,
                 reservation_count=reservations,
                 upsell_revenue=round(upsell, 2),
-                is_demo=tenant.id == "demo-hotel",
+                is_demo=tenant.id == DEMO_TENANT_ID,
             )
         )
     return out
 
 
 def platform_analytics(db: Session) -> PlatformAnalytics:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    """Realtime platform metrics from live DB — demo-hotel excluded."""
+    now = _now_utc_naive()
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
 
-    tenants = db.query(Tenant).all()
+    tenants = db.query(Tenant).filter(Tenant.id != DEMO_TENANT_ID).all()
     total = len(tenants)
     trial = sum(1 for t in tenants if t.plan == "trial")
     active = sum(1 for t in tenants if t.is_active)
-    paying = sum(1 for t in tenants if t.plan in {"starter", "growth", "founding"} and t.id != "demo-hotel")
+    paying = sum(
+        1 for t in tenants if t.plan in {"starter", "growth", "founding"}
+    )
     managers = (
         db.query(User)
-        .filter(User.is_active.is_(True), User.role.in_(["manager", "admin"]))
+        .filter(
+            User.is_active.is_(True),
+            User.role.in_(["manager", "admin"]),
+            User.tenant_id != DEMO_TENANT_ID,
+        )
         .count()
     )
     signups_7 = sum(
@@ -201,6 +222,7 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
 
     country_rows = (
         db.query(Property.country, func.count(Property.id))
+        .filter(Property.tenant_id != DEMO_TENANT_ID)
         .group_by(Property.country)
         .all()
     )
@@ -213,7 +235,7 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
         for row in sorted(country_rows, key=lambda r: (-r[1], r[0] or ""))
     ]
 
-    clients = list_clients(db)
+    clients = list_clients(db, include_demo=False)
     recent = [
         RecentSignup(
             tenant_id=c.tenant_id,
@@ -224,7 +246,6 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
             signed_up_at=c.signed_up_at,
         )
         for c in clients
-        if not c.is_demo
     ][:12]
 
     return PlatformAnalytics(
@@ -235,12 +256,19 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
         total_managers=managers,
         signups_last_7_days=signups_7,
         signups_last_30_days=signups_30,
-        total_guests=db.query(Guest).count(),
-        total_reservations=db.query(Reservation).count(),
+        total_guests=db.query(Guest)
+        .filter(Guest.tenant_id != DEMO_TENANT_ID)
+        .count(),
+        total_reservations=db.query(Reservation)
+        .filter(Reservation.tenant_id != DEMO_TENANT_ID)
+        .count(),
         total_upsell_revenue=round(
             float(
                 db.query(func.coalesce(func.sum(Offer.price), 0))
-                .filter(Offer.status == OfferStatus.accepted)
+                .filter(
+                    Offer.status == OfferStatus.accepted,
+                    Offer.tenant_id != DEMO_TENANT_ID,
+                )
                 .scalar()
                 or 0
             ),
@@ -260,4 +288,6 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
                 "Railway redeploy. Add Railway Postgres and set DATABASE_URL on the API service."
             )
         ),
+        realtime=True,
+        excludes_demo=True,
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.security import PlatformOwner
@@ -21,20 +21,35 @@ from app.services.platform_admin import (
 
 router = APIRouter(prefix="/admin", tags=["platform-admin"])
 
+_NO_STORE = "no-store, no-cache, must-revalidate, max-age=0"
+
+
+def _no_cache(response: Response) -> None:
+    response.headers["Cache-Control"] = _NO_STORE
+    response.headers["Pragma"] = "no-cache"
+
 
 @router.get("/clients", response_model=list[ClientOut])
 def admin_list_clients(
+    response: Response,
     _: PlatformOwner,
     db: Session = Depends(get_db),
+    include_demo: bool = Query(
+        False,
+        description="Include seeded demo-hotel (default: realtime clients only)",
+    ),
 ) -> list[ClientOut]:
-    return list_clients(db)
+    _no_cache(response)
+    return list_clients(db, include_demo=include_demo)
 
 
 @router.get("/analytics", response_model=PlatformAnalytics)
 def admin_platform_analytics(
+    response: Response,
     _: PlatformOwner,
     db: Session = Depends(get_db),
 ) -> PlatformAnalytics:
+    _no_cache(response)
     return platform_analytics(db)
 
 

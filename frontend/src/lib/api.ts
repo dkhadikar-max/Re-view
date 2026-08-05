@@ -140,6 +140,8 @@ export type PlatformAnalytics = {
   storage_backend?: string;
   storage_durable?: boolean;
   storage_warning?: string | null;
+  realtime?: boolean;
+  excludes_demo?: boolean;
 };
 
 export type DashboardStats = {

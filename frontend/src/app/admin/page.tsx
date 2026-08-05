@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shield } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
@@ -14,6 +14,8 @@ import {
 import { REVISIT } from "@/lib/brand";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
+const POLL_MS = 12_000;
+
 export default function PlatformAdminPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -22,6 +24,8 @@ export default function PlatformAdminPage() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [resetBusy, setResetBusy] = useState<string | null>(null);
   const [resetResult, setResetResult] = useState<{
     hotel: string;
@@ -50,39 +54,61 @@ export default function PlatformAdminPage() {
     }
   }
 
+  const loadLive = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (silent) setRefreshing(true);
+    try {
+      const me = user ?? (await api.me());
+      if (!user) setUser(me);
+      if (!me.is_platform_admin) {
+        setError(
+          "Platform owner access required. Sign in with the OWNER_EMAIL account."
+        );
+        return;
+      }
+      const [c, a] = await Promise.all([
+        api.adminClients(),
+        api.adminAnalytics(),
+      ]);
+      setClients(c);
+      setAnalytics(a);
+      setUpdatedAt(new Date());
+      setError("");
+    } catch (err) {
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Failed to load admin");
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const me = await api.me();
-        if (cancelled) return;
-        setUser(me);
-        if (!me.is_platform_admin) {
-          setError(
-            "Platform owner access required. Sign in with the OWNER_EMAIL account."
-          );
-          setLoading(false);
-          return;
-        }
-        const [c, a] = await Promise.all([
-          api.adminClients(),
-          api.adminAnalytics(),
-        ]);
-        if (cancelled) return;
-        setClients(c);
-        setAnalytics(a);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load admin");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      if (cancelled) return;
+      await loadLive();
     })();
     return () => {
       cancelled = true;
     };
+    // Initial load only — polling is separate
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!user?.is_platform_admin) return;
+    const id = window.setInterval(() => {
+      void loadLive({ silent: true });
+    }, POLL_MS);
+    const onFocus = () => void loadLive({ silent: true });
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [user?.is_platform_admin, loadLive]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -142,12 +168,33 @@ export default function PlatformAdminPage() {
     );
   }
 
+  const liveLabel = updatedAt
+    ? `Live · updated ${updatedAt.toLocaleTimeString()}`
+    : "Live";
+
   return (
     <div>
       <TopBar
         title="Platform Admin"
-        subtitle={`${REVISIT.name} owner view — signups, trials, and client footprint.`}
+        subtitle={`${REVISIT.name} owner view — realtime signups and client footprint (demo seed excluded).`}
       />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-ink-500">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-sea-200 bg-sea-500/10 px-2.5 py-1 font-medium text-sea-800">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sea-600" />
+          {liveLabel}
+          {refreshing ? " · refreshing…" : ""}
+        </span>
+        <span className="text-ink-400">Auto-refreshes every {POLL_MS / 1000}s</span>
+        <Button
+          variant="secondary"
+          className="!px-2 !py-1 text-xs"
+          disabled={refreshing}
+          onClick={() => void loadLive({ silent: true })}
+        >
+          Refresh now
+        </Button>
+      </div>
 
       {analytics.storage_durable === false && (
         <div
@@ -174,14 +221,14 @@ export default function PlatformAdminPage() {
           <Shield className="mt-1 h-5 w-5 text-sea-300" />
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-sea-300">
-              Owner · {user.email}
+              Owner · {user.email} · realtime only
             </p>
             <h2 className="mt-1 font-display text-2xl tracking-tight md:text-3xl">
               Who is signing up
             </h2>
             <p className="mt-2 max-w-2xl text-sm text-ink-300">
-              Cross-tenant view of hotel trials and workspace activity. Tenant
-              dashboards stay isolated — this panel is platform-only.
+              Live cross-tenant view of hotel trials and workspace activity.
+              Seeded demo data is excluded. Tenant dashboards stay isolated.
             </p>
           </div>
         </div>
@@ -305,9 +352,6 @@ export default function PlatformAdminPage() {
                     <td className="py-3 pr-3">
                       <p className="font-medium text-ink-900">{c.hotel_name}</p>
                       <p className="text-[11px] text-ink-400">{c.tenant_id}</p>
-                      {c.is_demo && (
-                        <Badge className="mt-1">Demo</Badge>
-                      )}
                     </td>
                     <td className="py-3 pr-3">
                       <p className="text-ink-800">{c.manager_name || "—"}</p>
@@ -338,15 +382,13 @@ export default function PlatformAdminPage() {
                       {formatDate(c.signed_up_at)}
                     </td>
                     <td className="py-3">
-                      {!c.is_demo && (
-                        <Button
-                          variant="secondary"
-                          disabled={resetBusy === c.tenant_id}
-                          onClick={() => void resetPassword(c)}
-                        >
-                          {resetBusy === c.tenant_id ? "Resetting…" : "Reset"}
-                        </Button>
-                      )}
+                      <Button
+                        variant="secondary"
+                        disabled={resetBusy === c.tenant_id}
+                        onClick={() => void resetPassword(c)}
+                      >
+                        {resetBusy === c.tenant_id ? "Resetting…" : "Reset"}
+                      </Button>
                     </td>
                   </tr>
                 ))}
