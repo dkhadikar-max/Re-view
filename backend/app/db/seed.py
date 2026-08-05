@@ -66,15 +66,27 @@ def _owner_name() -> str:
     return (settings.owner_name or "Deepanshu").strip() or "Owner"
 
 
-def _owner_password() -> str | None:
+def _owner_password_from_env() -> str | None:
+    """Only the explicit OWNER_PASSWORD env value (never a silent default)."""
     raw = (settings.owner_password or "").strip()
-    if raw:
-        return raw
+    return raw or None
+
+
+def _owner_password_bootstrap() -> str | None:
+    """Password used only when creating the owner for the first time."""
+    explicit = _owner_password_from_env()
+    if explicit:
+        return explicit
     if settings.environment == "test":
         return "test-owner-password"
     if settings.environment == "development":
         return "LocalDevOwnerPass1!"
     return None
+
+
+def _owner_password() -> str | None:
+    """Backward-compatible helper for tests / DEMO_PASSWORD."""
+    return _owner_password_bootstrap()
 
 
 # Resolved at import for tests; ensure_owner_account always uses live settings.
@@ -85,9 +97,10 @@ DEMO_PASSWORD = _owner_password() or "test-owner-password"
 def ensure_owner_account(db: Session) -> None:
     """Upsert platform owner as admin; disable legacy azurecoast demo logins.
 
-    Does not re-hash the owner password on every boot unless OWNER_PASSWORD
-    no longer verifies — avoids wiping a working hash when env whitespace
-    changes, while still rotating when the env password is updated.
+    Password rules:
+    - Explicit OWNER_PASSWORD env → sync hash on every boot (intentional reset).
+    - Dev/test defaults → used only when creating the owner the first time.
+      They must NOT overwrite a password changed via Settings after deploy.
     """
     import logging
 
@@ -98,9 +111,10 @@ def ensure_owner_account(db: Session) -> None:
 
     email = _owner_email()
     name = _owner_name()
-    password = _owner_password()
+    explicit_password = _owner_password_from_env()
+    bootstrap_password = _owner_password_bootstrap()
 
-    if not password and settings.is_production:
+    if not explicit_password and settings.is_production:
         log.warning(
             "OWNER_PASSWORD is not set on the API service. "
             "Platform owner %s keeps the existing DB password hash. "
@@ -129,8 +143,8 @@ def ensure_owner_account(db: Session) -> None:
                 user.name = name
                 user.role = "admin"
                 user.is_active = True
-                if password:
-                    user.password_hash = hash_password(password)
+                if bootstrap_password:
+                    user.password_hash = hash_password(bootstrap_password)
                 continue
         user.is_active = False
 
@@ -143,22 +157,25 @@ def ensure_owner_account(db: Session) -> None:
         owner.name = name
         owner.role = "admin"
         owner.is_active = True
-        if password and not verify_password(password, owner.password_hash):
-            owner.password_hash = hash_password(password)
+        # Only overwrite an existing hash when OWNER_PASSWORD is explicitly set.
+        if explicit_password and not verify_password(
+            explicit_password, owner.password_hash
+        ):
+            owner.password_hash = hash_password(explicit_password)
             log.info("Synced platform owner password from OWNER_PASSWORD for %s", email)
-    elif password:
+    elif bootstrap_password:
         db.add(
             User(
                 tenant_id=DEMO_TENANT,
                 email=email,
                 name=name,
                 role="admin",
-                password_hash=hash_password(password),
+                password_hash=hash_password(bootstrap_password),
                 is_active=True,
             )
         )
-        log.info("Created platform owner %s from OWNER_PASSWORD", email)
-    elif not owner:
+        log.info("Created platform owner %s", email)
+    else:
         log.error(
             "No platform owner account and OWNER_PASSWORD is unset — /admin login will fail"
         )
@@ -166,7 +183,7 @@ def ensure_owner_account(db: Session) -> None:
     # Same email on other tenants (e.g. a trial) stays active — login matches by password.
     # Prefer a clear signup conflict for new accounts; do not deactivate trials here.
 
-    if settings.environment == "test" and password:
+    if settings.environment == "test" and bootstrap_password:
         mgr = (
             db.query(User)
             .filter(
@@ -182,7 +199,7 @@ def ensure_owner_account(db: Session) -> None:
                     email=TEST_MANAGER_EMAIL,
                     name="Test Manager",
                     role="manager",
-                    password_hash=hash_password(password),
+                    password_hash=hash_password(bootstrap_password),
                     is_active=True,
                 )
             )
