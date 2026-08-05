@@ -245,6 +245,8 @@ export type ServiceOwnership = {
 export type V1Readiness = {
   version: string;
   milestone: string;
+  platform?: string;
+  platform_url?: string;
   queue_backend: string;
   integrations: IntegrationStatus[];
   ownership?: ServiceOwnership[];

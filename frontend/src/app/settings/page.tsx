@@ -151,11 +151,13 @@ export default function SettingsPage() {
 
       <Panel title="Architecture" className="mt-6 [animation-delay:160ms]">
         <pre className="overflow-x-auto whitespace-pre text-xs leading-relaxed text-ink-600">
-{`Booking channels → PMS → Revisit
-  AI Brain · Guest Memory · Decision Engine
-  Workflow Engine · Review Engine · Revenue Engine
-         ↓
-WhatsApp · Email · SMS · Google · Stripe · Dashboard`}
+{`Argus OS
+  └── Revisit (hospitality revenue product)
+        Booking channels → PMS → Revisit
+        AI Brain · Guest Memory · Decision Engine
+        Workflow Engine · Review Engine · Revenue Engine
+               ↓
+        WhatsApp · Email · SMS · Google · Stripe · Dashboard`}
         </pre>
       </Panel>
     </div>

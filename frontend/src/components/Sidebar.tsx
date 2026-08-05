@@ -23,6 +23,7 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { setToken, type User } from "@/lib/api";
+import { ARGUS, REVISIT } from "@/lib/brand";
 
 const nav = [
   { href: "/", label: "Operations", icon: LayoutDashboard },
@@ -55,9 +56,14 @@ export function Sidebar({ user }: { user: User | null }) {
     <>
       <div className="relative overflow-hidden border-b border-white/10 px-5 py-6">
         <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-sea-500/20 blur-2xl" />
-        <p className="font-display text-2xl tracking-tight text-white">Revisit</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-sea-300/90">
+          {ARGUS.productLine}
+        </p>
+        <p className="mt-1 font-display text-2xl tracking-tight text-white">
+          {REVISIT.name}
+        </p>
         <p className="mt-1 text-xs leading-relaxed text-ink-300">
-          Guest revenue, after booking
+          {REVISIT.tagline}
         </p>
       </div>
 
@@ -93,6 +99,14 @@ export function Sidebar({ user }: { user: User | null }) {
         <p className="text-sm text-ink-200">
           {user?.name || "User"} · {user?.role || "—"}
         </p>
+        <a
+          href={ARGUS.siteUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 block text-[11px] text-ink-400 underline-offset-2 hover:text-sea-300 hover:underline"
+        >
+          A product of {ARGUS.productLine}
+        </a>
         <button
           onClick={logout}
           className="mt-3 inline-flex items-center gap-2 text-xs text-ink-300 hover:text-white"

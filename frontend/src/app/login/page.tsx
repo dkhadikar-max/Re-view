@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui";
+import { ARGUS, REVISIT } from "@/lib/brand";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,7 +33,10 @@ export default function LoginPage() {
         onSubmit={onSubmit}
         className="w-full max-w-md animate-fade-up rounded-2xl border border-ink-200/70 bg-white/80 p-8 shadow-sm backdrop-blur"
       >
-        <p className="font-display text-3xl text-ink-950">Revisit</p>
+        <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-sea-700">
+          {ARGUS.productLine}
+        </p>
+        <p className="mt-2 font-display text-3xl text-ink-950">{REVISIT.name}</p>
         <p className="mt-1 text-sm text-ink-500">
           Sign in to manage guest revenue after booking
         </p>
@@ -66,6 +70,17 @@ export default function LoginPage() {
         </Button>
         <p className="mt-4 text-xs text-ink-400">
           Demo: manager@azurecoast.demo / ChangeMe123!
+        </p>
+        <p className="mt-3 text-center text-[11px] text-ink-400">
+          A product of{" "}
+          <a
+            href={ARGUS.siteUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sea-700 underline-offset-2 hover:underline"
+          >
+            {ARGUS.productLine}
+          </a>
         </p>
       </form>
     </div>

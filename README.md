@@ -1,8 +1,20 @@
 # Revisit
 
-**The AI employee that manages every guest after booking.**
+**An [Argus OS](https://argusos-psi.vercel.app) product.**
 
-Revisit is an AI intelligence layer for hotels. V1.0 targets **one paying hotel** with production integrations — not 100 features.
+*Guest revenue, after booking.*
+
+Revisit is the hospitality revenue layer in the Argus decision operating system. V1.0 targets **one paying hotel** with production integrations — not 100 features.
+
+**Parent platform:** [Argus OS](https://argusos-psi.vercel.app) · [GitHub](https://github.com/dkhadikar-max/ARGUS-OS)
+
+## For the Argus site
+
+Suggested product blurb when linking from Argus:
+
+> **Revisit** — AI guest revenue after booking. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.
+
+Deep link once deployed: set `NEXT_PUBLIC_ARGUS_SITE_URL` / `ARGUS_SITE_URL` and point Argus at your Revisit production URL.
 
 ## Account ownership (who pays / who connects)
 

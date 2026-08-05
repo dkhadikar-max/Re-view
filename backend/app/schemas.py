@@ -341,6 +341,7 @@ class HealthOut(BaseModel):
     version: str
     database: str
     environment: str
+    platform: str = "Argus OS"
 
 
 TokenResponse.model_rebuild()

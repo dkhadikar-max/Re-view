@@ -16,9 +16,9 @@ const sans = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Revisit",
+  title: "Revisit · Argus OS",
   description:
-    "Revisit — the AI employee that manages every guest after booking: revenue, reviews, and lifetime value.",
+    "Revisit — an Argus OS product. The AI employee that manages every guest after booking: revenue, reviews, and lifetime value.",
 };
 
 export default function RootLayout({

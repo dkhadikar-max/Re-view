@@ -53,7 +53,7 @@ export default function IntegrationsPage() {
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-sea-800 via-ink-900 to-ink-950 p-6 text-white opacity-0">
         <p className="text-xs uppercase tracking-wider text-sea-200">
-          {status.milestone} · {status.version}
+          {status.platform || "Argus OS"} · {status.milestone} · {status.version}
         </p>
         <h2 className="mt-2 font-display text-3xl">
           {status.ready_for_first_hotel

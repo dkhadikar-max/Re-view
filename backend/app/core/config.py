@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     debug: bool = False
     public_base_url: str = "http://127.0.0.1:8000"
     frontend_base_url: str = "http://localhost:3000"
+    argus_site_url: str = "https://argusos-psi.vercel.app"
+    argus_product_line: str = "Argus OS"
 
     database_url: str = "sqlite:///./revisit.db"
     redis_url: str = "redis://127.0.0.1:6379/0"

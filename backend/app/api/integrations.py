@@ -46,6 +46,8 @@ class IntegrationStatusOut(BaseModel):
 class V1Readiness(BaseModel):
     version: str
     milestone: str
+    platform: str = "Argus OS"
+    platform_url: str = ""
     queue_backend: str
     integrations: list[IntegrationStatusOut]
     ownership: list[ServiceOwnership]
@@ -135,6 +137,8 @@ def integrations_status(user: AuthUser) -> V1Readiness:
     return V1Readiness(
         version=settings.app_version,
         milestone="Revisit V1.0 — one paying hotel",
+        platform=settings.argus_product_line,
+        platform_url=settings.argus_site_url,
         queue_backend=get_queue().backend,
         integrations=items,
         ownership=SERVICE_OWNERSHIP,
