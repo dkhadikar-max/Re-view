@@ -3,7 +3,10 @@ from app.models.entities import (
     Approval,
     AuditLog,
     Campaign,
+    CelebrateDateAudit,
+    CelebrateRewardConfig,
     Connector,
+    Coupon,
     Event,
     Guest,
     Message,
@@ -38,4 +41,7 @@ __all__ = [
     "Connector",
     "Approval",
     "Notification",
+    "CelebrateRewardConfig",
+    "Coupon",
+    "CelebrateDateAudit",
 ]

@@ -4,6 +4,17 @@
 
 Guest Revenue Agent is an AI intelligence layer for hotels, resorts, and vacation rentals. It sits above your existing PMS/CRM stack and autonomously manages the post-booking guest journey — messaging, reviews, upsells, and lifetime value — without replacing your current systems.
 
+## Celebrate Rewards
+
+**Tagline:** Turn verified reviewers into repeat customers.
+
+Rewards **review participation** (not star rating). After a verified review, guests unlock birthday/anniversary offers, confirm immutable dates, receive coupons, and get automated celebration campaigns.
+
+- Merchant settings: `/celebrate` (discount, window, min spend, stackable)
+- Guest enrollment link: `/celebrate/<token>`
+- Super Admin only can unlock dates (reason + audit required)
+- Nightly campaigns via **Run nightly campaigns** or `POST /api/workers/tick`
+
 ## Phase 1 (hardened)
 
 - JWT auth + RBAC (viewer/staff/manager/admin)

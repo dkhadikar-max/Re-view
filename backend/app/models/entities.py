@@ -177,6 +177,17 @@ class Guest(Base):
     dietary_preferences: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     birthday: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     anniversary: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    birthday_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    anniversary_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    birthday_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    anniversary_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    review_reward_unlocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    review_reward_unlocked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    celebrate_dates_confirmed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
     communication_preference: Mapped[str] = mapped_column(String(32), default="whatsapp")
     previous_reviews: Mapped[int] = mapped_column(Integer, default=0)
     complaint_history: Mapped[int] = mapped_column(Integer, default=0)
@@ -486,4 +497,94 @@ class Notification(Base):
     read: Mapped[bool] = mapped_column(Boolean, default=False)
     related_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     related_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CouponStatus(str, enum.Enum):
+    active = "active"
+    redeemed = "redeemed"
+    expired = "expired"
+    cancelled = "cancelled"
+
+
+class CelebrateOfferType(str, enum.Enum):
+    birthday = "birthday"
+    anniversary = "anniversary"
+
+
+class CelebrateRewardConfig(Base):
+    """Per-tenant Celebrate Rewards merchant configuration."""
+
+    __tablename__ = "celebrate_reward_configs"
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_celebrate_config_tenant"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    birthday_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    birthday_discount_pct: Mapped[float] = mapped_column(Float, default=20.0)
+    birthday_days_before: Mapped[int] = mapped_column(Integer, default=7)
+    birthday_days_after: Mapped[int] = mapped_column(Integer, default=7)
+    birthday_min_spend: Mapped[float] = mapped_column(Numeric(12, 2), default=1000)
+    birthday_max_uses_per_year: Mapped[int] = mapped_column(Integer, default=1)
+    birthday_stackable: Mapped[bool] = mapped_column(Boolean, default=False)
+    anniversary_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    anniversary_discount_pct: Mapped[float] = mapped_column(Float, default=15.0)
+    anniversary_days_before: Mapped[int] = mapped_column(Integer, default=3)
+    anniversary_days_after: Mapped[int] = mapped_column(Integer, default=3)
+    anniversary_min_spend: Mapped[float] = mapped_column(Numeric(12, 2), default=2000)
+    anniversary_max_uses_per_year: Mapped[int] = mapped_column(Integer, default=1)
+    anniversary_stackable: Mapped[bool] = mapped_column(Boolean, default=False)
+    currency: Mapped[str] = mapped_column(String(8), default="INR")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class Coupon(Base):
+    __tablename__ = "coupons"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "code", name="uq_coupon_code"),
+        Index("ix_coupon_guest_type_year", "tenant_id", "guest_id", "offer_type", "year"),
+        CheckConstraint("discount_pct >= 0 AND discount_pct <= 100", name="ck_coupon_pct"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"), index=True)
+    offer_type: Mapped[CelebrateOfferType] = mapped_column(Enum(CelebrateOfferType))
+    code: Mapped[str] = mapped_column(String(32))
+    discount_pct: Mapped[float] = mapped_column(Float)
+    min_spend: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    currency: Mapped[str] = mapped_column(String(8), default="INR")
+    year: Mapped[int] = mapped_column(Integer)
+    valid_from: Mapped[date] = mapped_column(Date)
+    valid_until: Mapped[date] = mapped_column(Date)
+    status: Mapped[CouponStatus] = mapped_column(
+        Enum(CouponStatus), default=CouponStatus.active
+    )
+    stackable: Mapped[bool] = mapped_column(Boolean, default=False)
+    personalized_perk: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    message_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    redeemed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    redemption_amount: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CelebrateDateAudit(Base):
+    """Immutable audit trail for birthday/anniversary unlocks and changes."""
+
+    __tablename__ = "celebrate_date_audits"
+    __table_args__ = (Index("ix_celebrate_audit_guest", "tenant_id", "guest_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"), index=True)
+    field_name: Mapped[str] = mapped_column(String(64))
+    old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    changed_by: Mapped[str] = mapped_column(String(255))
+    changed_by_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action: Mapped[str] = mapped_column(String(64))  # lock | unlock | set | confirm
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

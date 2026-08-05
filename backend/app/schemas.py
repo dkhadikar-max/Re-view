@@ -47,6 +47,11 @@ class GuestOut(ORMModel):
     children: int
     pets: bool
     dietary_preferences: Optional[str] = None
+    birthday: Optional[date] = None
+    anniversary: Optional[date] = None
+    birthday_locked: bool = False
+    anniversary_locked: bool = False
+    review_reward_unlocked: bool = False
     communication_preference: str
     ltv_score: float
     satisfaction_score: float
@@ -314,6 +319,7 @@ class WorkerResult(BaseModel):
     events_processed: int
     messages_delivered: int
     workflows_advanced: int
+    celebrate_campaigns: dict[str, int] = {}
 
 
 class AuditOut(ORMModel):

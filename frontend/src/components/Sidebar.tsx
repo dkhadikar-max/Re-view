@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   X,
+  Gift,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import { setToken, type User } from "@/lib/api";
 const nav = [
   { href: "/", label: "Operations", icon: LayoutDashboard },
   { href: "/guests", label: "Guest Memory", icon: Users },
+  { href: "/celebrate", label: "Celebrate Rewards", icon: Gift },
   { href: "/reservations", label: "Reservations", icon: CalendarDays },
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/reviews", label: "Reviews", icon: Star },

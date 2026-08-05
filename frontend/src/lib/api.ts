@@ -112,6 +112,11 @@ export type Guest = {
   satisfaction_score: number;
   complaint_history: number;
   dietary_preferences?: string;
+  birthday?: string;
+  anniversary?: string;
+  birthday_locked?: boolean;
+  anniversary_locked?: boolean;
+  review_reward_unlocked?: boolean;
 };
 
 export type Reservation = {
@@ -147,6 +152,7 @@ export type Message = {
 
 export type Review = {
   id: string;
+  guest_id?: string;
   guest_name?: string;
   platform: string;
   rating: number;
@@ -328,5 +334,132 @@ export const api = {
       events_processed: number;
       messages_delivered: number;
       workflows_advanced: number;
+      celebrate_campaigns?: Record<string, number>;
     }>("/api/workers/tick", { method: "POST" }),
+
+  celebrateConfig: () => request<CelebrateConfig>("/api/celebrate/config"),
+  updateCelebrateConfig: (payload: Partial<CelebrateConfig>) =>
+    request<CelebrateConfig>("/api/celebrate/config", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  celebrateDashboard: () =>
+    request<CelebrateDashboard>("/api/celebrate/dashboard"),
+  celebrateCoupons: () => request<Coupon[]>("/api/celebrate/coupons"),
+  celebrateAudits: () => request<CelebrateAudit[]>("/api/celebrate/audits"),
+  redeemCoupon: (id: string, amount: number) =>
+    request<Coupon>(`/api/celebrate/coupons/${id}/redeem`, {
+      method: "POST",
+      body: JSON.stringify({ amount }),
+    }),
+  celebrateInvite: (guestId: string) =>
+    request<{ guest_id: string; token: string; invite_path: string; message: string }>(
+      `/api/celebrate/guests/${guestId}/invite`,
+      { method: "POST" }
+    ),
+  unlockCelebrateFromReview: (guestId: string, reviewId: string) =>
+    request<{ unlocked: boolean; invite_path: string; token: string }>(
+      `/api/celebrate/guests/${guestId}/unlock-from-review/${reviewId}`,
+      { method: "POST" }
+    ),
+  runCelebrateCampaigns: () =>
+    request<Record<string, number>>("/api/celebrate/campaigns/run", {
+      method: "POST",
+    }),
+  celebratePublicStatus: (token: string) =>
+    request<GuestCelebrateStatus>(`/api/celebrate/public/${token}`, {
+      auth: false,
+    }),
+  celebrateSubmitDates: (
+    token: string,
+    payload: { birthday: string; anniversary?: string; confirm: boolean }
+  ) =>
+    request<{ message: string; coupons_created: string[] }>(
+      `/api/celebrate/public/${token}/dates`,
+      {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify(payload),
+      }
+    ),
+};
+
+export type CelebrateConfig = {
+  id: string;
+  tenant_id: string;
+  birthday_enabled: boolean;
+  birthday_discount_pct: number;
+  birthday_days_before: number;
+  birthday_days_after: number;
+  birthday_min_spend: number;
+  birthday_max_uses_per_year: number;
+  birthday_stackable: boolean;
+  anniversary_enabled: boolean;
+  anniversary_discount_pct: number;
+  anniversary_days_before: number;
+  anniversary_days_after: number;
+  anniversary_min_spend: number;
+  anniversary_max_uses_per_year: number;
+  anniversary_stackable: boolean;
+  currency: string;
+};
+
+export type CelebrateDashboard = {
+  guests_enrolled: number;
+  birthday_this_week: number;
+  anniversaries_this_month: number;
+  coupons_redeemed: number;
+  revenue_generated: number;
+  repeat_visits: number;
+  average_spend: number;
+  estimated_discount_cost: number;
+  roi?: number | null;
+  fraud_alerts: { type: string; phone?: string; guest_count?: number; severity: string }[];
+  tagline: string;
+};
+
+export type Coupon = {
+  id: string;
+  guest_id: string;
+  guest_name?: string;
+  offer_type: string;
+  code: string;
+  discount_pct: number;
+  min_spend: number;
+  currency: string;
+  year: number;
+  valid_from: string;
+  valid_until: string;
+  status: string;
+  personalized_perk?: string;
+  redemption_amount?: number;
+};
+
+export type CelebrateAudit = {
+  id: string;
+  guest_id: string;
+  field_name: string;
+  old_value?: string;
+  new_value?: string;
+  changed_by: string;
+  reason?: string;
+  action: string;
+  created_at: string;
+};
+
+export type GuestCelebrateStatus = {
+  guest_id: string;
+  guest_name: string;
+  property_name?: string;
+  review_reward_unlocked: boolean;
+  birthday?: string;
+  anniversary?: string;
+  birthday_locked: boolean;
+  anniversary_locked: boolean;
+  can_submit_dates: boolean;
+  offers: {
+    birthday: { enabled: boolean; discount_pct: number; window: string; min_spend: number };
+    anniversary: { enabled: boolean; discount_pct: number; window: string; min_spend: number };
+  };
+  tagline: string;
 };

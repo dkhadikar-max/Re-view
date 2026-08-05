@@ -89,6 +89,7 @@ from app.services.ai_orchestrator import (
     handle_negative_review,
 )
 from app.services.audit import write_audit
+from app.services.celebrate_rewards import run_celebrate_campaigns, unlock_after_review
 from app.services.connectors import sync_connector
 from app.services.event_bus import event_bus
 from app.services.messaging import deliver_message, process_due_messages
@@ -746,6 +747,8 @@ def create_review(
     )
     db.add(review)
     db.flush()
+    # Celebrate Rewards: unlock for participation (any verified review), not rating
+    unlock_after_review(db, review, guest, actor=user.email)
     if payload.rating <= 2:
         event_bus.publish_and_process(
             db,
@@ -1336,11 +1339,13 @@ def worker_tick(user: ManagerUser, db: Session = Depends(get_db)) -> WorkerResul
     events_processed = event_bus.process_pending(scoped_db)  # type: ignore[arg-type]
     messages_delivered = process_due_messages(scoped_db)  # type: ignore[arg-type]
     workflows_advanced = process_waiting_workflows(scoped_db)  # type: ignore[arg-type]
+    celebrate = run_celebrate_campaigns(db, user.tenant_id)
     db.commit()
     return WorkerResult(
         events_processed=events_processed,
         messages_delivered=messages_delivered,
         workflows_advanced=workflows_advanced,
+        celebrate_campaigns=celebrate,
     )
 
 

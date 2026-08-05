@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import router
+from app.api.celebrate import router as celebrate_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.middleware import RateLimitMiddleware, RequestContextMiddleware
@@ -56,6 +57,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+app.include_router(celebrate_router, prefix="/api")
 
 
 @app.exception_handler(RequestValidationError)

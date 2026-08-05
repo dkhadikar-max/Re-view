@@ -11,6 +11,8 @@ from app.models.entities import (
     Approval,
     ApprovalStatus,
     Campaign,
+    CelebrateDateAudit,
+    CelebrateRewardConfig,
     Connector,
     Guest,
     Message,
@@ -35,6 +37,12 @@ from app.services.ai_orchestrator import (
     ai_orchestrator,
     execute_decision,
     handle_negative_review,
+)
+from app.services.celebrate_rewards import (
+    CelebrateDatesIn,
+    confirm_and_lock_dates,
+    get_or_create_config,
+    unlock_after_review,
 )
 from app.services.connectors import store_connector_secret
 from app.services.event_bus import event_bus
@@ -191,6 +199,16 @@ def seed_database(db: Session) -> None:
             email="staff@azurecoast.demo",
             name="Alex Staff",
             role="staff",
+            password_hash=hash_password(DEMO_PASSWORD),
+            is_active=True,
+        )
+    )
+    db.add(
+        User(
+            tenant_id=DEMO_TENANT,
+            email="admin@azurecoast.demo",
+            name="Re-view Super Admin",
+            role="admin",
             password_hash=hash_password(DEMO_PASSWORD),
             is_active=True,
         )
@@ -592,5 +610,40 @@ def seed_database(db: Session) -> None:
             source="seed",
             idempotency_key=f"seed:ReservationCreated:{res.id}",
         )
+
+    # Celebrate Rewards: merchant config + one enrolled guest (Marie)
+    config = get_or_create_config(db, DEMO_TENANT)
+    config.currency = "EUR"
+    config.birthday_min_spend = 100
+    config.anniversary_min_spend = 150
+    marie = guests[1]
+    marie.review_reward_unlocked = True
+    marie.review_reward_unlocked_at = datetime.utcnow()
+    db.add(
+        CelebrateDateAudit(
+            tenant_id=DEMO_TENANT,
+            guest_id=marie.id,
+            field_name="review_reward_unlocked",
+            old_value="false",
+            new_value="true",
+            changed_by="seed",
+            action="unlock_reward",
+            reason="Seed: prior verified Google review participation",
+        )
+    )
+    confirm_and_lock_dates(
+        db,
+        marie,
+        CelebrateDatesIn(
+            birthday=date(1988, 8, 12),
+            anniversary=date(2015, 8, 20),
+            confirm=True,
+        ),
+        actor="seed",
+    )
+    # Hans unlocked but not yet enrolled — for invite demo
+    hans = guests[0]
+    hans.review_reward_unlocked = True
+    hans.review_reward_unlocked_at = datetime.utcnow()
 
     db.commit()

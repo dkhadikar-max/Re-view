@@ -10,10 +10,12 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
-  const isLogin = pathname === "/login";
+  const isPublic =
+    pathname === "/login" ||
+    (pathname.startsWith("/celebrate/") && pathname !== "/celebrate");
 
   useEffect(() => {
-    if (isLogin) {
+    if (isPublic) {
       setReady(true);
       return;
     }
@@ -27,7 +29,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         setToken(null);
         router.replace("/login");
       });
-  }, [isLogin, router, pathname]);
+  }, [isPublic, router, pathname]);
 
   if (!ready) {
     return (
@@ -37,7 +39,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isLogin) {
+  if (isPublic) {
     return <>{children}</>;
   }
 

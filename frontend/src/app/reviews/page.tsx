@@ -8,6 +8,7 @@ import { api, type Review } from "@/lib/api";
 export default function ReviewsPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [invite, setInvite] = useState("");
 
   async function load() {
     setReviews(await api.reviews());
@@ -27,12 +28,30 @@ export default function ReviewsPage() {
     }
   }
 
+  async function unlockCelebrate(guestId: string, reviewId: string) {
+    setBusy(reviewId);
+    try {
+      const res = await api.unlockCelebrateFromReview(guestId, reviewId);
+      setInvite(`${window.location.origin}${res.invite_path}`);
+      await load();
+    } catch (e) {
+      setInvite(e instanceof Error ? e.message : "Unlock failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div>
       <TopBar
         title="Review Engine"
-        subtitle="Encourage authentic feedback. Draft replies. Never fabricate reviews."
+        subtitle="Encourage authentic feedback. Draft replies. Never fabricate reviews. Verified reviewers unlock Celebrate Rewards."
       />
+      {invite && (
+        <p className="mb-4 break-all rounded-xl bg-sea-500/10 px-3 py-2 text-xs text-sea-700">
+          {invite}
+        </p>
+      )}
 
       <div className="space-y-4">
         {reviews.length === 0 ? (
@@ -107,12 +126,32 @@ export default function ReviewsPage() {
                       {r.ai_draft_response}
                     </pre>
                     {!r.responded && (
-                      <div className="mt-3">
+                      <div className="mt-3 flex flex-wrap gap-2">
                         <Button
                           disabled={busy === r.id}
                           onClick={() => publish(r.id)}
                         >
                           Publish response
+                        </Button>
+                        {r.guest_id && (
+                          <Button
+                            variant="secondary"
+                            disabled={busy === r.id}
+                            onClick={() => unlockCelebrate(r.guest_id!, r.id)}
+                          >
+                            Unlock Celebrate Rewards
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {r.responded && r.guest_id && (
+                      <div className="mt-3">
+                        <Button
+                          variant="secondary"
+                          disabled={busy === r.id}
+                          onClick={() => unlockCelebrate(r.guest_id!, r.id)}
+                        >
+                          Unlock / invite Celebrate Rewards
                         </Button>
                       </div>
                     )}
