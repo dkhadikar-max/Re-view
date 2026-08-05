@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Gift,
+  UserPlus,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ const nav = [
   { href: "/", label: "Operations", icon: LayoutDashboard },
   { href: "/analytics", label: "Sales Analytics", icon: TrendingUp },
   { href: "/guests", label: "Guest Intelligence", icon: Users },
+  { href: "/onboard", label: "Guest Onboard", icon: UserPlus },
   { href: "/celebrate", label: "Celebrate Rewards", icon: Gift },
   { href: "/reservations", label: "Reservations", icon: CalendarDays },
   { href: "/messages", label: "Messages", icon: MessageSquare },

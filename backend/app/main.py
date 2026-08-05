@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import router
 from app.api.celebrate import router as celebrate_router
+from app.api.demo import router as demo_router
 from app.api.integrations import router as integrations_router
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -59,6 +60,7 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api")
 app.include_router(celebrate_router, prefix="/api")
+app.include_router(demo_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 
 

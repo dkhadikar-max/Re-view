@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Search, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { Check, Search, Sparkles, UserPlus } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Empty, Panel } from "@/components/ui";
 import {
@@ -53,11 +54,18 @@ export default function GuestsPage() {
   const [opportunities, setOpportunities] = useState<GuestOpportunity[]>([]);
   const [selected, setSelected] = useState<Guest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [minSpend, setMinSpend] = useState("");
   const [minStays, setMinStays] = useState("");
   const [birthdayMonth, setBirthdayMonth] = useState(false);
   const [inactiveDays, setInactiveDays] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("guest");
+    if (id) setHighlightId(id);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,13 +85,17 @@ export default function GuestsPage() {
       setOpportunities(opp);
       setSelected((prev) => {
         if (!g.length) return null;
+        if (highlightId) {
+          const hit = g.find((x) => x.id === highlightId);
+          if (hit) return hit;
+        }
         const still = prev ? g.find((x) => x.id === prev.id) : null;
         return still || g[0];
       });
     } finally {
       setLoading(false);
     }
-  }, [q, minSpend, minStays, birthdayMonth, inactiveDays]);
+  }, [q, minSpend, minStays, birthdayMonth, inactiveDays, highlightId]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -109,6 +121,19 @@ export default function GuestsPage() {
         title="Guest Intelligence"
         subtitle="AI remembers every guest — who they are, what they prefer, and what to do next."
       />
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 animate-fade-up opacity-0">
+        <p className="text-sm text-ink-500">
+          Demo a client live — onboard them and open their profile in seconds.
+        </p>
+        <Link
+          href="/onboard"
+          className="inline-flex items-center gap-2 rounded-xl bg-ink-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-ink-800"
+        >
+          <UserPlus className="h-4 w-4" />
+          Onboard a guest
+        </Link>
+      </div>
 
       {/* Opportunities */}
       <section className="mb-6 animate-fade-up opacity-0">
