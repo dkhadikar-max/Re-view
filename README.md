@@ -4,6 +4,26 @@
 
 Guest Revenue Agent is an AI intelligence layer for hotels. V1.0 targets **one paying hotel** with production integrations — not 100 features.
 
+## Account ownership (who pays / who connects)
+
+| Service | Free? | Paid? | Whose account? |
+|---------|-------|-------|----------------|
+| GPT-5.5 API | ❌ | ✅ Pay per token | **Yours** (initially) |
+| PostgreSQL | ✅ local | ✅ hosted | **Yours** |
+| Redis | ✅ local | ✅ hosted | **Yours** |
+| Cloudbeds API | ✅ eligible accounts | Included | **Client** |
+| Mews API | ✅ eligible accounts | Included | **Client** (roadmap) |
+| Guesty API | ✅ eligible accounts | Included | **Client** (roadmap) |
+| WhatsApp Business API | ❌ | Meta conversation charges | **Client** |
+| Resend | Limited free tier | ✅ | **Client** (preferred) |
+| Postmark | Trial | ✅ | **Client** |
+| Stripe | No monthly fee | Transaction fees | **Client** |
+| Google Business Profile | Free API (quotas) | — | **Client** |
+
+Rule of thumb: **we run the AI + database**; the hotel connects their PMS, WhatsApp, email, Stripe, and Google.
+
+API: `GET /api/integrations/ownership` and fields on `GET /api/integrations/status`.
+
 ## V1.0 milestone
 
 | Priority | Integration | Status |

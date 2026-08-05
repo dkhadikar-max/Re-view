@@ -21,6 +21,30 @@ def test_integrations_status(client: TestClient, auth_header: dict):
         "Stripe",
     }.issubset(providers)
     assert body["ready_for_first_hotel"] is True  # non-production clears blockers
+    assert "GPT-5.5 API" in body["platform_pays"]
+    assert "PostgreSQL" in body["platform_pays"]
+    assert "Redis" in body["platform_pays"]
+    assert "Cloudbeds API" in body["client_connects"]
+    assert "WhatsApp Business API" in body["client_connects"]
+    assert "Stripe" in body["client_connects"]
+    openai = next(i for i in body["integrations"] if i["provider"] == "OpenAI")
+    assert openai["account_owner"] == "platform"
+    cloudbeds = next(i for i in body["integrations"] if i["provider"] == "Cloudbeds")
+    assert cloudbeds["account_owner"] == "client"
+
+
+def test_integrations_ownership_matrix(client: TestClient, auth_header: dict):
+    res = client.get("/api/integrations/ownership", headers=auth_header)
+    assert res.status_code == 200, res.text
+    rows = res.json()
+    by_name = {r["service"]: r for r in rows}
+    assert by_name["GPT-5.5 API"]["account_owner"] == "platform"
+    assert by_name["Cloudbeds API"]["account_owner"] == "client"
+    assert by_name["Mews API"]["implemented"] is False
+    assert by_name["Guesty API"]["implemented"] is False
+    assert by_name["Resend"]["account_label"].startswith("Client")
+    assert by_name["Stripe"]["account_owner"] == "client"
+    assert by_name["Google Business Profile"]["account_owner"] == "client"
 
 
 def test_sales_analytics(client: TestClient, auth_header: dict):

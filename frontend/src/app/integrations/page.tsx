@@ -42,11 +42,13 @@ export default function IntegrationsPage() {
     );
   }
 
+  const ownership = status.ownership || [];
+
   return (
     <div>
       <TopBar
         title="V1 Integrations"
-        subtitle="Cloudbeds → WhatsApp → Email → OpenAI → Google → Stripe. Postgres + Redis — no Kafka."
+        subtitle="We run AI + Postgres + Redis. The hotel connects PMS, WhatsApp, email, Stripe, Google."
       />
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-sea-800 via-ink-900 to-ink-950 p-6 text-white opacity-0">
@@ -59,11 +61,21 @@ export default function IntegrationsPage() {
             : "Configure live credentials"}
         </h2>
         <p className="mt-2 text-sm text-ink-200">
-          Queue backend: {status.queue_backend}
+          Queue: {status.queue_backend}
           {status.blockers.length > 0
             ? ` · Blockers: ${status.blockers.join(", ")}`
             : " · Mock mode is fine for demos"}
         </p>
+        <div className="mt-4 flex flex-wrap gap-2 text-xs">
+          {(status.platform_pays || []).map((s) => (
+            <span
+              key={s}
+              className="rounded-md bg-white/10 px-2 py-1 text-ink-100"
+            >
+              Platform: {s}
+            </span>
+          ))}
+        </div>
       </div>
 
       {error && (
@@ -77,20 +89,75 @@ export default function IntegrationsPage() {
         </p>
       )}
 
+      <Panel title="Whose account?" className="mb-8">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-ink-100 text-xs uppercase tracking-wider text-ink-400">
+                <th className="pb-3 font-medium">Service</th>
+                <th className="pb-3 font-medium">Free?</th>
+                <th className="pb-3 font-medium">Paid?</th>
+                <th className="pb-3 font-medium">Account</th>
+                <th className="pb-3 font-medium">V1</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-50">
+              {ownership.map((row) => (
+                <tr key={row.service}>
+                  <td className="py-3">
+                    <p className="font-medium text-ink-900">{row.service}</p>
+                    <p className="text-xs text-ink-400">{row.category}</p>
+                  </td>
+                  <td className="py-3 text-ink-600">{row.free_tier}</td>
+                  <td className="py-3 text-ink-600">{row.paid}</td>
+                  <td className="py-3">
+                    <Badge
+                      tone={
+                        row.account_owner === "platform" ? "accepted" : "offered"
+                      }
+                    >
+                      {row.account_label}
+                    </Badge>
+                  </td>
+                  <td className="py-3 text-xs text-ink-500">
+                    {!row.implemented
+                      ? "Roadmap"
+                      : row.v1_required
+                        ? "Required"
+                        : "Optional"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
       <div className="space-y-3">
         {status.integrations.map((item) => (
           <Panel
             key={item.provider}
             title={`P${item.priority} · ${item.provider}`}
             action={
-              <Badge tone={item.mode === "live" ? "accepted" : "draft"}>
-                {item.mode}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge
+                  tone={
+                    item.account_owner === "platform" ? "accepted" : "offered"
+                  }
+                >
+                  {item.account_label || "Client"}
+                </Badge>
+                <Badge tone={item.mode === "live" ? "accepted" : "draft"}>
+                  {item.mode}
+                </Badge>
+              </div>
             }
           >
             <p className="text-sm text-ink-600">{item.detail}</p>
             <p className="mt-2 text-xs text-ink-400">
               {item.configured ? "Credentials present" : "Using mock adapter"}
+              {item.free_tier ? ` · Free: ${item.free_tier}` : ""}
+              {item.paid ? ` · Paid: ${item.paid}` : ""}
             </p>
             {item.provider === "Cloudbeds" && (
               <Button

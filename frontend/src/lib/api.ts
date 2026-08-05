@@ -217,6 +217,22 @@ export type IntegrationStatus = {
   configured: boolean;
   mode: string;
   detail: string;
+  account_owner?: string;
+  account_label?: string;
+  free_tier?: string;
+  paid?: string;
+};
+
+export type ServiceOwnership = {
+  service: string;
+  category: string;
+  free_tier: string;
+  paid: string;
+  account_owner: "platform" | "client";
+  account_label: string;
+  notes: string;
+  v1_required: boolean;
+  implemented: boolean;
 };
 
 export type V1Readiness = {
@@ -224,6 +240,9 @@ export type V1Readiness = {
   milestone: string;
   queue_backend: string;
   integrations: IntegrationStatus[];
+  ownership?: ServiceOwnership[];
+  platform_pays?: string[];
+  client_connects?: string[];
   ready_for_first_hotel: boolean;
   blockers: string[];
 };

@@ -16,6 +16,7 @@ from app.integrations.cloudbeds import cloudbeds_client
 from app.integrations.email_providers import get_email_client
 from app.integrations.google_reviews import google_reviews_client
 from app.integrations.openai_gateway import ai_gateway
+from app.integrations.ownership import SERVICE_OWNERSHIP, ServiceOwnership
 from app.integrations.queue import get_queue
 from app.integrations.stripe_payments import stripe_payments
 from app.integrations.whatsapp import whatsapp_client
@@ -36,6 +37,10 @@ class IntegrationStatusOut(BaseModel):
     configured: bool
     mode: str
     detail: str = ""
+    account_owner: str = "client"  # platform | client
+    account_label: str = "Client"
+    free_tier: str = ""
+    paid: str = ""
 
 
 class V1Readiness(BaseModel):
@@ -43,6 +48,9 @@ class V1Readiness(BaseModel):
     milestone: str
     queue_backend: str
     integrations: list[IntegrationStatusOut]
+    ownership: list[ServiceOwnership]
+    platform_pays: list[str]
+    client_connects: list[str]
     ready_for_first_hotel: bool
     blockers: list[str]
 
@@ -57,6 +65,10 @@ def integrations_status(user: AuthUser) -> V1Readiness:
             configured=cloudbeds_client.configured,
             mode=cloudbeds_client.mode,
             detail="OAuth/API key · reservation/guest sync · check-in/out",
+            account_owner="client",
+            account_label="Client",
+            free_tier="Included with eligible Cloudbeds accounts",
+            paid="Included with eligible accounts",
         ),
         IntegrationStatusOut(
             provider="WhatsApp",
@@ -64,20 +76,32 @@ def integrations_status(user: AuthUser) -> V1Readiness:
             configured=whatsapp_client.configured,
             mode=whatsapp_client.mode,
             detail="Meta Cloud API · send · delivery/read · reply webhook",
+            account_owner="client",
+            account_label="Client",
+            free_tier="None",
+            paid="Meta conversation charges",
         ),
         IntegrationStatusOut(
             provider="Email",
             priority=3,
             configured=email.configured,
             mode="live" if email.configured else "mock",
-            detail=f"Provider: {settings.email_provider}",
+            detail=f"Provider: {settings.email_provider} (Resend preferred)",
+            account_owner="client",
+            account_label="Client (preferred)",
+            free_tier="Limited free tier / trial",
+            paid="Paid plans",
         ),
         IntegrationStatusOut(
             provider="OpenAI",
             priority=4,
             configured=ai_gateway.configured,
             mode=ai_gateway.mode,
-            detail=f"Model: {settings.openai_model} · structured JSON only",
+            detail=f"Model: {settings.openai_model} · structured JSON only · platform key",
+            account_owner="platform",
+            account_label="Yours (initially)",
+            free_tier="None",
+            paid="Pay per token",
         ),
         IntegrationStatusOut(
             provider="Google Reviews",
@@ -85,13 +109,21 @@ def integrations_status(user: AuthUser) -> V1Readiness:
             configured=google_reviews_client.configured,
             mode=google_reviews_client.mode,
             detail="Official Business Profile API only — no scraping",
+            account_owner="client",
+            account_label="Client",
+            free_tier="Free API access (quotas + permissions)",
+            paid="—",
         ),
         IntegrationStatusOut(
             provider="Stripe",
             priority=6,
             configured=stripe_payments.configured,
             mode=stripe_payments.mode,
-            detail="Checkout payment links for upsells",
+            detail="Checkout payment links for upsells → hotel Stripe account",
+            account_owner="client",
+            account_label="Client",
+            free_tier="No monthly fee",
+            paid="Transaction fees",
         ),
     ]
     required = {"Cloudbeds", "WhatsApp", "Email", "OpenAI", "Stripe"}
@@ -105,9 +137,27 @@ def integrations_status(user: AuthUser) -> V1Readiness:
         milestone="V1.0 — one paying hotel",
         queue_backend=get_queue().backend,
         integrations=items,
+        ownership=SERVICE_OWNERSHIP,
+        platform_pays=["GPT-5.5 API", "PostgreSQL", "Redis"],
+        client_connects=[
+            "Cloudbeds API",
+            "Mews API",
+            "Guesty API",
+            "WhatsApp Business API",
+            "Resend",
+            "Postmark",
+            "Stripe",
+            "Google Business Profile",
+        ],
         ready_for_first_hotel=len(blockers) == 0,
         blockers=blockers,
     )
+
+
+@router.get("/integrations/ownership", response_model=list[ServiceOwnership])
+def integrations_ownership(user: AuthUser) -> list[ServiceOwnership]:
+    """Commercial ownership matrix — whose account pays / connects."""
+    return SERVICE_OWNERSHIP
 
 
 @router.get("/analytics/sales", response_model=SalesAnalytics)
