@@ -75,12 +75,26 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
 
     # Platform owner (main admin account for the demo hotel workspace)
+    # Empty OWNER_EMAIL in env must not wipe the default — seed and admin
+    # gate both depend on a real address.
     owner_email: str = "dkhadikar@gmail.com"
     owner_name: str = "Deepanshu"
     owner_password: str = Field(
         default="",
         description="Password for owner_email. Set OWNER_PASSWORD in production.",
     )
+
+    @field_validator("owner_email", mode="before")
+    @classmethod
+    def normalize_owner_email(cls, v: object) -> str:
+        raw = (str(v).strip().lower() if v is not None else "")
+        return raw or "dkhadikar@gmail.com"
+
+    @field_validator("owner_name", mode="before")
+    @classmethod
+    def normalize_owner_name(cls, v: object) -> str:
+        raw = (str(v).strip() if v is not None else "")
+        return raw or "Deepanshu"
 
     @property
     def cors_origin_list(self) -> list[str]:

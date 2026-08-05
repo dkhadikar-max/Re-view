@@ -58,7 +58,10 @@ export default function PlatformAdminPage() {
         if (cancelled) return;
         setUser(me);
         if (!me.is_platform_admin) {
-          router.replace("/");
+          setError(
+            "Platform owner access required. Sign in with the OWNER_EMAIL account."
+          );
+          setLoading(false);
           return;
         }
         const [c, a] = await Promise.all([
@@ -79,7 +82,7 @@ export default function PlatformAdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, []);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -109,14 +112,34 @@ export default function PlatformAdminPage() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-coral-200 bg-coral-50 p-4 text-sm text-coral-800">
-        {error}
+      <div className="space-y-3">
+        <TopBar title="Platform Admin" subtitle="Owner access required." />
+        <div
+          className="rounded-xl border border-coral-200 bg-coral-50 p-4 text-sm text-coral-800"
+          role="alert"
+        >
+          {error}
+        </div>
+        <Button variant="secondary" onClick={() => router.replace("/")}>
+          Back to Operations
+        </Button>
       </div>
     );
   }
 
   if (!user?.is_platform_admin || !analytics) {
-    return null;
+    return (
+      <div className="space-y-3">
+        <TopBar title="Platform Admin" subtitle="Unable to load analytics." />
+        <div className="rounded-xl border border-ink-200 bg-white p-4 text-sm text-ink-600">
+          Admin data did not load. Refresh the page, or confirm you are signed
+          in as the platform owner.
+        </div>
+        <Button variant="secondary" onClick={() => window.location.reload()}>
+          Retry
+        </Button>
+      </div>
+    );
   }
 
   return (

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,15 @@ from app.models.entities import (
 from app.services.currency import currency_for_country
 
 
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    """Normalize DB datetimes so naive/aware mixes never crash admin queries."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class ClientOut(BaseModel):
     tenant_id: str
     hotel_name: str
@@ -28,7 +37,8 @@ class ClientOut(BaseModel):
     is_active: bool
     signed_up_at: datetime
     manager_name: Optional[str] = None
-    manager_email: Optional[EmailStr] = None
+    # Plain str — avoid EmailStr 500s on odd historical addresses
+    manager_email: Optional[str] = None
     manager_role: Optional[str] = None
     city: Optional[str] = None
     country: Optional[str] = None
@@ -38,6 +48,14 @@ class ClientOut(BaseModel):
     reservation_count: int = 0
     upsell_revenue: float = 0.0
     is_demo: bool = False
+
+    @field_validator("manager_email", mode="before")
+    @classmethod
+    def empty_email_to_none(cls, v: object) -> object:
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
 
 
 class CountryBreakdown(BaseModel):
@@ -74,7 +92,9 @@ class PlatformAnalytics(BaseModel):
     by_plan: list[PlanBreakdown]
     by_country: list[CountryBreakdown]
     recent_signups: list[RecentSignup]
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
 
 
 def _manager_for_tenant(db: Session, tenant_id: str) -> User | None:
@@ -141,7 +161,7 @@ def list_clients(db: Session) -> list[ClientOut]:
 
 
 def platform_analytics(db: Session) -> PlatformAnalytics:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
 
@@ -155,8 +175,16 @@ def platform_analytics(db: Session) -> PlatformAnalytics:
         .filter(User.is_active.is_(True), User.role.in_(["manager", "admin"]))
         .count()
     )
-    signups_7 = sum(1 for t in tenants if t.created_at and t.created_at >= week_ago)
-    signups_30 = sum(1 for t in tenants if t.created_at and t.created_at >= month_ago)
+    signups_7 = sum(
+        1
+        for t in tenants
+        if (created := _as_naive_utc(t.created_at)) and created >= week_ago
+    )
+    signups_30 = sum(
+        1
+        for t in tenants
+        if (created := _as_naive_utc(t.created_at)) and created >= month_ago
+    )
 
     plan_counts: dict[str, int] = {}
     for t in tenants:

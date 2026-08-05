@@ -1,5 +1,8 @@
 """Platform owner admin panel tests."""
 
+import os
+
+from app.core.config import Settings
 from app.db.seed import DEMO_EMAIL, DEMO_PASSWORD
 
 
@@ -20,6 +23,36 @@ def test_owner_me_is_platform_admin(client):
     assert me.status_code == 200
     assert me.json()["is_platform_admin"] is True
     assert me.json()["email"] == DEMO_EMAIL
+
+
+def test_empty_owner_email_env_still_grants_admin():
+    """Blank OWNER_EMAIL must not disable /admin (matches seed fallback)."""
+    previous = os.environ.get("OWNER_EMAIL")
+    os.environ["OWNER_EMAIL"] = ""
+    try:
+        settings = Settings()
+        assert settings.owner_email == "dkhadikar@gmail.com"
+        from app.core.security import CurrentUser, is_platform_owner
+        import app.core.security as security
+
+        user = CurrentUser(
+            id="1",
+            tenant_id="demo-hotel",
+            email="dkhadikar@gmail.com",
+            name="Deepanshu",
+            role="admin",
+        )
+        original = security.settings
+        security.settings = settings
+        try:
+            assert is_platform_owner(user) is True
+        finally:
+            security.settings = original
+    finally:
+        if previous is None:
+            os.environ.pop("OWNER_EMAIL", None)
+        else:
+            os.environ["OWNER_EMAIL"] = previous
 
 
 def test_admin_clients_and_analytics(client):

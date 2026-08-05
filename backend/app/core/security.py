@@ -140,11 +140,15 @@ def require_staff(user: Annotated[CurrentUser, Depends(get_current_user)]) -> Cu
 
 
 def is_platform_owner(user: CurrentUser) -> bool:
-    """True for the Argus/Revisit platform owner (Deepanshu / OWNER_EMAIL)."""
-    owner = (settings.owner_email or "").strip().lower()
+    """True for the Argus/Revisit platform owner (Deepanshu / OWNER_EMAIL).
+
+    Uses the same normalized owner email as seed (empty OWNER_EMAIL falls back
+    to the default) so /admin is not silently denied in production.
+    """
+    owner = (settings.owner_email or "dkhadikar@gmail.com").strip().lower()
     if not owner:
         return False
-    return user.email.strip().lower() == owner
+    return (user.email or "").strip().lower() == owner
 
 
 def require_platform_owner(
