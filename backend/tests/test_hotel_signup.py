@@ -190,7 +190,7 @@ def test_login_matches_trial_when_email_also_on_demo(client):
         db.add(
             Tenant(
                 id="dup-email-trial",
-                name="Azure Coast Resort",
+                name="Harbor Trial Inn",
                 plan="trial",
                 is_active=True,
             )
@@ -209,10 +209,10 @@ def test_login_matches_trial_when_email_also_on_demo(client):
         db.add(
             Property(
                 tenant_id="dup-email-trial",
-                name="Azure Coast Resort",
+                name="Harbor Trial Inn",
                 type="hotel",
-                city="Nice",
-                country="France",
+                city="Lisbon",
+                country="Portugal",
                 rooms=48,
             )
         )

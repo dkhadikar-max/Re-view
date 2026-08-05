@@ -50,12 +50,17 @@ from app.services.event_bus import event_bus
 from app.services.workflow_engine import register_workflow_handlers
 
 DEMO_TENANT = "demo-hotel"
+# Legacy emails from the old demo — deactivate on seed so they cannot sign in.
 LEGACY_DEMO_EMAILS = (
     "manager@azurecoast.demo",
     "staff@azurecoast.demo",
     "admin@azurecoast.demo",
 )
 TEST_MANAGER_EMAIL = "manager@revisit.example"
+
+DEMO_TENANT_NAME = "Revisit Demo Group"
+DEMO_PROPERTY_NAME = "Revisit Demo Hotel"
+
 
 
 def _owner_email() -> str:
@@ -95,7 +100,7 @@ DEMO_PASSWORD = _owner_password() or "test-owner-password"
 
 
 def ensure_owner_account(db: Session) -> None:
-    """Upsert platform owner as admin; disable legacy azurecoast demo logins.
+    """Upsert platform owner as admin; disable legacy demo logins.
 
     Password rules:
     - Explicit OWNER_PASSWORD env → sync hash on every boot (intentional reset).
@@ -108,6 +113,9 @@ def ensure_owner_account(db: Session) -> None:
 
     if not db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
         return
+
+    # Strip retired "Azure Coast" branding from any existing demo rows.
+    _strip_azure_coast_branding(db)
 
     email = _owner_email()
     name = _owner_name()
@@ -329,6 +337,28 @@ def register_handlers() -> None:
     register_workflow_handlers()
 
 
+def _strip_azure_coast_branding(db: Session) -> None:
+    """Rename any leftover Azure Coast labels on the demo tenant/property."""
+    tenant = db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first()
+    if tenant and "azure coast" in (tenant.name or "").lower():
+        tenant.name = DEMO_TENANT_NAME
+    prop = db.query(Property).filter(Property.tenant_id == DEMO_TENANT).first()
+    if not prop:
+        return
+    renamed = "azure coast" in (prop.name or "").lower()
+    if renamed:
+        prop.name = DEMO_PROPERTY_NAME
+    if renamed or (prop.city or "").lower() == "nice":
+        prop.city = "Lisbon"
+        prop.country = "Portugal"
+        prop.timezone = "Europe/Lisbon"
+        prop.type = "hotel"
+    if not (prop.brand_voice or "").strip() or "mediterranean" in (
+        prop.brand_voice or ""
+    ).lower():
+        prop.brand_voice = "Warm, modern hospitality — clear, personal, never pushy."
+
+
 def seed_database(db: Session) -> None:
     if db.query(Tenant).filter(Tenant.id == DEMO_TENANT).first():
         ensure_owner_account(db)
@@ -341,7 +371,7 @@ def seed_database(db: Session) -> None:
             "OWNER_PASSWORD must be set before first seed in this environment"
         )
 
-    db.add(Tenant(id=DEMO_TENANT, name="Azure Coast Hospitality", plan="growth"))
+    db.add(Tenant(id=DEMO_TENANT, name=DEMO_TENANT_NAME, plan="growth"))
     db.flush()
 
     db.add(
@@ -368,13 +398,13 @@ def seed_database(db: Session) -> None:
 
     prop = Property(
         tenant_id=DEMO_TENANT,
-        name="Azure Coast Resort",
-        type="resort",
-        city="Nice",
-        country="France",
+        name=DEMO_PROPERTY_NAME,
+        type="hotel",
+        city="Lisbon",
+        country="Portugal",
         currency="EUR",
-        timezone="Europe/Paris",
-        brand_voice="Warm Mediterranean hospitality — elegant, personal, never pushy.",
+        timezone="Europe/Lisbon",
+        brand_voice="Warm, modern hospitality — clear, personal, never pushy.",
         google_rating=4.7,
         rooms=68,
     )
@@ -677,7 +707,7 @@ def seed_database(db: Session) -> None:
          "The location was great but our room was very noisy at night and the WiFi kept dropping. Staff were polite though.",
          ReviewSentiment.negative),
         (0, 6, 5, "Perfect business stay",
-         "Excellent breakfast, fast check-in, and a quiet room. Will definitely return for my next trip to Nice.",
+         "Excellent breakfast, fast check-in, and a quiet room. Will definitely return.",
          ReviewSentiment.positive),
         (1, None, 5, "Anniversary magic",
          "The spa and restaurant were outstanding. Clean rooms, beautiful pool, and the staff made our anniversary unforgettable.",
