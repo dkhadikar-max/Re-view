@@ -46,6 +46,16 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       signal: controller.signal,
       cache: "no-store",
     });
+    const raw = await res.text();
+    let parsed: unknown = undefined;
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = undefined;
+      }
+    }
+
     if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/login")) {
       setToken(null);
       if (!window.location.pathname.startsWith("/login")) {
@@ -54,19 +64,19 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
     }
     if (!res.ok) {
       let detail = `Request failed: ${res.status}`;
-      try {
-        const body = await res.json();
-        detail =
-          typeof body.detail === "string"
-            ? body.detail
-            : JSON.stringify(body.detail || body);
-      } catch {
-        detail = await res.text();
+      if (parsed && typeof parsed === "object" && parsed !== null && "detail" in parsed) {
+        const d = (parsed as { detail: unknown }).detail;
+        detail = typeof d === "string" ? d : JSON.stringify(d);
+      } else if (raw) {
+        detail = raw.slice(0, 500);
       }
       throw new Error(detail || `Request failed: ${res.status}`);
     }
     if (res.status === 204) return undefined as T;
-    return res.json();
+    if (parsed === undefined && raw) {
+      throw new Error("API returned non-JSON response. Check INTERNAL_API_URL on the web service.");
+    }
+    return parsed as T;
   } finally {
     clearTimeout(timeout);
   }
