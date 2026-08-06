@@ -40,6 +40,17 @@ def ensure_schema_patches() -> None:
             )
         logger.info("Added properties.google_review_url column")
 
+    if "reservations" in insp.get_table_names():
+        res_cols = {c["name"] for c in insp.get_columns("reservations")}
+        if "import_session_id" not in res_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE reservations ADD COLUMN import_session_id VARCHAR(36)"
+                    )
+                )
+            logger.info("Added reservations.import_session_id column")
+
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:
         rows = conn.execute(text("SELECT id, country, currency FROM properties")).fetchall()

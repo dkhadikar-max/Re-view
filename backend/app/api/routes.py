@@ -103,6 +103,11 @@ from app.services.guest_intelligence import (
     list_opportunities,
 )
 from app.services.hotel_signup import ensure_trial_demo_data
+from app.services.import_orchestrator import (
+    finish_import_session,
+    import_reservation,
+    start_import_session,
+)
 from app.services.messaging import deliver_message, process_due_messages
 from app.services.state_machine import (
     APPROVAL_TRANSITIONS,
@@ -635,64 +640,23 @@ def create_reservation(
     db: Session = Depends(get_db),
 ) -> ReservationOut:
     property_ = _property_for_tenant(db, user.tenant_id)
-    guest = Guest(
+    session = start_import_session(
+        db,
         tenant_id=user.tenant_id,
-        property_id=property_.id,
-        name=payload.guest_name,
-        email=str(payload.guest_email) if payload.guest_email else None,
-        phone=payload.guest_phone,
-        country=payload.country,
-        language=payload.language,
-        travel_type=payload.travel_type,
-        purpose=payload.purpose,
-        children=payload.children,
-        communication_preference=payload.communication_preference,
-        stay_count=1,
-        lifetime_spend=payload.total_amount,
-        average_booking=payload.total_amount,
-        ltv_score=60.0,
-        satisfaction_score=70.0,
+        source="manual",
+        initiated_by=user.email,
+        rows_total=1,
     )
-    db.add(guest)
-    db.flush()
-    reservation = Reservation(
+    guest, reservation, _ = import_reservation(
+        db,
         tenant_id=user.tenant_id,
         property_id=property_.id,
-        guest_id=guest.id,
+        payload=payload,
         external_id=f"MAN-{uuid.uuid4()}",
-        source=payload.source,
-        status=ReservationStatus.confirmed,
-        room_type=payload.room_type,
-        check_in=payload.check_in,
-        check_out=payload.check_out,
-        adults=payload.adults,
-        children=payload.children,
-        total_amount=payload.total_amount,
-        currency=payload.currency.upper(),
-        special_requests=payload.special_requests,
+        event_source="api",
+        import_session=session,
     )
-    db.add(reservation)
-    db.flush()
-    event_bus.publish_and_process(
-        db,
-        user.tenant_id,
-        "GuestProfileCreated",
-        {"guest_id": guest.id, "property_id": property_.id},
-        source="api",
-        idempotency_key=f"GuestProfileCreated:{guest.id}",
-    )
-    event_bus.publish_and_process(
-        db,
-        user.tenant_id,
-        "ReservationCreated",
-        {
-            "reservation_id": reservation.id,
-            "guest_id": guest.id,
-            "property_id": property_.id,
-        },
-        source="api",
-        idempotency_key=f"ReservationCreated:{reservation.id}",
-    )
+    finish_import_session(db, session)
     db.commit()
     db.refresh(reservation)
     return _reservation_out(reservation, guest.name)
@@ -1421,83 +1385,26 @@ async def import_csv(
         for line_number, row in enumerate(raw_rows, start=2)
     ]
     property_ = _property_for_tenant(db, user.tenant_id)
-    imported = 0
-    emitted = 0
+    session = start_import_session(
+        db,
+        tenant_id=user.tenant_id,
+        source="csv",
+        initiated_by=user.email,
+        rows_total=len(payloads),
+    )
     for payload in payloads:
-        guest = None
-        if payload.guest_email:
-            guest = (
-                db.query(Guest)
-                .filter(
-                    Guest.tenant_id == user.tenant_id,
-                    func.lower(Guest.email) == str(payload.guest_email).lower(),
-                )
-                .first()
-            )
-        if guest is None:
-            guest = Guest(
-                tenant_id=user.tenant_id,
-                property_id=property_.id,
-                name=payload.guest_name,
-                email=str(payload.guest_email) if payload.guest_email else None,
-                phone=payload.guest_phone,
-                country=payload.country,
-                language=payload.language,
-                travel_type=payload.travel_type,
-                purpose=payload.purpose,
-                children=payload.children,
-                communication_preference=payload.communication_preference,
-                stay_count=1,
-                lifetime_spend=payload.total_amount,
-                average_booking=payload.total_amount,
-                ltv_score=50,
-                satisfaction_score=70,
-            )
-            db.add(guest)
-            db.flush()
-        else:
-            previous_stays = guest.stay_count
-            guest.name = payload.guest_name
-            guest.phone = payload.guest_phone or guest.phone
-            guest.country = payload.country or guest.country
-            guest.language = payload.language
-            guest.travel_type = payload.travel_type
-            guest.communication_preference = payload.communication_preference
-            guest.stay_count = previous_stays + 1
-            guest.lifetime_spend = float(guest.lifetime_spend) + payload.total_amount
-            guest.average_booking = float(guest.lifetime_spend) / guest.stay_count
-        reservation = Reservation(
+        import_reservation(
+            db,
             tenant_id=user.tenant_id,
             property_id=property_.id,
-            guest_id=guest.id,
+            payload=payload,
             external_id=f"CSV-{uuid.uuid4()}",
-            source="csv",
-            status=ReservationStatus.confirmed,
-            room_type=payload.room_type,
-            check_in=payload.check_in,
-            check_out=payload.check_out,
-            adults=payload.adults,
-            children=payload.children,
-            total_amount=payload.total_amount,
-            currency=payload.currency.upper(),
-            special_requests=payload.special_requests,
+            event_source="csv",
+            import_session=session,
         )
-        db.add(reservation)
-        db.flush()
-        event_bus.publish_and_process(
-            db,
-            user.tenant_id,
-            "ReservationCreated",
-            {
-                "reservation_id": reservation.id,
-                "guest_id": guest.id,
-                "property_id": property_.id,
-            },
-            source="csv",
-            idempotency_key=f"ReservationCreated:csv:{reservation.external_id}",
-        )
-        imported += 1
-        emitted += 1
+    finish_import_session(db, session)
+    imported = session.rows_imported
+    emitted = imported
     db.commit()
     return SyncResult(
         imported=imported,
