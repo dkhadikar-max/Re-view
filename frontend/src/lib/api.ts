@@ -463,9 +463,24 @@ export type Property = {
   city: string;
   country: string;
   currency: string;
+  timezone: string;
   brand_voice: string;
   google_rating: number;
   rooms: number;
+  address?: string | null;
+  google_review_url?: string | null;
+};
+
+export type PropertyUpdate = {
+  name: string;
+  city: string;
+  country: string;
+  currency: string;
+  timezone: string;
+  rooms: number;
+  brand_voice: string;
+  address?: string | null;
+  google_review_url?: string | null;
 };
 
 export const api = {
@@ -495,6 +510,11 @@ export const api = {
     }),
   stats: () => request<DashboardStats>("/api/dashboard/stats"),
   properties: () => request<Property[]>("/api/properties"),
+  updateProperty: (id: string, payload: PropertyUpdate) =>
+    request<Property>(`/api/properties/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   guests: (params?: {
     q?: string;
     min_spend?: number;

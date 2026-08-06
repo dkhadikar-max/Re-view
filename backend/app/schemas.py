@@ -241,6 +241,39 @@ class PropertyOut(ORMModel):
     brand_voice: str
     google_rating: float
     rooms: int
+    address: Optional[str] = None
+    google_review_url: Optional[str] = None
+
+
+class PropertyUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    city: str = Field(min_length=1, max_length=128)
+    country: str = Field(min_length=1, max_length=128)
+    currency: str = Field(min_length=3, max_length=8)
+    timezone: str = Field(min_length=1, max_length=64)
+    rooms: int = Field(ge=1, le=20000)
+    brand_voice: str = Field(min_length=1)
+    address: Optional[str] = Field(default=None, max_length=500)
+    google_review_url: Optional[str] = Field(default=None, max_length=512)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("address", "google_review_url", mode="before")
+    @classmethod
+    def blank_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("google_review_url")
+    @classmethod
+    def validate_review_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("Google Review URL must start with http:// or https://")
+        return v
 
 
 class ConnectorOut(ORMModel):

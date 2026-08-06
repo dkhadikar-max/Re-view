@@ -28,6 +28,18 @@ def ensure_schema_patches() -> None:
             )
         logger.info("Added properties.currency column")
 
+    if "address" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE properties ADD COLUMN address VARCHAR(500)"))
+        logger.info("Added properties.address column")
+
+    if "google_review_url" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE properties ADD COLUMN google_review_url VARCHAR(512)")
+            )
+        logger.info("Added properties.google_review_url column")
+
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:
         rows = conn.execute(text("SELECT id, country, currency FROM properties")).fetchall()
