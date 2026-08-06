@@ -29,7 +29,7 @@ const nav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/guests", label: "Guests", icon: Users },
   { href: "/reservations", label: "Reservations", icon: CalendarDays },
-  { href: "/import", label: "Data Import", icon: Upload },
+  { href: "/import", label: "Import", icon: Upload },
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/reviews", label: "Reviews", icon: Star },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },

@@ -1435,6 +1435,29 @@ def get_import_summary(
     )
 
 
+@router.post("/import-sources/{source}/early-access")
+def request_early_access(
+    source: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    """Records interest in a not-yet-built import source (PDF, email, PMS
+    connectors) so demand can be measured later via the audit log — no new
+    table, reuses the existing AuditLog exactly like every other action.
+    """
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="early_access_request",
+        entity_type="import_source",
+        entity_id=source,
+        details={"source": source},
+    )
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/workers/tick", response_model=WorkerResult)
 def worker_tick(user: ManagerUser, db: Session = Depends(get_db)) -> WorkerResult:
     scoped_db = _TenantScopedSession(db, user.tenant_id)

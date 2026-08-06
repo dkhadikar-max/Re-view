@@ -3,17 +3,41 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
+  CheckCircle2,
+  Download,
   FileSpreadsheet,
   FileText,
   Mail,
   PenLine,
   Plug,
-  Sparkles,
 } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Button, Panel } from "@/components/ui";
 import { api, type ImportSummary } from "@/lib/api";
 import { useMoney } from "@/components/WorkspaceProvider";
+
+const CSV_TEMPLATE_COLUMNS = [
+  "name",
+  "email",
+  "phone",
+  "check_in",
+  "check_out",
+  "adults",
+  "children",
+  "country",
+  "amount",
+];
+
+function downloadCsvTemplate() {
+  const csv = CSV_TEMPLATE_COLUMNS.join(",") + "\n";
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "revisit-reservations-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 type Source = "csv" | "manual";
 type ComingSoonSource = "pdf" | "email" | "cloudbeds" | "mews" | "opera";
@@ -117,6 +141,16 @@ export default function DataImportPage() {
   });
 
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [earlyAccessSent, setEarlyAccessSent] = useState<Set<string>>(new Set());
+
+  async function joinEarlyAccess(id: string) {
+    try {
+      await api.requestEarlyAccess(id);
+      setEarlyAccessSent((prev) => new Set(prev).add(id));
+    } catch {
+      // Non-critical — worst case the click just doesn't register.
+    }
+  }
 
   function reset() {
     setStep("source");
@@ -177,7 +211,7 @@ export default function DataImportPage() {
   return (
     <div>
       <TopBar
-        title="Data Import"
+        title="Import Reservations"
         subtitle="Bring reservations in from wherever they live today — one flow, any source."
       />
 
@@ -191,25 +225,41 @@ export default function DataImportPage() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {SOURCES.map((s) => {
             const Icon = s.icon;
+            if (s.enabled) {
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => selectSource(s.id)}
+                  className="animate-fade-up rounded-2xl border border-ink-200/60 bg-white/70 p-5 text-left opacity-0 transition hover:border-sea-400 hover:shadow-sm"
+                >
+                  <Icon className="h-5 w-5 text-sea-600" />
+                  <p className="mt-3 font-display text-lg text-ink-900">{s.label}</p>
+                  <p className="mt-1 text-sm text-ink-500">{s.description}</p>
+                </button>
+              );
+            }
+            const requested = earlyAccessSent.has(s.id);
             return (
-              <button
+              <div
                 key={s.id}
-                type="button"
-                disabled={!s.enabled}
-                onClick={() => selectSource(s.id)}
-                className={`animate-fade-up rounded-2xl border p-5 text-left opacity-0 transition ${
-                  s.enabled
-                    ? "border-ink-200/60 bg-white/70 hover:border-sea-400 hover:shadow-sm"
-                    : "cursor-not-allowed border-ink-100 bg-ink-50/60 opacity-60"
-                }`}
+                className="animate-fade-up rounded-2xl border border-ink-100 bg-ink-50/60 p-5 opacity-0"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <Icon className="h-5 w-5 text-sea-600" />
-                  {!s.enabled && <Badge>Coming soon</Badge>}
+                  <Icon className="h-5 w-5 text-ink-400" />
+                  <Badge>Coming soon</Badge>
                 </div>
-                <p className="mt-3 font-display text-lg text-ink-900">{s.label}</p>
+                <p className="mt-3 font-display text-lg text-ink-700">{s.label}</p>
                 <p className="mt-1 text-sm text-ink-500">{s.description}</p>
-              </button>
+                <button
+                  type="button"
+                  disabled={requested}
+                  onClick={() => void joinEarlyAccess(s.id)}
+                  className="mt-3 text-xs font-medium text-sea-600 hover:underline disabled:text-sea-400 disabled:no-underline"
+                >
+                  {requested ? "You're on the list ✓" : "Join early access →"}
+                </button>
+              </div>
             );
           })}
         </div>
@@ -222,6 +272,14 @@ export default function DataImportPage() {
             phone, country, language, travel_type, room_type, adults, children,
             currency, special_requests, channel.
           </p>
+          <button
+            type="button"
+            onClick={downloadCsvTemplate}
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-sea-600 hover:underline"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download CSV template
+          </button>
           <input
             type="file"
             accept=".csv"
@@ -376,7 +434,7 @@ export default function DataImportPage() {
       {step === "summary" && (
         <div className="animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-700 p-6 text-white opacity-0">
           <div className="flex items-center gap-2 text-sea-300">
-            <Sparkles className="h-4 w-4" />
+            <CheckCircle2 className="h-4 w-4" />
             <p className="text-[10px] uppercase tracking-[0.18em]">Import complete</p>
           </div>
           {summary ? (
@@ -424,9 +482,15 @@ export default function DataImportPage() {
           ) : (
             <h2 className="mt-2 font-display text-3xl">Import complete</h2>
           )}
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-wrap gap-3 border-t border-white/10 pt-5">
+            <Link href="/">
+              <Button variant="secondary">Continue →</Button>
+            </Link>
             <Link href="/guests">
-              <Button variant="secondary">Start Guest Engagement →</Button>
+              <Button variant="secondary">Open Guest Memory →</Button>
+            </Link>
+            <Link href="/reservations">
+              <Button variant="secondary">View Reservations →</Button>
             </Link>
             <Button variant="ghost" className="!text-white" onClick={reset}>
               Import more

@@ -621,6 +621,10 @@ export const api = {
   },
   importSummary: (sessionId: string) =>
     request<ImportSummary>(`/api/import-sessions/${sessionId}/summary`),
+  requestEarlyAccess: (source: string) =>
+    request<{ ok: boolean }>(`/api/import-sources/${source}/early-access`, {
+      method: "POST",
+    }),
   decide: (reservationId: string) =>
     request(`/api/reservations/${reservationId}/decide`, { method: "POST" }),
   acceptOffer: (id: string) =>
