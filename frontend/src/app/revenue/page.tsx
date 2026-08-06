@@ -3,23 +3,37 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Button, Empty, Panel, Stat } from "@/components/ui";
-import { useMoney } from "@/components/WorkspaceProvider";
-import { api, type DashboardStats, type Offer } from "@/lib/api";
+import { useMoney, useWorkspaceCurrency } from "@/components/WorkspaceProvider";
+import {
+  api,
+  type DashboardStats,
+  type Offer,
+  type SalesAnalytics,
+} from "@/lib/api";
+import { ARGUS, REVISIT } from "@/lib/brand";
 
 export default function RevenuePage() {
   const money = useMoney();
+  const currency = useWorkspaceCurrency();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [analytics, setAnalytics] = useState<SalesAnalytics | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   async function load() {
-    const [s, o] = await Promise.all([api.stats(), api.offers()]);
+    const [s, o, a] = await Promise.all([
+      api.stats(),
+      api.offers(),
+      api.salesAnalytics(30),
+    ]);
     setStats(s);
     setOffers(o);
+    setAnalytics(a);
   }
 
   useEffect(() => {
-    load().catch(console.error);
+    load().catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, []);
 
   async function accept(id: string) {
@@ -43,7 +57,15 @@ export default function RevenuePage() {
     }
   }
 
-  if (!stats) {
+  if (error) {
+    return (
+      <div className="rounded-xl border border-coral-200 bg-coral-50 p-4 text-sm text-coral-800">
+        {error}
+      </div>
+    );
+  }
+
+  if (!stats || !analytics) {
     return (
       <div className="flex h-64 items-center justify-center text-ink-400">
         Loading revenue…
@@ -54,25 +76,36 @@ export default function RevenuePage() {
   return (
     <div>
       <TopBar
-        title="Revenue Engine"
-        subtitle="Upsells → Stripe payment link → paid webhook → guest memory."
+        title="Revenue"
+        subtitle="Upsells, reviews, and repeat guests — the outcomes this platform drives."
       />
 
+      <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-800 p-6 text-white opacity-0">
+        <p className="text-xs uppercase tracking-wider text-ink-300">
+          {REVISIT.name} · {ARGUS.productLine} · {currency} · last {analytics.period_days} days
+        </p>
+        <h2 className="mt-2 font-display text-3xl">One paying hotel. These numbers.</h2>
+        <p className="mt-2 max-w-2xl text-sm text-ink-200">
+          Upsells → Stripe payment link → paid webhook → guest memory.
+        </p>
+      </div>
+
+      <p className="mb-3 text-xs font-medium uppercase tracking-wider text-ink-400">
+        Revenue
+      </p>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat
-          label="Revenue today"
-          value={money(stats.revenue_today)}
-          accent="sea"
-        />
+        <Stat label="Revenue today" value={money(stats.revenue_today)} accent="sea" />
         <Stat
           label="Upsell revenue"
           value={money(stats.upsell_revenue)}
+          hint={`${analytics.upsell_conversion}% conversion`}
           accent="sand"
           delay={40}
         />
         <Stat
           label="Repeat guests"
           value={stats.repeat_guests}
+          hint={`${analytics.repeat_guest_rate}% of book of business`}
           delay={80}
         />
         <Stat
@@ -82,9 +115,42 @@ export default function RevenuePage() {
         />
       </div>
 
+      <p className="mb-3 mt-6 text-xs font-medium uppercase tracking-wider text-ink-400">
+        Guest health
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat
+          label="Review rate"
+          value={`${analytics.review_rate}%`}
+          hint="Guests with prior reviews"
+          accent="sea"
+        />
+        <Stat
+          label="Guest satisfaction"
+          value={analytics.guest_satisfaction}
+          hint={`Google proxy ${analytics.google_rating_proxy}★`}
+          delay={40}
+        />
+        <Stat
+          label="Messages"
+          value={analytics.ai_messages}
+          hint={`${analytics.ai_messages_sent} delivered/sent`}
+          delay={80}
+        />
+        <Stat
+          label="Rewards enrolled"
+          value={analytics.celebrations_enrolled}
+          hint={`${money(analytics.room_revenue_active)} active room revenue`}
+          delay={120}
+        />
+      </div>
+
       <Panel title="Offers" className="mt-8 [animation-delay:160ms]">
         {offers.length === 0 ? (
-          <Empty>No offers yet</Empty>
+          <Empty>
+            No offers yet. Once a reservation is recommended an upsell, it will
+            appear here.
+          </Empty>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">

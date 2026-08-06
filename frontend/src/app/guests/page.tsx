@@ -120,7 +120,7 @@ export default function GuestsPage() {
   return (
     <div>
       <TopBar
-        title="Guest Intelligence"
+        title="Guests"
         subtitle={`${REVISIT.name} remembers every guest — who they are, what they prefer, and what to do next.`}
       />
 

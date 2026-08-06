@@ -149,7 +149,7 @@ export default function OperationsPage() {
   return (
     <div>
       <TopBar
-        title="Operations"
+        title="Dashboard"
         subtitle={`${REVISIT.tagline} — outcomes first, then what needs attention today.`}
         action={
           <Button onClick={handleSync} disabled={syncing} variant="secondary">

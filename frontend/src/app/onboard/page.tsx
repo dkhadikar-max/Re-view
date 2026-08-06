@@ -61,7 +61,7 @@ export default function HotelSignupPage() {
           </p>
           <h1 className="mt-2 font-display text-3xl">Your hotel is ready</h1>
           <p className="mt-3 text-sm text-ink-300">
-            Opening Operations — explore Guest Intelligence, approvals, and revenue.
+            Opening Dashboard — explore Guests, approvals, and revenue.
           </p>
         </div>
       </div>

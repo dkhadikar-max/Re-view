@@ -53,7 +53,7 @@ export default function CelebratePage() {
     try {
       const updated = await api.updateCelebrateConfig(config);
       setConfig(updated);
-      setMsg("Celebrate Rewards settings saved");
+      setMsg("Rewards settings saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -109,7 +109,7 @@ export default function CelebratePage() {
   if (!dash || !config) {
     return (
       <div className="flex h-64 items-center justify-center text-ink-400">
-        Loading Celebrate Rewards…
+        Loading Rewards…
       </div>
     );
   }
@@ -119,7 +119,7 @@ export default function CelebratePage() {
   return (
     <div>
       <TopBar
-        title="Celebrate Rewards"
+        title="Rewards"
         subtitle={dash.tagline}
         action={
           <Button onClick={runCampaigns} disabled={busy} variant="secondary">
@@ -330,7 +330,7 @@ export default function CelebratePage() {
 
         <Panel title="Awaiting date lock" className="[animation-delay:360ms]">
           <p className="mb-3 text-xs text-ink-500">
-            Reviewers who unlocked Celebrate Rewards but have not locked dates yet.
+            Reviewers who unlocked Rewards but have not locked dates yet.
           </p>
           {unlocked.length === 0 ? (
             <Empty>No pending enrollments</Empty>

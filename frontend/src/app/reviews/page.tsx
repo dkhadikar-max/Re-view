@@ -45,7 +45,7 @@ export default function ReviewsPage() {
     <div>
       <TopBar
         title="Review Engine"
-        subtitle="Encourage authentic feedback. Draft replies. Never fabricate reviews. Verified reviewers unlock Celebrate Rewards."
+        subtitle="Encourage authentic feedback. Draft replies. Never fabricate reviews. Verified reviewers unlock Rewards."
       />
       {invite && (
         <p className="mb-4 break-all rounded-xl bg-sea-500/10 px-3 py-2 text-xs text-sea-700">
@@ -139,7 +139,7 @@ export default function ReviewsPage() {
                             disabled={busy === r.id}
                             onClick={() => unlockCelebrate(r.guest_id!, r.id)}
                           >
-                            Unlock Celebrate Rewards
+                            Unlock Rewards
                           </Button>
                         )}
                       </div>
@@ -151,7 +151,7 @@ export default function ReviewsPage() {
                           disabled={busy === r.id}
                           onClick={() => unlockCelebrate(r.guest_id!, r.id)}
                         >
-                          Unlock / invite Celebrate Rewards
+                          Unlock / invite Rewards
                         </Button>
                       </div>
                     )}

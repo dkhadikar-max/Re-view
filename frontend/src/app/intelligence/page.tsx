@@ -25,7 +25,7 @@ export default function IntelligencePage() {
   return (
     <div>
       <TopBar
-        title="Intelligence"
+        title="Insights"
         subtitle="What guests talk about — extracted from every review, ready for monthly insight."
       />
 
