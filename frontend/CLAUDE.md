@@ -127,6 +127,21 @@ Otherwise reconsider building it.
 
 ---
 
+## Page Completeness Test
+
+Every page must answer three questions, in order:
+
+1. What happened?
+2. Why does it matter?
+3. What should I do next?
+
+If a page cannot answer all three, it isn't finished — that's a defect,
+not a polish item. A page that only shows data (What happened?) without
+context (Why does it matter?) or a clear action (What should I do next?)
+should be treated the same as a bug.
+
+---
+
 ## Architecture
 
 Core Engine
