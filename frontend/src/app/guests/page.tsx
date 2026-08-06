@@ -128,7 +128,7 @@ export default function GuestsPage() {
       <section className="mb-6 animate-fade-up opacity-0">
         <div className="mb-3 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-sea-600" />
-          <h2 className="font-display text-lg text-ink-900">AI Opportunities</h2>
+          <h2 className="font-display text-lg text-ink-900">Opportunities</h2>
         </div>
         {opportunities.length === 0 ? (
           <p className="text-sm text-ink-400">No urgent opportunities right now.</p>
@@ -387,11 +387,11 @@ export default function GuestsPage() {
               </dl>
             </div>
 
-            {/* AI Summary */}
+            {/* Insights */}
             <div className="rounded-2xl border border-sea-500/20 bg-gradient-to-br from-sea-500/8 to-white/80 p-5">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-sea-600" />
-                <h3 className="font-display text-lg text-ink-900">AI Summary</h3>
+                <h3 className="font-display text-lg text-ink-900">Insights</h3>
               </div>
               <p className="mt-2 text-sm leading-relaxed text-ink-700">
                 {selected.ai_summary || "Building intelligence…"}

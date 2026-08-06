@@ -20,7 +20,7 @@ export default function MessagesPage() {
     <div>
       <TopBar
         title="Messaging"
-        subtitle="AI writes. The messaging engine delivers. You approve when confidence is low."
+        subtitle="Drafted for you. You approve anything that needs review."
       />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
@@ -42,11 +42,12 @@ export default function MessagesPage() {
                     <Badge tone={m.status}>{m.status.replace("_", " ")}</Badge>
                     <Badge>{m.channel}</Badge>
                     <Badge>{m.message_type}</Badge>
+                    {m.confidence != null && m.confidence < 0.85 && (
+                      <Badge tone="pending">Needs review</Badge>
+                    )}
                   </div>
                   <p className="mt-1 text-xs text-ink-500">
                     {m.subject} · {m.language.toUpperCase()}
-                    {m.confidence != null &&
-                      ` · ${Math.round(m.confidence * 100)}% confidence`}
                   </p>
                 </li>
               ))}

@@ -37,7 +37,7 @@ export default function ApprovalsPage() {
     <div>
       <TopBar
         title="Approval Queue"
-        subtitle="AI never executes directly — every low-confidence or sensitive action waits here."
+        subtitle="Nothing goes out without approval — sensitive or needs-review actions wait here."
       />
 
       <Panel
@@ -56,11 +56,6 @@ export default function ApprovalsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-medium text-ink-900">{a.title}</h3>
                   <Badge>{a.approval_type.replace("_", " ")}</Badge>
-                  {a.confidence != null && (
-                    <span className="text-xs text-ink-400">
-                      {Math.round(a.confidence * 100)}% confidence
-                    </span>
-                  )}
                 </div>
                 <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap font-sans text-sm text-ink-700">
                   {a.content}

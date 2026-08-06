@@ -40,7 +40,7 @@ export default function AnalyticsPage() {
     <div>
       <TopBar
         title="Sales Analytics"
-        subtitle={`${REVISIT.tagline} — review rate, repeat guests, upsell revenue, AI messages.`}
+        subtitle={`${REVISIT.tagline} — review rate, repeat guests, upsell revenue, automated messages.`}
       />
 
       <div className="mb-6 animate-fade-up rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-800 p-6 text-white opacity-0">
@@ -49,7 +49,7 @@ export default function AnalyticsPage() {
         </p>
         <h2 className="mt-2 font-display text-3xl">One paying hotel. These numbers.</h2>
         <p className="mt-2 max-w-2xl text-sm text-ink-200">
-          {REVISIT.tagline} — upsell revenue, review rate, and AI-assisted outbound
+          {REVISIT.tagline} — upsell revenue, review rate, and automated outbound
           volume for your property.
         </p>
       </div>
@@ -76,7 +76,7 @@ export default function AnalyticsPage() {
           delay={80}
         />
         <Stat
-          label="AI messages"
+          label="Messages"
           value={data.ai_messages}
           hint={`${data.ai_messages_sent} delivered/sent`}
           delay={120}

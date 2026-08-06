@@ -120,7 +120,7 @@ export default function ReviewsPage() {
                 {r.ai_draft_response && (
                   <div className="mt-4 rounded-xl border border-dashed border-sea-400/40 bg-sea-500/5 p-4">
                     <p className="text-xs font-medium uppercase tracking-wider text-sea-700">
-                      AI draft response
+                      Suggested reply
                     </p>
                     <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-ink-800">
                       {r.ai_draft_response}

@@ -73,7 +73,7 @@ export default function OperationsPage() {
           celebrate_unlocked: 0,
           currency: s.currency || currency,
           narrative:
-            "AI-assisted guest revenue in motion — approvals, reviews, and upsells for your property.",
+            "Guest revenue in motion — approvals, reviews, and upsells for your property.",
           generated_at: new Date().toISOString(),
         });
       }
@@ -138,7 +138,7 @@ export default function OperationsPage() {
     celebrate_unlocked: 0,
     currency: stats.currency || currency,
     narrative:
-      "AI-assisted guest revenue in motion — approvals, reviews, and upsells for your property.",
+      "Guest revenue in motion — approvals, reviews, and upsells for your property.",
     generated_at: new Date().toISOString(),
   };
 
@@ -203,7 +203,7 @@ export default function OperationsPage() {
           </div>
           <div className="rounded-xl bg-white/5 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-ink-400">
-              AI hours saved
+              Hours saved
             </p>
             <p className="mt-1 font-display text-3xl">{roiBoard.ai_hours_saved}</p>
           </div>
@@ -261,9 +261,9 @@ export default function OperationsPage() {
           delay={200}
         />
         <Stat
-          label="AI hours saved"
+          label="Hours saved"
           value={`${stats.ai_saved_hours}h`}
-          hint={`${stats.response_time_hours}h avg response · AI assisted`}
+          hint={`${stats.response_time_hours}h avg response time`}
           delay={240}
         />
         <Stat
@@ -326,11 +326,6 @@ export default function OperationsPage() {
                         {a.content}
                       </p>
                     </div>
-                    {a.confidence != null && (
-                      <span className="shrink-0 text-xs text-ink-400">
-                        {Math.round(a.confidence * 100)}%
-                      </span>
-                    )}
                   </div>
                   <div className="mt-3 flex gap-2">
                     <Button onClick={() => handleApproval(a.id, "approve")}>

@@ -80,7 +80,7 @@ export default function HotelSignupPage() {
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-600">
             {REVISIT.tagline}. Create a trial workspace — Living Guest
-            Intelligence, Celebrate Rewards, and AI-assisted approvals.
+            Intelligence, Celebrate Rewards, and approvals.
           </p>
           <ol className="mt-6 space-y-2 rounded-2xl border border-ink-200/60 bg-white/60 p-4 text-sm text-ink-700">
             {REVISIT.celebrateLoop.map((step, i) => (

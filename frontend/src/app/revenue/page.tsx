@@ -93,7 +93,6 @@ export default function RevenuePage() {
                   <th className="pb-3 font-medium">Offer</th>
                   <th className="pb-3 font-medium">Guest</th>
                   <th className="pb-3 font-medium">Price</th>
-                  <th className="pb-3 font-medium">Confidence</th>
                   <th className="pb-3 font-medium">Status</th>
                   <th className="pb-3 font-medium"></th>
                 </tr>
@@ -118,9 +117,6 @@ export default function RevenuePage() {
                     <td className="py-3 text-ink-600">{o.guest_name}</td>
                     <td className="py-3">
                       {money(o.price, o.currency)}
-                    </td>
-                    <td className="py-3 text-ink-500">
-                      {Math.round(o.confidence * 100)}%
                     </td>
                     <td className="py-3">
                       <Badge tone={o.paid_at ? "accepted" : o.status}>
