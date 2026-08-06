@@ -80,6 +80,7 @@ class ReservationOut(ORMModel):
     special_requests: Optional[str] = None
     created_at: datetime
     guest_name: Optional[str] = None
+    import_session_id: Optional[str] = None
 
 
 class ReservationCreate(BaseModel):
@@ -347,6 +348,19 @@ class SyncResult(BaseModel):
     imported: int
     events_emitted: int
     message: str
+    import_session_id: Optional[str] = None
+
+
+class ImportSummaryOut(BaseModel):
+    import_session_id: str
+    source: str
+    status: str
+    reservations_imported: int
+    guests_created: int
+    returning_guests: int
+    birthdays_this_month: int
+    reviews_scheduled: int
+    upsell_opportunities: int
 
 
 class DecideResult(BaseModel):

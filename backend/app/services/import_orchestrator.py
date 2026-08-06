@@ -19,12 +19,19 @@ below — orchestration, dedup, and automation stay written once, here.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import Guest, ImportSession, ImportSessionStatus, Reservation
+from app.models.entities import (
+    Guest,
+    ImportSession,
+    ImportSessionStatus,
+    Message,
+    Offer,
+    Reservation,
+)
 from app.schemas import ReservationCreate
 from app.services.event_bus import event_bus
 from app.services.guest_service import find_or_create_guest
@@ -119,3 +126,68 @@ def import_reservation(
         idempotency_key=f"ReservationCreated:{event_source}:{external_id}",
     )
     return guest, reservation, created
+
+
+def build_import_summary(db: Session, session: ImportSession) -> dict[str, Any]:
+    """Compute the "so what" numbers for the Import Summary screen from data
+    the import already produced — no separate tracking needed.
+
+    A guest counts as "created" if this session accounts for their entire
+    stay_count (they had no history before this import), otherwise they're
+    "returning". Reviews/upsells are read from the Messages/Offers the
+    Automation Engine already created via the ReservationCreated event that
+    import_reservation() fires per row — this reuses existing automation,
+    it doesn't add any.
+    """
+    reservations = (
+        db.query(Reservation)
+        .filter(Reservation.import_session_id == session.id)
+        .all()
+    )
+    reservation_ids = [r.id for r in reservations]
+
+    reservations_per_guest: dict[str, int] = {}
+    for r in reservations:
+        reservations_per_guest[r.guest_id] = reservations_per_guest.get(r.guest_id, 0) + 1
+
+    guests = (
+        db.query(Guest).filter(Guest.id.in_(reservations_per_guest.keys())).all()
+        if reservations_per_guest
+        else []
+    )
+    today = date.today()
+    guests_created = 0
+    returning_guests = 0
+    birthdays_this_month = 0
+    for guest in guests:
+        if guest.stay_count <= reservations_per_guest.get(guest.id, 0):
+            guests_created += 1
+        else:
+            returning_guests += 1
+        if guest.birthday and guest.birthday.month == today.month:
+            birthdays_this_month += 1
+
+    reviews_scheduled = (
+        db.query(Message)
+        .filter(
+            Message.reservation_id.in_(reservation_ids),
+            Message.message_type == "review_request",
+        )
+        .count()
+        if reservation_ids
+        else 0
+    )
+    upsell_opportunities = (
+        db.query(Offer).filter(Offer.reservation_id.in_(reservation_ids)).count()
+        if reservation_ids
+        else 0
+    )
+
+    return {
+        "reservations_imported": session.rows_imported,
+        "guests_created": guests_created,
+        "returning_guests": returning_guests,
+        "birthdays_this_month": birthdays_this_month,
+        "reviews_scheduled": reviews_scheduled,
+        "upsell_opportunities": upsell_opportunities,
+    }

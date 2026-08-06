@@ -40,6 +40,7 @@ from app.models.entities import (
     Event,
     EventStatus,
     Guest,
+    ImportSession,
     Message,
     MessageStatus,
     Notification,
@@ -66,6 +67,7 @@ from app.schemas import (
     DecideResult,
     EventOut,
     GuestOut,
+    ImportSummaryOut,
     IntelligenceReport,
     IntelligenceTheme,
     LoginRequest,
@@ -104,6 +106,7 @@ from app.services.guest_intelligence import (
 )
 from app.services.hotel_signup import ensure_trial_demo_data
 from app.services.import_orchestrator import (
+    build_import_summary,
     finish_import_session,
     import_reservation,
     start_import_session,
@@ -1409,7 +1412,26 @@ async def import_csv(
     return SyncResult(
         imported=imported,
         events_emitted=emitted,
+        import_session_id=session.id,
         message=f"Imported {imported} rows from CSV",
+    )
+
+
+@router.get("/import-sessions/{session_id}/summary", response_model=ImportSummaryOut)
+def get_import_summary(
+    session_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> ImportSummaryOut:
+    session = get_tenant_entity(
+        db, ImportSession, session_id, user.tenant_id, not_found="Import session not found"
+    )
+    summary = build_import_summary(db, session)
+    return ImportSummaryOut(
+        import_session_id=session.id,
+        source=session.source,
+        status=session.status.value,
+        **summary,
     )
 
 
