@@ -23,6 +23,7 @@ export default function OperationsPage() {
   const currency = useWorkspaceCurrency();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [roi, setRoi] = useState<ROIMetrics | null>(null);
+  const [guestSatisfaction, setGuestSatisfaction] = useState<number | null>(null);
   const [arrivals, setArrivals] = useState<Reservation[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -51,6 +52,13 @@ export default function OperationsPage() {
       setApprovals(a.slice(0, 4));
       setReviews(r.filter((x) => x.rating <= 2 && !x.responded).slice(0, 3));
       setTasks(t.filter((x) => x.status === "open").slice(0, 4));
+
+      // Guest satisfaction is additive — never block the page if it's slow/missing
+      try {
+        setGuestSatisfaction((await api.salesAnalytics(30)).guest_satisfaction);
+      } catch {
+        setGuestSatisfaction(null);
+      }
 
       // ROI is additive — never block the page if the endpoint is missing/old
       try {
@@ -230,48 +238,59 @@ export default function OperationsPage() {
       <p className="mb-3 text-xs font-medium uppercase tracking-wider text-ink-400">
         Today at the property
       </p>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Arrivals" value={stats.arrivals_today} accent="sea" delay={0} />
-        <Stat label="Departures" value={stats.departures_today} accent="sand" delay={40} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Stat
-          label="Pending approvals"
-          value={stats.pending_approvals}
+          label="Today's arrivals"
+          value={stats.arrivals_today}
+          accent="sea"
+          delay={0}
+        />
+        <Stat
+          label="Today's departures"
+          value={stats.departures_today}
+          accent="sand"
+          delay={40}
+        />
+        <Stat
+          label="Pending reviews"
+          value={stats.negative_reviews}
+          hint="Rating ≤2, awaiting reply"
           accent="coral"
           delay={80}
         />
         <Stat
-          label="Upsell revenue"
+          label="Revenue influenced"
           value={money(stats.upsell_revenue)}
           hint={`${stats.upsells_waiting} offers waiting`}
           accent="sea"
           delay={120}
         />
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="Repeat guests" value={stats.repeat_guests} delay={160} />
         <Stat
-          label="Revenue today"
-          value={money(stats.revenue_today)}
-          delay={160}
-        />
-        <Stat
-          label="Google rating"
-          value={stats.google_rating.toFixed(1)}
-          hint={`${stats.review_conversion}% review conversion`}
+          label="Guest satisfaction"
+          value={guestSatisfaction != null ? guestSatisfaction : "—"}
+          hint={`Google ${stats.google_rating.toFixed(1)}★`}
           delay={200}
         />
+      </div>
+
+      <p className="mb-3 mt-6 text-xs font-medium uppercase tracking-wider text-ink-400">
+        Operations
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat
+          label="Pending approvals"
+          value={stats.pending_approvals}
+          accent="coral"
+          delay={240}
+        />
+        <Stat label="Open tasks" value={stats.open_tasks} delay={280} />
+        <Stat label="Revenue today" value={money(stats.revenue_today)} delay={320} />
         <Stat
           label="Hours saved"
           value={`${stats.ai_saved_hours}h`}
           hint={`${stats.response_time_hours}h avg response time`}
-          delay={240}
-        />
-        <Stat
-          label="Open tasks"
-          value={stats.open_tasks}
-          hint={`${stats.negative_reviews} negative reviews`}
-          accent="coral"
-          delay={280}
+          delay={360}
         />
       </div>
 
