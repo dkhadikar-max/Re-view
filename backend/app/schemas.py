@@ -379,6 +379,27 @@ class ImportSummaryOut(BaseModel):
     upsell_opportunities: int
 
 
+class ImportSessionListItem(ORMModel):
+    id: str
+    source: str
+    status: str
+    filename: Optional[str] = None
+    initiated_by: str
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    rows_total: int
+    rows_imported: int
+    rows_skipped: int
+    rows_failed: int
+
+
+class ImportSessionDetail(ImportSessionListItem):
+    duration_ms: Optional[int] = None
+    error_summary: Optional[str] = None
+    warnings: list[CsvRowIssue] = []
+    errors: list[CsvRowIssue] = []
+
+
 class DecideResult(BaseModel):
     decision: AIDecisionOut
     execution: dict[str, Any]

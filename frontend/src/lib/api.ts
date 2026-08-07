@@ -315,6 +315,27 @@ export type ImportSummary = {
   upsell_opportunities: number;
 };
 
+export type ImportSessionListItem = {
+  id: string;
+  source: string;
+  status: string;
+  filename?: string | null;
+  initiated_by: string;
+  started_at: string;
+  completed_at?: string | null;
+  rows_total: number;
+  rows_imported: number;
+  rows_skipped: number;
+  rows_failed: number;
+};
+
+export type ImportSessionDetail = ImportSessionListItem & {
+  duration_ms?: number | null;
+  error_summary?: string | null;
+  warnings: CsvRowIssue[];
+  errors: CsvRowIssue[];
+};
+
 export type Message = {
   id: string;
   guest_id: string;
@@ -645,6 +666,17 @@ export const api = {
   },
   importSummary: (sessionId: string) =>
     request<ImportSummary>(`/api/import-sessions/${sessionId}/summary`),
+  importSessions: (params?: { source?: string; status?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.source) q.set("source", params.source);
+    if (params?.status) q.set("status", params.status);
+    const qs = q.toString();
+    return request<ImportSessionListItem[]>(
+      `/api/import-sessions${qs ? `?${qs}` : ""}`
+    );
+  },
+  importSession: (sessionId: string) =>
+    request<ImportSessionDetail>(`/api/import-sessions/${sessionId}`),
   requestEarlyAccess: (source: string) =>
     request<{ ok: boolean }>(`/api/import-sources/${source}/early-access`, {
       method: "POST",

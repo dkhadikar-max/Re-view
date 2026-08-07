@@ -493,6 +493,8 @@ class ImportSession(Base):
     rows_skipped: Mapped[int] = mapped_column(Integer, default=0)
     initiated_by: Mapped[str] = mapped_column(String(255))
     error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    validation_issues: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class Connector(Base):

@@ -41,6 +41,7 @@ from app.models.entities import (
     EventStatus,
     Guest,
     ImportSession,
+    ImportSessionStatus,
     Message,
     MessageStatus,
     Notification,
@@ -69,6 +70,8 @@ from app.schemas import (
     DecideResult,
     EventOut,
     GuestOut,
+    ImportSessionDetail,
+    ImportSessionListItem,
     ImportSummaryOut,
     IntelligenceReport,
     IntelligenceTheme,
@@ -1476,7 +1479,7 @@ async def import_csv(
     db: Session = Depends(get_db),
 ) -> SyncResult:
     raw_rows = await _read_csv_rows(file)
-    valid, _warnings, errors = _validate_csv_rows(raw_rows)
+    valid, warnings, errors = _validate_csv_rows(raw_rows)
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(
         db,
@@ -1484,6 +1487,7 @@ async def import_csv(
         source="csv",
         initiated_by=user.email,
         rows_total=len(raw_rows),
+        filename=file.filename,
     )
     for _line_number, payload in valid:
         import_reservation(
@@ -1502,6 +1506,13 @@ async def import_csv(
             f"Skipped {len(error_lines)} row(s) with validation errors: "
             f"lines {', '.join(map(str, error_lines))}"
         )
+    if warnings or errors:
+        session.validation_issues = json.dumps(
+            {
+                "warnings": [w.model_dump() for w in warnings],
+                "errors": [e.model_dump() for e in errors],
+            }
+        )
     finish_import_session(db, session)
     imported = session.rows_imported
     emitted = imported
@@ -1519,6 +1530,74 @@ async def import_csv(
                 else ""
             )
         ),
+    )
+
+
+@router.get("/import-sessions", response_model=list[ImportSessionListItem])
+def list_import_sessions(
+    user: AuthUser,
+    source: str | None = Query(default=None),
+    session_status: str | None = Query(default=None, alias="status"),
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[ImportSession]:
+    query = db.query(ImportSession).filter(ImportSession.tenant_id == user.tenant_id)
+    if source:
+        query = query.filter(ImportSession.source == source)
+    if session_status:
+        try:
+            normalized_status = ImportSessionStatus(session_status)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid import session status",
+            ) from exc
+        query = query.filter(ImportSession.status == normalized_status)
+    return (
+        query.order_by(ImportSession.started_at.desc()).offset(skip).limit(limit).all()
+    )
+
+
+@router.get("/import-sessions/{session_id}", response_model=ImportSessionDetail)
+def get_import_session(
+    session_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> ImportSessionDetail:
+    session = get_tenant_entity(
+        db, ImportSession, session_id, user.tenant_id, not_found="Import session not found"
+    )
+    duration_ms: int | None = None
+    if session.completed_at:
+        duration_ms = int(
+            (session.completed_at - session.started_at).total_seconds() * 1000
+        )
+    warnings: list[CsvRowIssue] = []
+    errors: list[CsvRowIssue] = []
+    if session.validation_issues:
+        try:
+            parsed = json.loads(session.validation_issues)
+            warnings = [CsvRowIssue.model_validate(w) for w in parsed.get("warnings", [])]
+            errors = [CsvRowIssue.model_validate(e) for e in parsed.get("errors", [])]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return ImportSessionDetail(
+        id=session.id,
+        source=session.source,
+        status=session.status.value,
+        filename=session.filename,
+        initiated_by=session.initiated_by,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+        rows_total=session.rows_total,
+        rows_imported=session.rows_imported,
+        rows_skipped=session.rows_skipped,
+        rows_failed=session.rows_failed,
+        duration_ms=duration_ms,
+        error_summary=session.error_summary,
+        warnings=warnings,
+        errors=errors,
     )
 
 

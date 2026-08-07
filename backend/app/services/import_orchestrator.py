@@ -45,6 +45,7 @@ def start_import_session(
     source: str,
     initiated_by: str,
     rows_total: int = 0,
+    filename: Optional[str] = None,
 ) -> ImportSession:
     session = ImportSession(
         tenant_id=tenant_id,
@@ -52,6 +53,7 @@ def start_import_session(
         status=ImportSessionStatus.running,
         rows_total=rows_total,
         initiated_by=initiated_by,
+        filename=filename,
     )
     db.add(session)
     db.flush()

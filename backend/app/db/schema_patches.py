@@ -62,6 +62,18 @@ def ensure_schema_patches() -> None:
                     )
                 )
             logger.info("Added import_sessions.rows_skipped column")
+        if "filename" not in session_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE import_sessions ADD COLUMN filename VARCHAR(255)")
+                )
+            logger.info("Added import_sessions.filename column")
+        if "validation_issues" not in session_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE import_sessions ADD COLUMN validation_issues TEXT")
+                )
+            logger.info("Added import_sessions.validation_issues column")
 
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:

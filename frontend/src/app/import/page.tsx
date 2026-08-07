@@ -228,6 +228,11 @@ export default function DataImportPage() {
       <TopBar
         title="Import Reservations"
         subtitle="Bring reservations in from wherever they live today — one flow, any source."
+        action={
+          <Link href="/import/history">
+            <Button variant="ghost">View import history →</Button>
+          </Link>
+        }
       />
 
       {error && (
