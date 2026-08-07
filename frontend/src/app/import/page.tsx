@@ -497,7 +497,7 @@ export default function DataImportPage() {
                               approved: false,
                             })
                           }
-                          placeholder="Required to import"
+                          placeholder="Optional — improves duplicate detection"
                         />
                       </label>
                     </div>
@@ -505,7 +505,6 @@ export default function DataImportPage() {
                       className="mt-3"
                       variant={row.approved ? "secondary" : "primary"}
                       disabled={
-                        !row.confirmationDraft.trim() ||
                         !String(row.draft.guest_name || "").trim() ||
                         !row.draft.check_in ||
                         !row.draft.check_out

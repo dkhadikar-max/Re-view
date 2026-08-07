@@ -111,20 +111,51 @@ class PdfAIParser:
 # ambiguous PDFs to Needs Review instead of importing something wrong.
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-_PHONE_RE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
+
+# Phone is intentionally two-tier and conservative: a bare run of digits
+# with no label and no country-code "+" is exactly as likely to be a
+# confirmation number or a date (2026-10-01 also matches "digits with
+# separators") as it is a phone number — confirmed against real extracted
+# text during review. Only trust a labeled match, or an explicit "+"
+# international prefix; otherwise leave it null rather than guess wrong.
+_LABELED_PHONE_RE = re.compile(
+    r"(?:phone|tel(?:ephone)?|mobile)[:\s]*(\+?[\d\s().-]{7,20}\d)", re.IGNORECASE
+)
+_INTL_PHONE_RE = re.compile(r"\+\d[\d\s().-]{7,18}\d")
+
+_CURRENCY_CODES = "EUR|USD|GBP|JPY|CHF|CAD|AUD|INR"
 _AMOUNT_RE = re.compile(
-    r"(?:total|amount|price)[^\d\n]{0,12}([A-Z]{3})?\s*[\$€£]?\s*([\d,]+\.\d{2}|\d+)",
+    rf"(?:total|amount|price)[^\d\n]{{0,12}}([A-Z]{{3}})?\s*[\$€£]?\s*([\d,]+\.\d{{2}}|\d+)",
     re.IGNORECASE,
 )
+# Fallback when the amount line's own currency code sits further away
+# than _AMOUNT_RE's gap reaches (e.g. "Total (USD): $612.40" has it
+# inside parentheses) — first ISO-4217-ish code anywhere in the document.
+_CURRENCY_ANYWHERE_RE = re.compile(rf"\b({_CURRENCY_CODES})\b")
+
 _DATE_ISO_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+# The label's suffix (number/code/reference/#) is deliberately NOT
+# optional. Confirmed via review against a real Booking.com-style layout
+# ("Reservation Confirmation" as a page header, "Confirmation number:" as
+# the actual field two lines later): with an optional suffix, the regex
+# would match the bare header word "Confirmation" and then — because the
+# capture class is case-insensitive and so matches ordinary letters too —
+# swallow the *next* word in the document as if it were the ID. Requiring
+# the suffix forces a real field label before anything is captured.
 _CONFIRMATION_RE = re.compile(
-    r"(?:confirmation\s*(?:number|code|#)?|booking\s*(?:number|reference)?)[:\s#]*([A-Z0-9-]{4,20})",
+    r"(?:confirmation|booking|itinerary)\s*(?:number|code|reference|#)[:\s#]*"
+    r"([A-Za-z0-9-]{4,20})",
     re.IGNORECASE,
 )
-_CHECKIN_RE = re.compile(r"check[- ]?in[:\s]*([A-Za-z0-9,\s]{6,25})", re.IGNORECASE)
-_CHECKOUT_RE = re.compile(r"check[- ]?out[:\s]*([A-Za-z0-9,\s]{6,25})", re.IGNORECASE)
+# "/" and "-" cover MM/DD/YYYY (Expedia-style) and YYYY-MM-DD alike; the
+# actual line-boundary is enforced downstream by _parse_date_fragment
+# taking only the fragment's first line, not by this character class.
+_CHECKIN_RE = re.compile(r"check[- ]?in[:\s]*([A-Za-z0-9,/\s-]{6,25})", re.IGNORECASE)
+_CHECKOUT_RE = re.compile(r"check[- ]?out[:\s]*([A-Za-z0-9,/\s-]{6,25})", re.IGNORECASE)
 _NAME_RE = re.compile(
-    r"(?:guest\s*name|guest|name)[:\s]*([A-Za-z][A-Za-z .'\-]{2,60})", re.IGNORECASE
+    r"(?:guest\s*name|traveler|guest|name)[:\s]*([A-Za-z][A-Za-z .'\-]{2,60})",
+    re.IGNORECASE,
 )
 
 
@@ -149,10 +180,17 @@ def _heuristic_extract(text: str) -> list[dict[str, Any]]:
         return []
 
     email_match = _EMAIL_RE.search(text)
-    phone_match = _PHONE_RE.search(text)
+    labeled_phone_match = _LABELED_PHONE_RE.search(text)
+    intl_phone_match = None if labeled_phone_match else _INTL_PHONE_RE.search(text)
+    guest_phone = (
+        labeled_phone_match.group(1).strip()
+        if labeled_phone_match
+        else (intl_phone_match.group(0).strip() if intl_phone_match else None)
+    )
     confirmation_match = _CONFIRMATION_RE.search(text)
     name_match = _NAME_RE.search(text)
     amount_match = _AMOUNT_RE.search(text)
+    currency_anywhere_match = _CURRENCY_ANYWHERE_RE.search(text)
 
     check_in: Optional[str] = None
     check_out: Optional[str] = None
@@ -178,7 +216,7 @@ def _heuristic_extract(text: str) -> list[dict[str, Any]]:
         {
             "guest_name": name_match.group(1).strip() if name_match else None,
             "guest_email": email_match.group(0) if email_match else None,
-            "guest_phone": phone_match.group(0).strip() if phone_match else None,
+            "guest_phone": guest_phone,
             "country": None,
             "check_in": check_in,
             "check_out": check_out,
@@ -188,7 +226,11 @@ def _heuristic_extract(text: str) -> list[dict[str, Any]]:
             "total_amount": (
                 float(amount_match.group(2).replace(",", "")) if amount_match else None
             ),
-            "currency": amount_match.group(1) if amount_match and amount_match.group(1) else None,
+            "currency": (
+                amount_match.group(1)
+                if amount_match and amount_match.group(1)
+                else (currency_anywhere_match.group(1).upper() if currency_anywhere_match else None)
+            ),
             "special_requests": None,
             "confirmation_number": (
                 confirmation_match.group(1).strip() if confirmation_match else None

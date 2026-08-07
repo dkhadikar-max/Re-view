@@ -24,7 +24,7 @@ from app.services.import_orchestrator import build_import_summary, import_reserv
 from app.services.pdf_parser import (
     build_validation_report,
     classify_extracted_reservations,
-    pdf_external_id,
+    resolve_external_id,
 )
 
 
@@ -115,7 +115,12 @@ class PdfImporter:
         duplicate_confirmation_numbers: list[str] = []
 
         for row in raw_input:
-            external_id = pdf_external_id(row.confirmation_number)
+            # Prefer the real confirmation number; fall back to a hash of
+            # the reservation's own fields when none was found or entered
+            # (PDF_IMPORT.md §11.1) — still deterministic, so re-uploading
+            # the same unidentified PDF is still a no-op below, just less
+            # precise at telling apart two different bookings.
+            external_id = resolve_external_id(row.confirmation_number, row.reservation)
             existing = (
                 db.query(Reservation)
                 .filter(
@@ -126,7 +131,7 @@ class PdfImporter:
                 .first()
             )
             if existing is not None:
-                duplicate_confirmation_numbers.append(row.confirmation_number)
+                duplicate_confirmation_numbers.append(row.confirmation_number or "(no confirmation number)")
                 session.rows_skipped += 1
                 continue
 

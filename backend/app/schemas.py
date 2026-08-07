@@ -432,13 +432,12 @@ class PdfValidationReport(BaseModel):
 
 class PdfConfirmRow(BaseModel):
     """What the Review screen submits back per approved (optionally
-    edited) row. `confirmation_number` is required here even though it
-    was optional during extraction — a human confirming a Needs Review
-    row without one is exactly the "guessing an identity" case §11.1
-    decided against; the API rejects it rather than silently assigning
-    a random one."""
+    edited) row. `confirmation_number` is optional: when a reviewer can't
+    find one on the document, the reservation still gets a deterministic
+    identity (a hash of its own fields — never a random one) rather than
+    being permanently unimportable (PDF_IMPORT.md §11.1)."""
 
-    confirmation_number: str = Field(min_length=1, max_length=128)
+    confirmation_number: Optional[str] = Field(default=None, max_length=128)
     reservation: ReservationCreate
 
 

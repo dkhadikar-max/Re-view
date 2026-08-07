@@ -97,6 +97,7 @@ from app.schemas import (
 )
 from app.integrations.pdf_extractor import (
     PdfPasswordProtectedError,
+    PdfTooManyPagesError,
     PdfUnreadableError,
 )
 from app.services.passwords import ChangePasswordRequest
@@ -1568,9 +1569,19 @@ async def extract_pdf(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Uploaded file is empty",
         )
+    # Magic-byte check, not a Content-Type check: the header a browser/
+    # client sends is trivially spoofable (or absent) and proves nothing;
+    # every real PDF starts with the literal bytes "%PDF-" regardless of
+    # what the client claims. Fail fast on obviously-wrong files instead
+    # of handing them to pdfplumber first.
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This file does not appear to be a PDF",
+        )
     try:
         report = pdf_importer.validate(content, filename=file.filename or "upload.pdf")
-    except (PdfPasswordProtectedError, PdfUnreadableError) as exc:
+    except (PdfPasswordProtectedError, PdfUnreadableError, PdfTooManyPagesError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
@@ -1594,9 +1605,9 @@ def confirm_pdf_import(
     """The one write endpoint in the PDF flow. Only reached after a human
     has approved (and optionally edited) every row on the Review screen —
     PDF never auto-imports, regardless of extraction confidence
-    (PDF_IMPORT.md §7). Each row must carry a `confirmation_number`; a
-    Needs Review row without one must be completed or discarded by the
-    reviewer before it can reach this endpoint.
+    (PDF_IMPORT.md §7). `confirmation_number` is optional per row: when
+    absent, identity falls back to a hash of the reservation's own fields
+    rather than blocking the import (PDF_IMPORT.md §11.1).
     """
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(

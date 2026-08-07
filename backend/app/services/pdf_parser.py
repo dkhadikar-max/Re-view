@@ -21,9 +21,9 @@ from app.schemas import (
 )
 
 
-def pdf_external_id(confirmation_number: str) -> str:
-    """Deterministic external_id for a PDF-derived reservation
-    (PDF_IMPORT.md §11.1) so re-uploading the same confirmation is
+def confirmation_external_id(confirmation_number: str) -> str:
+    """Deterministic external_id from a confirmation/booking/itinerary
+    number (PDF_IMPORT.md §11.1) so re-uploading the same document is
     idempotent, not just deduplicated by luck the way CSV's random UUID
     is. Truncation isn't needed — Reservation.external_id is String(128)
     and a "PDF-" prefix + sha256 hex digest is 68 chars.
@@ -31,6 +31,43 @@ def pdf_external_id(confirmation_number: str) -> str:
     normalized = confirmation_number.strip().lower()
     digest = hashlib.sha256(f"pdf:{normalized}".encode()).hexdigest()
     return f"PDF-{digest}"
+
+
+def fallback_external_id(reservation: ReservationCreate) -> str:
+    """Fallback identity when no confirmation/booking/itinerary number
+    was found at all (§11.1's original decision was "Needs Review rather
+    than a random ID" — this refines that, per review feedback on this
+    PR: a *random* ID was rejected because it makes idempotency
+    impossible, but a hash of the reservation's own normalized fields is
+    still deterministic, not random. Re-uploading the same unidentified
+    PDF still collapses to the same external_id; it's just less precise
+    than a real confirmation number at telling apart two genuinely
+    different bookings for the same guest on the same dates — an
+    accepted, documented tradeoff for the rare document that has no
+    printed reference at all.
+    """
+    normalized = "|".join(
+        [
+            (reservation.guest_name or "").strip().lower(),
+            (reservation.guest_email or "").strip().lower(),
+            reservation.check_in.isoformat(),
+            reservation.check_out.isoformat(),
+            f"{reservation.total_amount:.2f}",
+        ]
+    )
+    digest = hashlib.sha256(f"pdf-fallback:{normalized}".encode()).hexdigest()
+    return f"PDFX-{digest}"
+
+
+def resolve_external_id(
+    confirmation_number: Optional[str], reservation: ReservationCreate
+) -> str:
+    """The one place both identity strategies meet: prefer the real
+    confirmation number when the reviewer provided one, otherwise fall
+    back to the content hash rather than refusing to import at all."""
+    if confirmation_number and confirmation_number.strip():
+        return confirmation_external_id(confirmation_number)
+    return fallback_external_id(reservation)
 
 
 def _build_reservation(
@@ -113,8 +150,10 @@ def classify_extracted_reservations(
                 PdfExtractionIssue(
                     field="confirmation_number",
                     message=(
-                        "No confirmation/booking number found — needed to detect "
-                        "duplicate re-uploads"
+                        "No confirmation/booking number found — duplicate detection "
+                        "will fall back to matching on guest, dates, and amount, "
+                        "which is less precise. Fill it in below if you can see one "
+                        "on the document."
                     ),
                 )
             )

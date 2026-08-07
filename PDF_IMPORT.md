@@ -134,11 +134,13 @@ raise, not a reason to grow the schema per-source.
 | Case | Handling |
 |---|---|
 | Unreadable/corrupt PDF | Reject at upload, same class of error as CSV's "must be UTF-8 encoded" — a clear message, no import session created |
-| Password-protected PDF | Reject at upload with a specific message ("This PDF is password-protected — remove the password and re-upload") rather than a generic parse failure |
+| Not actually a PDF | Rejected by a magic-byte check (`%PDF-` header) before extraction is even attempted — a client-supplied Content-Type/filename is not trusted, since either can be spoofed or absent |
+| Password-protected PDF | Reject at upload with a specific message ("This PDF is password-protected — remove the password and re-upload") rather than a generic parse failure. Caught by pdfminer's `PDFEncryptionError` exception **type**, not by pattern-matching the exception's text — confirmed against a real encrypted PDF during review that the message pdfminer raises with is empty, so text-sniffing silently misclassified this as a generic "corrupt" error until fixed |
+| Oversized document | Rejected above `settings.pdf_max_pages` (40) — booking confirmations are short; an abusive upload burning CPU on hundreds of pages is rejected before extraction, not after |
 | Wrong hotel (PDF is a real booking confirmation, but for a different property) | Flag as **Needs Review**, never silently import into the wrong tenant's guest list |
 | Missing required dates | **Needs Review** — same as a CSV row missing `check_in`/`check_out` today |
 | Missing email | **Warning**, not an error — exactly like CSV today (a guest can still be imported without email, just can't be deduplicated by it) |
-| Duplicate reservation (same PDF uploaded twice, or the reservation already exists) | Detected via the existing `Reservation` unique constraint on `(tenant_id, source, external_id)` — needs an external_id derivation strategy from the PDF's own confirmation number so re-uploads are idempotent, not just deduplicated by luck |
+| Duplicate reservation (same PDF uploaded twice, or the reservation already exists) | Detected via the existing `Reservation` unique constraint on `(tenant_id, source, external_id)`, with `external_id` derived per the fallback hierarchy in §11.1 so re-uploads are idempotent, not just deduplicated by luck |
 | Multiple reservations in one PDF (e.g. a group booking) | Parser returns a list, not a single object; each one goes through Validator/Review independently — same one-PDF-many-rows relationship CSV already has with many-rows-per-file |
 
 None of these should ever result in a row being imported unreviewed. See §7.
@@ -247,14 +249,35 @@ before PDF's `validate()`/`preview()` are written against it.
 
 ## 11. Decisions (resolved)
 
-1. **`external_id` / duplicate detection**: hash of the extracted
-   confirmation number (`external_id = sha256(f"{source}:{confirmation_number}")`,
-   truncated to fit the column). The AI Parser's extraction schema (§5)
-   includes `confirmation_number` as a first-class field for exactly
-   this reason. If the parser can't find one, the row is **Needs
-   Review** rather than silently getting a random ID — an unidentified
-   booking is exactly the kind of thing a human should look at once,
-   not something the system should guess an identity for.
+1. **`external_id` / duplicate detection**: a two-tier fallback
+   hierarchy, refined during the PR #9 review gate from the original
+   single-tier decision below.
+   - **Tier 1 — confirmation number**: `external_id =
+     sha256("pdf:" + confirmation_number)`. The extraction schema (§5)
+     surfaces one `confirmation_number` field that covers whichever term
+     the source document actually uses — Booking.com's "Confirmation
+     number", Airbnb's "Confirmation code", Expedia's "Itinerary
+     number"/"Confirmation #", or a direct booking's "Booking
+     reference" — since at the document level these all serve the exact
+     same purpose (the one printed value that identifies this specific
+     booking), not four different fields to extract and reconcile.
+   - **Tier 2 — content hash fallback**: when no such number is found
+     *and the human reviewing the row doesn't add one*, `external_id =
+     sha256("pdf-fallback:" + guest_name + guest_email + check_in +
+     check_out + total_amount)`. This still went to **Needs Review**
+     originally (unchanged — an unidentified booking is exactly the
+     kind of thing a human should look at once), but the original
+     decision then made such a row permanently unimportable, because
+     confirmation_number was a hard-required field on the confirm
+     endpoint. That's the bug this tier fixes: a *hash of the
+     reservation's own fields* is still deterministic, not a guess — it
+     satisfies the original concern (no *random* ID) while no longer
+     blocking a real, if less-precisely-deduplicated, import forever.
+     Re-uploading the same unidentified PDF still collapses to the same
+     `external_id`; it's just less precise than a real confirmation
+     number at telling apart two different bookings for the same guest,
+     same dates, same amount — a documented, accepted edge case, not a
+     silent one (the review screen shows this explicitly).
 2. **Text extraction library**: `pdfplumber`, as the default starting
    choice — no real sample PDFs from the five §2 sources were available
    to spike against, so this is a reasoned default (handles both prose
@@ -269,3 +292,47 @@ before PDF's `validate()`/`preview()` are written against it.
    infrastructure, no ongoing guest-PII-in-a-file exposure. "Download
    original PDF" from Import Details is explicitly not possible as a
    result — accepted tradeoff.
+
+## 12. PR #9 review gate — what real execution found
+
+Merge was deliberately held for an explicit review pass (this is the
+first feature with AI-assisted parsing, not a rubber-stamp release like
+CSV/History were). The sandbox can't run this backend's real test suite
+(Python 3.14 here can't build `pydantic-core` — see CLAUDE.md), but
+`pdfplumber` and `python-dateutil` have no such dependency, so
+`pdf_extractor.py` and the heuristic half of `pdf_ai_parser.py` were
+actually executed — not just read — against synthetic Booking.com,
+Airbnb, Expedia, direct-booking, non-booking, scanned, corrupt, and
+password-protected PDFs. That surfaced and fixed three real bugs before
+merge, none of which static review had caught:
+
+- **Password detection was dead code.** pdfminer raises
+  `PDFEncryptionError` with an *empty* message for a real encrypted PDF —
+  confirmed by generating one — so the original `"password" in
+  str(exc).lower()` text-sniff never matched and every encrypted upload
+  fell through to a generic "corrupt" error instead of the specific
+  message §6 requires. Fixed by catching the exception by type.
+- **The confirmation-number regex could capture the wrong word entirely.**
+  Against a realistic Booking.com-shaped document ("Reservation
+  Confirmation" as a page header, "Confirmation number: 3452871966" two
+  lines later), the original pattern's optional label suffix let it
+  match the bare header word and — because the capture class was
+  case-insensitive and so matched ordinary letters too — swallow the
+  *next word* in the document as the "confirmation number". Two
+  different guests' PDFs sharing that header shape would have hashed to
+  colliding `external_id`s, which is a false-duplicate/import-integrity
+  bug, not a cosmetic one. Fixed by making the label suffix mandatory.
+- **No page-count or magic-byte limit.** Byte-size and
+  reservations-per-file caps existed; nothing stopped an oversized
+  page count or a non-PDF file from reaching pdfplumber. Added
+  `settings.pdf_max_pages` (40) and a `%PDF-` magic-byte check ahead of
+  extraction — a client-supplied Content-Type is not trusted, since it's
+  trivially spoofable or absent.
+
+The heuristic (no-API-key) extractor was also hardened against the same
+review: MM/DD/YYYY dates (Expedia's format), "Traveler" as a name label
+(Expedia), and a currency-code fallback search were added after testing
+showed the original patterns missed all three on a realistic Expedia
+layout. After fixes, all three of Booking.com/Airbnb/Expedia's synthetic
+formats extract every field correctly in heuristic (mock) mode — the
+mode this app runs in by default until an OpenAI key is configured.
