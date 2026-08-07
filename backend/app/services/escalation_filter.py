@@ -144,13 +144,15 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]", float]] 
 ]
 
 # Recognized Knowledge Base topics and the keywords that indicate a
-# guest is asking about one. Used only for the "outside_knowledge_base"
-# category below: a recognized topic with an EMPTY field still
-# escalates (can't answer, won't guess — same convention the FAQ Agent
-# will use once it exists); no topic match at all also escalates, per
-# CONCIERGE.md §0 ("when in doubt, escalate") and because there's no FAQ
-# Agent yet to hand an unrecognized message to regardless.
-_KNOWLEDGE_BASE_TOPICS: dict[str, "re.Pattern[str]"] = {
+# guest is asking about one. Public (not module-private) because
+# faq_agent.py imports this same mapping — one source of truth for
+# "what regex means what topic" rather than two copies that could drift
+# apart. Used here for the "outside_knowledge_base" category: a
+# recognized topic with an EMPTY field still escalates (can't answer,
+# won't guess — the same convention the FAQ Agent applies to itself);
+# no topic match at all also escalates, per CONCIERGE.md §0 ("when in
+# doubt, escalate").
+KNOWLEDGE_BASE_TOPIC_PATTERNS: dict[str, "re.Pattern[str]"] = {
     "wifi_password": re.compile(
         r"\b(wifi|wi-fi|internet password|network password)\b", re.IGNORECASE
     ),
@@ -207,7 +209,7 @@ def evaluate_escalation(message_body: str, context: ConciergeContext) -> Escalat
             )
 
     matched_field: Optional[str] = None
-    for field_name, pattern in _KNOWLEDGE_BASE_TOPICS.items():
+    for field_name, pattern in KNOWLEDGE_BASE_TOPIC_PATTERNS.items():
         if pattern.search(text):
             matched_field = field_name
             break
