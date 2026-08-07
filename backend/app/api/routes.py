@@ -534,6 +534,9 @@ def update_property(
     property_.brand_voice = payload.brand_voice.strip()
     property_.address = payload.address
     property_.google_review_url = payload.google_review_url
+    # Normalize "" to None — the unique index treats every NULL as
+    # distinct but would reject two properties both stored as "".
+    property_.whatsapp_phone_number_id = payload.whatsapp_phone_number_id or None
     write_audit(
         db,
         tenant_id=user.tenant_id,

@@ -92,6 +92,21 @@ def test_whatsapp_webhook_verify_and_inbound(client: TestClient, auth_header: di
             break
     assert phone, "seed should include a guest with phone"
 
+    # Multi-tenant routing (CONCIERGE.md §3) resolves the message's
+    # tenant from the phone_number_id it arrived at — provision the demo
+    # property's number first, same as a real hotel's would be under
+    # ReVisit's WABA.
+    properties = client.get("/api/properties", headers=auth_header)
+    assert properties.status_code == 200
+    property_ = properties.json()[0]
+    phone_number_id = "test-phone-number-id"
+    update = client.patch(
+        f"/api/properties/{property_['id']}",
+        headers=auth_header,
+        json={**property_, "whatsapp_phone_number_id": phone_number_id},
+    )
+    assert update.status_code == 200, update.text
+
     digits = "".join(ch for ch in phone if ch.isdigit())
     payload = {
         "object": "whatsapp_business_account",
@@ -100,6 +115,7 @@ def test_whatsapp_webhook_verify_and_inbound(client: TestClient, auth_header: di
                 "changes": [
                     {
                         "value": {
+                            "metadata": {"phone_number_id": phone_number_id},
                             "contacts": [
                                 {"wa_id": digits, "profile": {"name": "Test Guest"}}
                             ],
@@ -121,6 +137,42 @@ def test_whatsapp_webhook_verify_and_inbound(client: TestClient, auth_header: di
     res = client.post("/api/webhooks/whatsapp", json=payload)
     assert res.status_code == 200, res.text
     assert res.json()["events"] == 1
+
+
+def test_whatsapp_webhook_unrecognized_phone_number_id_is_dropped_not_processed(
+    client: TestClient,
+):
+    """A message arriving at a phone_number_id no property has claimed
+    must not be silently processed under some default/fallback tenant
+    (CONCIERGE.md §3) — it should be accepted (200) and simply dropped.
+    """
+    payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "metadata": {"phone_number_id": "unclaimed-number"},
+                            "contacts": [{"wa_id": "15550001111", "profile": {"name": "Nobody"}}],
+                            "messages": [
+                                {
+                                    "id": "wamid.inbound.unclaimed",
+                                    "from": "15550001111",
+                                    "timestamp": "1710000000",
+                                    "type": "text",
+                                    "text": {"body": "hello?"},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
+    }
+    res = client.post("/api/webhooks/whatsapp", json=payload)
+    assert res.status_code == 200, res.text
+    assert res.json()["events"] == 0
 
 
 def test_stripe_payment_link_and_webhook(client: TestClient, auth_header: dict):

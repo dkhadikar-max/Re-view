@@ -33,6 +33,26 @@ def ensure_schema_patches() -> None:
             conn.execute(text("ALTER TABLE properties ADD COLUMN address VARCHAR(500)"))
         logger.info("Added properties.address column")
 
+    if "whatsapp_phone_number_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE properties ADD COLUMN whatsapp_phone_number_id VARCHAR(64)"
+                )
+            )
+            # A separate CREATE UNIQUE INDEX (not an inline ALTER TABLE ...
+            # ADD CONSTRAINT) because SQLite can't add a UNIQUE constraint
+            # to an existing table via ALTER TABLE — a unique index is the
+            # one syntax that works identically on both SQLite and Postgres.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_properties_whatsapp_phone_number_id "
+                    "ON properties (whatsapp_phone_number_id)"
+                )
+            )
+        logger.info("Added properties.whatsapp_phone_number_id column")
+
     if "google_review_url" not in cols:
         with engine.begin() as conn:
             conn.execute(

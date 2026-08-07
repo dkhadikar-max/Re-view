@@ -95,15 +95,24 @@ class WhatsAppCloudClient:
         return hmac.compare_digest(f"sha256={expected}", signature_header)
 
     def parse_webhook(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
-        """Normalize Meta webhook into status/inbound events."""
+        """Normalize Meta webhook into status/inbound events.
+
+        Every event carries `phone_number_id` — the number the message
+        arrived at, present on every Meta webhook under
+        `value.metadata.phone_number_id` — so the caller can resolve
+        which tenant it belongs to (CONCIERGE.md §3) instead of
+        defaulting to a single hardcoded tenant.
+        """
         events: list[dict[str, Any]] = []
         for entry in payload.get("entry") or []:
             for change in entry.get("changes") or []:
                 value = change.get("value") or {}
+                phone_number_id = (value.get("metadata") or {}).get("phone_number_id")
                 for status in value.get("statuses") or []:
                     events.append(
                         {
                             "type": "status",
+                            "phone_number_id": phone_number_id,
                             "provider_message_id": status.get("id"),
                             "status": status.get("status"),  # sent|delivered|read|failed
                             "recipient_id": status.get("recipient_id"),
@@ -122,6 +131,7 @@ class WhatsAppCloudClient:
                     events.append(
                         {
                             "type": "inbound",
+                            "phone_number_id": phone_number_id,
                             "provider_message_id": msg.get("id"),
                             "from": msg.get("from"),
                             "contact_name": contacts.get(msg.get("from")),

@@ -16,6 +16,7 @@ const emptyForm: PropertyUpdate = {
   brand_voice: "",
   address: "",
   google_review_url: "",
+  whatsapp_phone_number_id: "",
 };
 
 function formFromProperty(property: Property): PropertyUpdate {
@@ -29,6 +30,11 @@ function formFromProperty(property: Property): PropertyUpdate {
     brand_voice: property.brand_voice,
     address: property.address || "",
     google_review_url: property.google_review_url || "",
+    // No input for this in Settings — it's provisioned by ReVisit under
+    // its own WABA (CONCIERGE.md §3), not hotel self-serve in v1. Still
+    // round-tripped through the form so an unrelated property save
+    // (e.g. editing brand voice) doesn't silently wipe it back to null.
+    whatsapp_phone_number_id: property.whatsapp_phone_number_id || "",
   };
 }
 
