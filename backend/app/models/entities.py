@@ -155,6 +155,61 @@ class Property(Base):
 
     guests: Mapped[list[Guest]] = relationship(back_populates="property")
     reservations: Mapped[list[Reservation]] = relationship(back_populates="property")
+    knowledge_base: Mapped[Optional["PropertyKnowledgeBase"]] = relationship(
+        back_populates="property", uselist=False
+    )
+
+
+class PropertyKnowledgeBase(Base):
+    """Structured per-property facts the AI Concierge's FAQ Agent answers
+    from (CONCIERGE.md §7) — no RAG/vectors, one row per property.
+    Every field is optional: an empty field is an honest "don't know",
+    not a reason to guess. `restaurants`/`cafes`/`nearby_attractions` are
+    staff-curated free text (their own picks, their own voice) — the
+    concierge pushes this content, it never generates it.
+    """
+
+    __tablename__ = "property_knowledge_base"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    property_id: Mapped[str] = mapped_column(
+        ForeignKey("properties.id"), unique=True, index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+
+    # Practical info
+    wifi_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    breakfast_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pool_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    gym_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    spa_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    parking_info: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    checkin_time: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    checkout_time: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    late_checkout_policy: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    airport_transfer_info: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Policies
+    pet_policy: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    house_rules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    policies: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Local recommendations — staff-curated, see class docstring
+    restaurants: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cafes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    nearby_attractions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Services & emergency
+    services: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    room_service_hours: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    emergency_contacts: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    property: Mapped[Property] = relationship(back_populates="knowledge_base")
 
 
 class Guest(Base):
