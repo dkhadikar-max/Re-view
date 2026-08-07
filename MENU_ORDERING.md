@@ -1,8 +1,12 @@
 # AI Concierge — Menu Management, Meal Reservation & Room Service Ordering
 
-Status: Draft, not yet implemented. No code has been written against this
-document — same discipline as PDF_IMPORT.md, EMAIL_IMPORT.md, and
-CONCIERGE.md: design first, review gate, then implementation.
+Status: **Roadmap document, deliberately not an implementation
+commitment.** The three open questions below are resolved, but
+implementation is explicitly deferred until the AI Concierge core
+(Concierge Router + first pilot) is complete — this doc documents a
+future subsystem without expanding the current pilot's surface area.
+Revisit once real pilot conversations show ordering is worth building
+next, per CONCIERGE.md §0's own principle applied to itself.
 
 ---
 
@@ -158,7 +162,11 @@ Same menu-driven, guest-initiated flow. One new entity:
 Order
 ├── tenant_id, guest_id, reservation_id
 ├── order_type            "meal_reservation" | "room_service"
-├── status                 pending_confirmation | confirmed | fulfilled | cancelled
+├── status                 pending_confirmation | confirmed | received |
+│                           preparing | delivered | cancelled
+│                           (resolved, §16.3 — the four fulfillment
+│                           states after "confirmed" are exactly the
+│                           ones hotel staff set by hand; no POS in v1)
 ├── scheduled_for           nullable — set for meal reservations, null for
 │                           an immediate room-service order
 ├── items                   [{menu_item_id, name, price, quantity}]
@@ -197,7 +205,7 @@ Proposed mechanism, kept as narrow as the rest of this app's
   (agents still don't hold memory across calls), but a real, queryable
   fact the Context Builder can read back next turn (`Pending Order` in
   §4).
-- The **Ordering Agent** (new `Agent` Protocol implementer, §8) checks
+- The **Ordering Agent** (new `Agent` Protocol implementer, introduced in this section) checks
   `context.pending_order` first: if one exists and the guest's message
   matches a confirmation phrase ("yes", "confirm", "place the order"),
   it returns `AgentResponse(handled=True, metadata={"action":
@@ -234,17 +242,28 @@ already does:
 
 | Track | Trigger | Confidence | Status |
 |---|---|---|---|
-| Explicit self-statement | "I'm vegetarian" in a message | High, immediate | **Already built** (PR #15) — kept as-is; an explicit statement is not "casual conversation," it's a guest directly telling you a fact |
+| Explicit self-statement | "I'm vegetarian," "I have a gluten allergy," "I prefer a quiet room," "I always book king beds" | High, immediate | **Already built** (PR #15) — kept as-is; an explicit statement is not "casual conversation," it's a guest directly telling you a fact |
 | Accumulated order-pattern evidence | 5 vegetarian orders across stays, zero non-vegetarian | Builds over multiple confirmed `Order` rows | **New**, this doc |
 
 Both tracks produce the *same* `memory_updates` shape
 (`{field, value, confidence}`) — the pattern-evidence track just
 computes `confidence` from a real distribution (e.g. `vegetarian_orders
 / total_food_orders` over a minimum sample size, not "3 orders and
-we're sure") instead of a fixed per-pattern constant. Needs a minimum
-evidence threshold (open question, §11) — "ordered a salad twice" isn't
-"vegetarian," and guessing that too eagerly is exactly the "never
-invent guest traits" guardrail this whole document restates in §10.
+we're sure") instead of a fixed per-pattern constant.
+
+**Minimum evidence threshold (resolved, §16.1)**: frequency *and*
+recency both required, not either alone —
+
+- at least 3 confirmed orders supporting the pattern,
+- across 2 or more separate stays (not 3 orders in one long weekend),
+- within the last 24 months (a preference from 3 years ago may no
+  longer hold).
+
+This avoids learning from a one-off vacation choice while still
+adapting if a guest's preferences genuinely change over time —
+"ordered a salad twice" isn't "vegetarian," and guessing that too
+eagerly is exactly the "never invent guest traits" guardrail this whole
+document restates in §12.
 
 ## 10. Memory Manager — the "apply" step, finally named
 
@@ -331,7 +350,7 @@ Hotel uploads Menu
   Context Builder (extended, §4) ── ConciergeContext.menu_items
         │
         ▼
-  Ordering Agent (new Agent Protocol implementer, §7/§8)
+  Ordering Agent (new Agent Protocol implementer, §6/§7)
         │
  ┌──────┴──────┐
  ▼             ▼
@@ -365,24 +384,38 @@ Reservation   Ordering
   Order, not an edit to a confirmed one — keeps the "snapshot at order
   time" invariant in §6 simple).
 
-## 15. Open questions before implementation starts
+## 15. Roadmap positioning
+
+This document is intentionally frozen at the design stage. The AI
+Concierge roadmap (CONCIERGE.md) stays on its own track — Revenue Agent
+→ Concierge Router → end-to-end WhatsApp conversation tests → first
+pilot — without this document adding to that surface area. Per
+CONCIERGE.md §0 applied to the roadmap itself: real pilot conversations
+should decide whether ordering is the next thing worth building, not
+this document's own existence. Revisit only after the pilot is running.
+
+## 16. Decisions (resolved)
 
 1. **Minimum evidence threshold for the order-pattern Guest Memory
-   track** (§9) — "how many confirmed orders before proposing
-   `vegetarian`" is a real number that shouldn't be guessed in the
-   abstract; needs either a reasoned default revisited after pilot data
-   (same pattern as PDF_IMPORT.md's pdfplumber choice) or your call now.
-2. **Excel parsing dependency** — proposing `openpyxl` (pure-Python
-   `.xlsx` reading, no compiled dependency, same tier as `pdfplumber`)
-   as the reasoned default; no real hotel menu spreadsheets available
-   yet to spike against.
-3. **Who fulfills a confirmed order operationally** — does "hotel staff
-   receive it" (per the spec) mean a new `Task` (reusing the Escalation
-   Filter's staff-queue pattern, §5.4/§8 of CONCIERGE.md) gets created
-   per confirmed order, or does this need its own notification surface?
-   Reusing `Task` is the reasoned default absent a stated preference,
-   consistent with this app's "reuse existing infra" convention.
-4. **Implementation sequence** — proposed, in order: (1) `MenuItem`
+   track** (§9): frequency *and* recency both required — at least 3
+   confirmed orders supporting the pattern, across 2 or more separate
+   stays, within the last 24 months. See §9 for the full reasoning.
+2. **Excel parsing dependency**: `openpyxl` for `.xlsx` — mature,
+   widely used, pure-Python, fits the existing stack (same tier as
+   `pdfplumber`). Legacy `.xls` support waits until a real pilot hotel
+   actually needs it, not built speculatively.
+3. **How hotel staff receive orders**: no POS integration in v1.
+   Guest confirms → an internal `Order` is created → hotel staff are
+   notified through ReVisit (reusing the Escalation Filter's `Task`
+   staff-queue pattern, CONCIERGE.md §5.4/§8, rather than a parallel
+   notification surface) → staff manually advance status through
+   `received` → `preparing` → `delivered` (or `cancelled`), per §6's
+   updated `Order.status` enum. POS integration is a fast-follow once
+   pilots validate the manual workflow is worth automating.
+
+## 17. Implementation sequence (for when this is picked back up)
+
+Proposed, in order: (1) `MenuItem`
    model + migration, (2) menu upload pipeline (PDF path first, reusing
    existing infra directly; Excel/CSV path second), (3) menu editor
    endpoint, (4) Context Builder extension (`menu_items`,
