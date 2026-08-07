@@ -13,7 +13,14 @@ import {
 } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Button, Panel } from "@/components/ui";
-import { api, type CsvValidationReport, type ImportSummary } from "@/lib/api";
+import {
+  api,
+  type CsvValidationReport,
+  type ImportSummary,
+  type PdfExtractedReservation,
+  type PdfExtractedRow,
+  type PdfValidationReport,
+} from "@/lib/api";
 import { useMoney } from "@/components/WorkspaceProvider";
 
 const CSV_TEMPLATE_COLUMNS = [
@@ -39,9 +46,19 @@ function downloadCsvTemplate() {
   URL.revokeObjectURL(url);
 }
 
-type Source = "csv" | "manual";
-type ComingSoonSource = "pdf" | "email" | "cloudbeds" | "mews" | "opera";
-type Step = "source" | "upload" | "validate" | "review" | "summary";
+type Source = "csv" | "manual" | "pdf";
+type ComingSoonSource = "email" | "cloudbeds" | "mews" | "opera";
+type Step = "source" | "upload" | "validate" | "review" | "pdf-review" | "summary";
+
+// A PDF row being reviewed, with the human's edits layered on top of what
+// was extracted. `approved` only ever becomes true from an explicit click
+// — even a Ready to Import row is shown before anything is written
+// (PDF_IMPORT.md §7: no auto-import shortcut for PDF, unlike CSV).
+type EditablePdfRow = PdfExtractedRow & {
+  draft: PdfExtractedReservation;
+  confirmationDraft: string;
+  approved: boolean;
+};
 
 const SOURCES: {
   id: Source | ComingSoonSource;
@@ -69,7 +86,7 @@ const SOURCES: {
     label: "Booking PDF",
     description: "Extract reservations from a booking confirmation PDF.",
     icon: FileText,
-    enabled: false,
+    enabled: true,
   },
   {
     id: "email",
@@ -128,6 +145,12 @@ export default function DataImportPage() {
   const [validation, setValidation] = useState<CsvValidationReport | null>(null);
   const [validating, setValidating] = useState(false);
 
+  // PDF state
+  const [pdfReport, setPdfReport] = useState<PdfValidationReport | null>(null);
+  const [pdfRows, setPdfRows] = useState<EditablePdfRow[]>([]);
+  const [extracting, setExtracting] = useState(false);
+  const [duplicatesSkipped, setDuplicatesSkipped] = useState(0);
+
   // Manual entry state
   const [form, setForm] = useState({
     guest_name: "",
@@ -163,14 +186,73 @@ export default function DataImportPage() {
     setValidation(null);
     setSummary(null);
     setSkippedCount(0);
+    setPdfReport(null);
+    setPdfRows([]);
+    setDuplicatesSkipped(0);
     setError("");
   }
 
   function selectSource(id: Source | ComingSoonSource) {
-    if (id !== "csv" && id !== "manual") return; // Coming Soon — not selectable
+    if (id !== "csv" && id !== "manual" && id !== "pdf") return; // Coming Soon — not selectable
     setSource(id);
     setStep("upload");
     setError("");
+  }
+
+  async function onPdfChosen(f: File) {
+    setFile(f);
+    setError("");
+    setPdfReport(null);
+    setPdfRows([]);
+    setExtracting(true);
+    try {
+      const report = await api.extractPdf(f);
+      setPdfReport(report);
+      setPdfRows(
+        report.rows.map((row) => ({
+          ...row,
+          draft: { ...(row.reservation || {}) },
+          confirmationDraft: row.confirmation_number || "",
+          approved: false,
+        }))
+      );
+      setStep("pdf-review");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not extract that PDF");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function updatePdfRow(index: number, patch: Partial<EditablePdfRow>) {
+    setPdfRows((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    );
+  }
+
+  async function confirmPdfImport() {
+    const approved = pdfRows.filter((r) => r.approved);
+    if (approved.length === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.confirmPdfImport({
+        filename: pdfReport?.filename,
+        rows: approved.map((r) => ({
+          confirmation_number: r.confirmationDraft.trim(),
+          reservation: r.draft,
+        })),
+      });
+      setDuplicatesSkipped(result.duplicates_skipped);
+      if (result.import_session_id) {
+        setSummary(await api.importSummary(result.import_session_id));
+      }
+      setStep("summary");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onFileChosen(f: File) {
@@ -312,6 +394,163 @@ export default function DataImportPage() {
           {validating && (
             <p className="mt-4 text-sm text-ink-500">Validating…</p>
           )}
+        </Panel>
+      )}
+
+      {step === "upload" && source === "pdf" && (
+        <Panel title="Upload a booking confirmation PDF" className="[animation-delay:40ms]">
+          <p className="text-sm text-ink-500">
+            Works best with digital confirmations from Booking.com, Airbnb,
+            Expedia, or your own direct-booking template. Scanned/image-only
+            PDFs don&apos;t have a text layer to extract yet — those will come
+            back as Needs Review, pointing you at Manual Entry instead.
+          </p>
+          <input
+            type="file"
+            accept=".pdf,application/pdf"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void onPdfChosen(f);
+            }}
+            className="mt-4 block w-full text-sm text-ink-600 file:mr-4 file:rounded-lg file:border-0 file:bg-sea-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-sea-700"
+          />
+          {extracting && (
+            <p className="mt-4 text-sm text-ink-500">Extracting reservation details…</p>
+          )}
+        </Panel>
+      )}
+
+      {step === "pdf-review" && source === "pdf" && pdfReport && (
+        <Panel title="Review before importing" className="[animation-delay:40ms]">
+          <p className="text-sm text-ink-500">
+            {pdfReport.filename} — {pdfReport.ready_count} ready to import,{" "}
+            {pdfReport.needs_review_count} need review. Nothing is imported
+            until you approve each reservation below.
+          </p>
+          <div className="mt-4 space-y-4">
+            {pdfRows.map((row, i) => (
+              <div
+                key={row.row_index}
+                className="rounded-xl border border-ink-200/60 bg-white/70 p-4"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Badge tone={row.review_state === "ready_to_import" ? "approved" : "pending"}>
+                    {row.review_state === "ready_to_import" ? "Ready to Import" : "Needs Review"}
+                  </Badge>
+                  {row.approved && <Badge tone="approved">Approved ✓</Badge>}
+                </div>
+
+                {row.issues.length > 0 && (
+                  <ul className="mt-2 space-y-0.5 text-xs text-ink-500">
+                    {row.issues.map((issue, idx) => (
+                      <li key={idx}>
+                        {issue.field && <span className="text-ink-400">{issue.field}: </span>}
+                        {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {row.reservation ? (
+                  <>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {(
+                        [
+                          ["guest_name", "Guest name", "text"],
+                          ["guest_email", "Email", "text"],
+                          ["check_in", "Check-in", "date"],
+                          ["check_out", "Check-out", "date"],
+                          ["room_type", "Room type", "text"],
+                          ["total_amount", "Amount", "number"],
+                        ] as const
+                      ).map(([key, label, type]) => (
+                        <label key={key} className="text-xs text-ink-500">
+                          {label}
+                          <input
+                            type={type}
+                            className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-sea-500"
+                            value={String(row.draft[key] ?? "")}
+                            onChange={(e) =>
+                              updatePdfRow(i, {
+                                draft: {
+                                  ...row.draft,
+                                  [key]:
+                                    type === "number"
+                                      ? Number(e.target.value) || 0
+                                      : e.target.value,
+                                },
+                                approved: false,
+                              })
+                            }
+                          />
+                        </label>
+                      ))}
+                      <label className="text-xs text-ink-500">
+                        Confirmation number
+                        <input
+                          type="text"
+                          className="mt-1 w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none focus:border-sea-500"
+                          value={row.confirmationDraft}
+                          onChange={(e) =>
+                            updatePdfRow(i, {
+                              confirmationDraft: e.target.value,
+                              approved: false,
+                            })
+                          }
+                          placeholder="Optional — improves duplicate detection"
+                        />
+                      </label>
+                    </div>
+                    <Button
+                      className="mt-3"
+                      variant={row.approved ? "secondary" : "primary"}
+                      disabled={
+                        !String(row.draft.guest_name || "").trim() ||
+                        !row.draft.check_in ||
+                        !row.draft.check_out
+                      }
+                      onClick={() => updatePdfRow(i, { approved: !row.approved })}
+                    >
+                      {row.approved ? "Approved — click to undo" : "Approve"}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="mt-3">
+                    {row.raw_text_excerpt && (
+                      <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-ink-50 p-3 text-xs text-ink-600">
+                        {row.raw_text_excerpt}
+                      </pre>
+                    )}
+                    <Button
+                      className="mt-3"
+                      variant="ghost"
+                      onClick={() => {
+                        reset();
+                        setSource("manual");
+                        setStep("upload");
+                      }}
+                    >
+                      Use Manual Entry instead →
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 flex gap-2">
+            <Button
+              disabled={busy || pdfRows.every((r) => !r.approved)}
+              onClick={() => void confirmPdfImport()}
+            >
+              {busy
+                ? "Importing…"
+                : `Import ${pdfRows.filter((r) => r.approved).length} approved`}
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setStep("upload")}>
+              Upload a different PDF
+            </Button>
+          </div>
         </Panel>
       )}
 
@@ -582,6 +821,12 @@ export default function DataImportPage() {
                 <p className="mt-2 text-sm text-sand-300">
                   {skippedCount} row{skippedCount === 1 ? "" : "s"} skipped due to
                   validation errors.
+                </p>
+              )}
+              {duplicatesSkipped > 0 && (
+                <p className="mt-2 text-sm text-sand-300">
+                  {duplicatesSkipped} reservation{duplicatesSkipped === 1 ? "" : "s"} skipped
+                  — already imported from a previous upload.
                 </p>
               )}
             </>

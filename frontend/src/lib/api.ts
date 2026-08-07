@@ -336,6 +336,55 @@ export type ImportSessionDetail = ImportSessionListItem & {
   errors: CsvRowIssue[];
 };
 
+export type PdfExtractionIssue = {
+  field?: string | null;
+  message: string;
+};
+
+// The reservation the AI/heuristic parser extracted, pre-filled for a
+// human to review and edit — same shape the manual-entry form already
+// builds a subset of, kept loose here because the review screen only
+// ever edits a handful of these fields and passes the rest through
+// untouched (see PDF_IMPORT.md §5 for the full field list).
+export type PdfExtractedReservation = Record<string, unknown> & {
+  guest_name?: string;
+  guest_email?: string | null;
+  guest_phone?: string | null;
+  country?: string | null;
+  check_in?: string;
+  check_out?: string;
+  adults?: number;
+  children?: number;
+  room_type?: string;
+  total_amount?: number;
+  currency?: string;
+  special_requests?: string | null;
+};
+
+export type PdfExtractedRow = {
+  row_index: number;
+  review_state: "ready_to_import" | "needs_review";
+  confirmation_number?: string | null;
+  reservation?: PdfExtractedReservation | null;
+  issues: PdfExtractionIssue[];
+  raw_text_excerpt?: string | null;
+};
+
+export type PdfValidationReport = {
+  filename: string;
+  total_reservations: number;
+  ready_count: number;
+  needs_review_count: number;
+  rows: PdfExtractedRow[];
+};
+
+export type PdfImportResult = {
+  import_session_id: string;
+  imported: number;
+  duplicates_skipped: number;
+  message: string;
+};
+
 export type Message = {
   id: string;
   guest_id: string;
@@ -677,6 +726,22 @@ export const api = {
   },
   importSession: (sessionId: string) =>
     request<ImportSessionDetail>(`/api/import-sessions/${sessionId}`),
+  extractPdf: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<PdfValidationReport>("/api/connectors/import-pdf/extract", {
+      method: "POST",
+      body: form,
+    });
+  },
+  confirmPdfImport: (payload: {
+    filename?: string | null;
+    rows: { confirmation_number: string; reservation: PdfExtractedReservation }[];
+  }) =>
+    request<PdfImportResult>("/api/connectors/import-pdf/confirm", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   requestEarlyAccess: (source: string) =>
     request<{ ok: boolean }>(`/api/import-sources/${source}/early-access`, {
       method: "POST",

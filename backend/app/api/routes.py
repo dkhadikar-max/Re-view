@@ -79,6 +79,9 @@ from app.schemas import (
     MessageOut,
     NotificationOut,
     OfferOut,
+    PdfImportRequest,
+    PdfImportResult,
+    PdfValidationReport,
     PropertyOut,
     PropertyUpdate,
     ReservationCreate,
@@ -91,6 +94,11 @@ from app.schemas import (
     UserOut,
     WorkerResult,
     WorkflowOut,
+)
+from app.integrations.pdf_extractor import (
+    PdfPasswordProtectedError,
+    PdfTooManyPagesError,
+    PdfUnreadableError,
 )
 from app.services.passwords import ChangePasswordRequest
 from app.services.ai_orchestrator import (
@@ -117,6 +125,7 @@ from app.services.import_orchestrator import (
     start_import_session,
 )
 from app.services.messaging import deliver_message, process_due_messages
+from app.services.pdf_importer import pdf_importer
 from app.services.state_machine import (
     APPROVAL_TRANSITIONS,
     MESSAGE_TRANSITIONS,
@@ -1529,6 +1538,109 @@ async def import_csv(
                 if session.rows_skipped
                 else ""
             )
+        ),
+    )
+
+
+@router.post("/connectors/import-pdf/extract", response_model=PdfValidationReport)
+async def extract_pdf(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+) -> PdfValidationReport:
+    """Read-only: extracts + parses a PDF and returns Ready to Import /
+    Needs Review rows for a human to approve or edit. Writes nothing to
+    the database and creates no ImportSession — same "preview before
+    anything happens" contract as /connectors/import-csv/validate, except
+    PDF's preview *is* the review step (PDF_IMPORT.md §7), not a
+    precursor to an automatic import.
+
+    The uploaded file is never written to disk and is discarded once this
+    request returns — only the extracted, validated data is kept
+    (PDF_IMPORT.md §11.3).
+    """
+    content = await file.read(settings.pdf_max_bytes + 1)
+    if len(content) > settings.pdf_max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"PDF exceeds {settings.pdf_max_bytes} bytes",
+        )
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded file is empty",
+        )
+    # Magic-byte check, not a Content-Type check: the header a browser/
+    # client sends is trivially spoofable (or absent) and proves nothing;
+    # every real PDF starts with the literal bytes "%PDF-" regardless of
+    # what the client claims. Fail fast on obviously-wrong files instead
+    # of handing them to pdfplumber first.
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This file does not appear to be a PDF",
+        )
+    try:
+        report = pdf_importer.validate(content, filename=file.filename or "upload.pdf")
+    except (PdfPasswordProtectedError, PdfUnreadableError, PdfTooManyPagesError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    if report.total_reservations > settings.pdf_max_reservations_per_file:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"PDF contains {report.total_reservations} reservations — "
+                f"exceeds the {settings.pdf_max_reservations_per_file}-per-file limit"
+            ),
+        )
+    return report
+
+
+@router.post("/connectors/import-pdf/confirm", response_model=PdfImportResult)
+def confirm_pdf_import(
+    body: PdfImportRequest,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> PdfImportResult:
+    """The one write endpoint in the PDF flow. Only reached after a human
+    has approved (and optionally edited) every row on the Review screen —
+    PDF never auto-imports, regardless of extraction confidence
+    (PDF_IMPORT.md §7). `confirmation_number` is optional per row: when
+    absent, identity falls back to a hash of the reservation's own fields
+    rather than blocking the import (PDF_IMPORT.md §11.1).
+    """
+    property_ = _property_for_tenant(db, user.tenant_id)
+    session = start_import_session(
+        db,
+        tenant_id=user.tenant_id,
+        source="pdf",
+        initiated_by=user.email,
+        rows_total=len(body.rows),
+        filename=body.filename,
+    )
+    result = pdf_importer.import_(
+        body.rows,
+        session,
+        db=db,
+        tenant_id=user.tenant_id,
+        property_id=property_.id,
+    )
+    duplicates = result["duplicate_confirmation_numbers"]
+    if duplicates:
+        session.error_summary = (
+            f"Skipped {len(duplicates)} already-imported reservation(s): "
+            f"{', '.join(duplicates)}"
+        )
+    finish_import_session(db, session)
+    imported_count = session.rows_imported
+    db.commit()
+    return PdfImportResult(
+        import_session_id=session.id,
+        imported=imported_count,
+        duplicates_skipped=len(duplicates),
+        message=(
+            f"Imported {imported_count} reservation(s) from PDF"
+            + (f", skipped {len(duplicates)} already imported" if duplicates else "")
         ),
     )
 

@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 120
     csv_max_bytes: int = 1_000_000
     csv_max_rows: int = 500
+    pdf_max_bytes: int = 8_000_000
+    pdf_max_pages: int = 40
+    pdf_max_reservations_per_file: int = 25
+    # Internal extraction-confidence gate (never surfaced to a hotel — see
+    # PDF_IMPORT.md §4). Below this, a row is "Needs Review" regardless of
+    # whether every field happened to parse.
+    pdf_confidence_threshold: float = 0.75
     seed_on_startup: bool = True
     auto_create_tables: bool = True
 
