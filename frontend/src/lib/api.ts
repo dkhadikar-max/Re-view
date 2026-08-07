@@ -285,6 +285,22 @@ export type SyncResult = {
   events_emitted: number;
   message: string;
   import_session_id?: string | null;
+  rows_skipped?: number;
+};
+
+export type CsvRowIssue = {
+  line_number: number;
+  field?: string | null;
+  message: string;
+};
+
+export type CsvValidationReport = {
+  total_rows: number;
+  valid_count: number;
+  warning_count: number;
+  error_count: number;
+  warnings: CsvRowIssue[];
+  errors: CsvRowIssue[];
 };
 
 export type ImportSummary = {
@@ -611,6 +627,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  validateCsv: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<CsvValidationReport>("/api/connectors/import-csv/validate", {
+      method: "POST",
+      body: form,
+    });
+  },
   importCsv: (file: File) => {
     const form = new FormData();
     form.append("file", file);

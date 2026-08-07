@@ -61,7 +61,7 @@ def start_import_session(
 def finish_import_session(db: Session, session: ImportSession) -> ImportSession:
     session.status = (
         ImportSessionStatus.completed
-        if session.rows_failed == 0
+        if session.rows_failed == 0 and session.rows_skipped == 0
         else ImportSessionStatus.completed_with_errors
     )
     session.completed_at = datetime.utcnow()

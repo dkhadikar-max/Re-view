@@ -51,6 +51,18 @@ def ensure_schema_patches() -> None:
                 )
             logger.info("Added reservations.import_session_id column")
 
+    if "import_sessions" in insp.get_table_names():
+        session_cols = {c["name"] for c in insp.get_columns("import_sessions")}
+        if "rows_skipped" not in session_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE import_sessions ADD COLUMN rows_skipped "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            logger.info("Added import_sessions.rows_skipped column")
+
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:
         rows = conn.execute(text("SELECT id, country, currency FROM properties")).fetchall()

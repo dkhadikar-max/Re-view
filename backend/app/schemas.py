@@ -349,6 +349,22 @@ class SyncResult(BaseModel):
     events_emitted: int
     message: str
     import_session_id: Optional[str] = None
+    rows_skipped: int = 0
+
+
+class CsvRowIssue(BaseModel):
+    line_number: int
+    field: Optional[str] = None
+    message: str
+
+
+class CsvValidationReport(BaseModel):
+    total_rows: int
+    valid_count: int
+    warning_count: int
+    error_count: int
+    warnings: list[CsvRowIssue]
+    errors: list[CsvRowIssue]
 
 
 class ImportSummaryOut(BaseModel):

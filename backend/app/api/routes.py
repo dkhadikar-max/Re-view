@@ -63,6 +63,8 @@ from app.schemas import (
     ApprovalOut,
     AuditOut,
     ConnectorOut,
+    CsvRowIssue,
+    CsvValidationReport,
     DashboardStats,
     DecideResult,
     EventOut,
@@ -1313,8 +1315,8 @@ def sync_pms(user: ManagerUser, db: Session = Depends(get_db)) -> SyncResult:
     )
 
 
-def _csv_payload(row: dict[str, str | None], line_number: int) -> ReservationCreate:
-    raw = {
+def _csv_row_to_raw(row: dict[str, str | None]) -> dict[str, Any]:
+    return {
         "guest_name": (row.get("name") or "").strip(),
         "guest_email": (row.get("email") or "").strip() or None,
         "guest_phone": (row.get("phone") or "").strip() or None,
@@ -1333,24 +1335,84 @@ def _csv_payload(row: dict[str, str | None], line_number: int) -> ReservationCre
         "special_requests": (row.get("special_requests") or "").strip() or None,
         "communication_preference": (row.get("channel") or "email").strip().lower(),
     }
+
+
+def _validate_csv_row(
+    row: dict[str, str | None], line_number: int
+) -> tuple[ReservationCreate | None, list[CsvRowIssue], list[CsvRowIssue]]:
+    """Validate one CSV row without raising.
+
+    Returns (payload, warnings, errors). payload is None when the row has
+    errors and cannot be imported — the caller decides whether to skip it
+    or block the whole file, rather than this function deciding for them.
+    """
+    raw = _csv_row_to_raw(row)
+    warnings: list[CsvRowIssue] = []
+    if not raw["guest_email"]:
+        warnings.append(
+            CsvRowIssue(
+                line_number=line_number,
+                field="email",
+                message="No email — this guest can't be matched on repeat visits",
+            )
+        )
+    if not raw["guest_phone"]:
+        warnings.append(
+            CsvRowIssue(line_number=line_number, field="phone", message="No phone number")
+        )
     try:
-        return ReservationCreate.model_validate(raw)
+        payload = ReservationCreate.model_validate(raw)
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": f"Invalid CSV row {line_number}",
-                "errors": exc.errors(),
-            },
-        ) from exc
+        errors = [
+            CsvRowIssue(
+                line_number=line_number,
+                field=str(err["loc"][-1]) if err.get("loc") else None,
+                message=err["msg"],
+            )
+            for err in exc.errors()
+        ]
+        return None, warnings, errors
+    return payload, warnings, []
 
 
-@router.post("/connectors/import-csv", response_model=SyncResult)
-async def import_csv(
-    user: ManagerUser,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-) -> SyncResult:
+def _validate_csv_rows(
+    raw_rows: list[dict[str, str | None]],
+) -> tuple[list[tuple[int, ReservationCreate]], list[CsvRowIssue], list[CsvRowIssue]]:
+    """Validate every row in a parsed CSV. Returns (valid rows with their
+    line numbers, all warnings, all errors) — never raises. Also flags
+    emails that repeat across multiple rows in the same file.
+    """
+    valid: list[tuple[int, ReservationCreate]] = []
+    warnings: list[CsvRowIssue] = []
+    errors: list[CsvRowIssue] = []
+    email_lines: dict[str, list[int]] = {}
+    for line_number, row in enumerate(raw_rows, start=2):
+        payload, row_warnings, row_errors = _validate_csv_row(row, line_number)
+        warnings.extend(row_warnings)
+        errors.extend(row_errors)
+        if payload is not None:
+            valid.append((line_number, payload))
+            if payload.guest_email:
+                email_lines.setdefault(str(payload.guest_email).lower(), []).append(
+                    line_number
+                )
+    for email, lines in email_lines.items():
+        if len(lines) > 1:
+            warnings.append(
+                CsvRowIssue(
+                    line_number=lines[0],
+                    field="email",
+                    message=(
+                        f"{email} appears on {len(lines)} rows (lines "
+                        f"{', '.join(map(str, lines))}) — will be treated as one "
+                        "returning guest"
+                    ),
+                )
+            )
+    return valid, warnings, errors
+
+
+async def _read_csv_rows(file: UploadFile) -> list[dict[str, str | None]]:
     content = await file.read(settings.csv_max_bytes + 1)
     if len(content) > settings.csv_max_bytes:
         raise HTTPException(
@@ -1383,19 +1445,47 @@ async def import_csv(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="CSV contains no data rows",
         )
-    payloads = [
-        _csv_payload(row, line_number)
-        for line_number, row in enumerate(raw_rows, start=2)
-    ]
+    return raw_rows
+
+
+@router.post("/connectors/import-csv/validate", response_model=CsvValidationReport)
+async def validate_csv(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+) -> CsvValidationReport:
+    """Read-only: validates every row, writes nothing to the database.
+    Powers the Import flow's Validate step so hotels see problems before
+    anything is imported, instead of finding out mid-import.
+    """
+    raw_rows = await _read_csv_rows(file)
+    valid, warnings, errors = _validate_csv_rows(raw_rows)
+    return CsvValidationReport(
+        total_rows=len(raw_rows),
+        valid_count=len(valid),
+        warning_count=len({w.line_number for w in warnings}),
+        error_count=len({e.line_number for e in errors}),
+        warnings=warnings,
+        errors=errors,
+    )
+
+
+@router.post("/connectors/import-csv", response_model=SyncResult)
+async def import_csv(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> SyncResult:
+    raw_rows = await _read_csv_rows(file)
+    valid, _warnings, errors = _validate_csv_rows(raw_rows)
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(
         db,
         tenant_id=user.tenant_id,
         source="csv",
         initiated_by=user.email,
-        rows_total=len(payloads),
+        rows_total=len(raw_rows),
     )
-    for payload in payloads:
+    for _line_number, payload in valid:
         import_reservation(
             db,
             tenant_id=user.tenant_id,
@@ -1405,6 +1495,13 @@ async def import_csv(
             event_source="csv",
             import_session=session,
         )
+    error_lines = sorted({issue.line_number for issue in errors})
+    session.rows_skipped = len(error_lines)
+    if error_lines:
+        session.error_summary = (
+            f"Skipped {len(error_lines)} row(s) with validation errors: "
+            f"lines {', '.join(map(str, error_lines))}"
+        )
     finish_import_session(db, session)
     imported = session.rows_imported
     emitted = imported
@@ -1413,7 +1510,15 @@ async def import_csv(
         imported=imported,
         events_emitted=emitted,
         import_session_id=session.id,
-        message=f"Imported {imported} rows from CSV",
+        rows_skipped=session.rows_skipped,
+        message=(
+            f"Imported {imported} rows from CSV"
+            + (
+                f", skipped {session.rows_skipped} with errors"
+                if session.rows_skipped
+                else ""
+            )
+        ),
     )
 
 

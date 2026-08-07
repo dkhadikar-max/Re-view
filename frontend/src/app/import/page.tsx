@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Button, Panel } from "@/components/ui";
-import { api, type ImportSummary } from "@/lib/api";
+import { api, type CsvValidationReport, type ImportSummary } from "@/lib/api";
 import { useMoney } from "@/components/WorkspaceProvider";
 
 const CSV_TEMPLATE_COLUMNS = [
@@ -41,7 +41,7 @@ function downloadCsvTemplate() {
 
 type Source = "csv" | "manual";
 type ComingSoonSource = "pdf" | "email" | "cloudbeds" | "mews" | "opera";
-type Step = "source" | "upload" | "review" | "summary";
+type Step = "source" | "upload" | "validate" | "review" | "summary";
 
 const SOURCES: {
   id: Source | ComingSoonSource;
@@ -125,6 +125,8 @@ export default function DataImportPage() {
     rows: string[][];
     rowCount: number;
   } | null>(null);
+  const [validation, setValidation] = useState<CsvValidationReport | null>(null);
+  const [validating, setValidating] = useState(false);
 
   // Manual entry state
   const [form, setForm] = useState({
@@ -141,6 +143,7 @@ export default function DataImportPage() {
   });
 
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [skippedCount, setSkippedCount] = useState(0);
   const [earlyAccessSent, setEarlyAccessSent] = useState<Set<string>>(new Set());
 
   async function joinEarlyAccess(id: string) {
@@ -157,7 +160,9 @@ export default function DataImportPage() {
     setSource(null);
     setFile(null);
     setPreview(null);
+    setValidation(null);
     setSummary(null);
+    setSkippedCount(0);
     setError("");
   }
 
@@ -171,18 +176,27 @@ export default function DataImportPage() {
   async function onFileChosen(f: File) {
     setFile(f);
     setError("");
+    setValidation(null);
     try {
       const text = await f.text();
       setPreview(parseCsvPreview(text));
     } catch {
       setError("Could not read that file. Please choose a CSV file.");
       setPreview(null);
+      return;
+    }
+    setValidating(true);
+    try {
+      const report = await api.validateCsv(f);
+      setValidation(report);
+      setStep("validate");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not validate that file");
+    } finally {
+      setValidating(false);
     }
   }
 
-  const missingColumns = preview
-    ? REQUIRED_CSV_COLUMNS.filter((c) => !preview.headers.includes(c))
-    : [];
 
   async function runImport() {
     setBusy(true);
@@ -190,6 +204,7 @@ export default function DataImportPage() {
     try {
       if (source === "csv" && file) {
         const result = await api.importCsv(file);
+        setSkippedCount(result.rows_skipped || 0);
         if (result.import_session_id) {
           setSummary(await api.importSummary(result.import_session_id));
         }
@@ -289,25 +304,88 @@ export default function DataImportPage() {
             }}
             className="mt-4 block w-full text-sm text-ink-600 file:mr-4 file:rounded-lg file:border-0 file:bg-sea-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-sea-700"
           />
-          {preview && (
-            <div className="mt-6">
-              {missingColumns.length > 0 ? (
-                <p className="text-sm text-coral-600">
-                  Missing required column{missingColumns.length > 1 ? "s" : ""}:{" "}
-                  {missingColumns.join(", ")}
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm text-ink-600">
-                    {preview.rowCount} row{preview.rowCount === 1 ? "" : "s"} found.
-                    Showing the first {Math.min(preview.rows.length, 5)}.
-                  </p>
-                  <Button className="mt-4" onClick={() => setStep("review")}>
-                    Continue to review
-                  </Button>
-                </>
-              )}
+          {validating && (
+            <p className="mt-4 text-sm text-ink-500">Validating…</p>
+          )}
+        </Panel>
+      )}
+
+      {step === "validate" && source === "csv" && validation && (
+        <Panel title="Validation results" className="[animation-delay:40ms]">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-sea-200 bg-sea-500/10 px-4 py-3">
+              <p className="text-2xl font-display text-sea-800">
+                ✓ {validation.valid_count}
+              </p>
+              <p className="text-xs text-ink-500">Valid</p>
             </div>
+            <div className="rounded-xl border border-sand-300/60 bg-sand-100/60 px-4 py-3">
+              <p className="text-2xl font-display text-ink-800">
+                ⚠ {validation.warning_count}
+              </p>
+              <p className="text-xs text-ink-500">Warnings</p>
+            </div>
+            <div className="rounded-xl border border-coral-200 bg-coral-50 px-4 py-3">
+              <p className="text-2xl font-display text-coral-700">
+                ✗ {validation.error_count}
+              </p>
+              <p className="text-xs text-ink-500">Errors</p>
+            </div>
+          </div>
+
+          {validation.errors.length > 0 && (
+            <div className="mt-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-coral-700">
+                Errors — these rows will be skipped
+              </p>
+              <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-sm">
+                {validation.errors.map((issue, i) => (
+                  <li key={i} className="text-ink-700">
+                    <span className="text-coral-600">Line {issue.line_number}</span>
+                    {issue.field && <span className="text-ink-400"> · {issue.field}</span>}
+                    {" — "}
+                    {issue.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {validation.warnings.length > 0 && (
+            <div className="mt-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-ink-500">
+                Warnings — these will still import
+              </p>
+              <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-sm">
+                {validation.warnings.map((issue, i) => (
+                  <li key={i} className="text-ink-600">
+                    <span className="text-ink-400">Line {issue.line_number}</span>
+                    {issue.field && <span className="text-ink-400"> · {issue.field}</span>}
+                    {" — "}
+                    {issue.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-5 flex gap-2">
+            <Button
+              disabled={validation.valid_count === 0}
+              onClick={() => setStep("review")}
+            >
+              {validation.error_count > 0
+                ? `Continue with ${validation.valid_count} valid`
+                : "Continue to review"}
+            </Button>
+            <Button variant="ghost" onClick={() => setStep("upload")}>
+              Fix file
+            </Button>
+          </div>
+          {validation.valid_count === 0 && (
+            <p className="mt-3 text-sm text-coral-600">
+              No valid rows to import — fix the errors above and re-upload.
+            </p>
           )}
         </Panel>
       )}
@@ -381,14 +459,31 @@ export default function DataImportPage() {
             </table>
           </div>
           <p className="mt-4 text-sm text-ink-500">
-            Importing all {preview.rowCount} reservation
-            {preview.rowCount === 1 ? "" : "s"}.
+            {validation ? (
+              <>
+                Importing {validation.valid_count} reservation
+                {validation.valid_count === 1 ? "" : "s"}.
+                {validation.error_count > 0 &&
+                  ` ${validation.error_count} row${validation.error_count === 1 ? "" : "s"} with errors will be skipped.`}
+              </>
+            ) : (
+              <>
+                Importing all {preview.rowCount} reservation
+                {preview.rowCount === 1 ? "" : "s"}.
+              </>
+            )}
           </p>
           <div className="mt-4 flex gap-2">
             <Button disabled={busy} onClick={() => void runImport()}>
-              {busy ? "Importing…" : `Import ${preview.rowCount} reservations`}
+              {busy
+                ? "Importing…"
+                : `Import ${validation ? validation.valid_count : preview.rowCount} reservations`}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => setStep("upload")}>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setStep(validation ? "validate" : "upload")}
+            >
               Back
             </Button>
           </div>
@@ -478,6 +573,12 @@ export default function DataImportPage() {
                 {summary.upsell_opportunities === 1 ? "y" : "ies"} already queued for
                 approval.
               </p>
+              {skippedCount > 0 && (
+                <p className="mt-2 text-sm text-sand-300">
+                  {skippedCount} row{skippedCount === 1 ? "" : "s"} skipped due to
+                  validation errors.
+                </p>
+              )}
             </>
           ) : (
             <h2 className="mt-2 font-display text-3xl">Import complete</h2>

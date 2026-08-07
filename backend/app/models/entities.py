@@ -490,6 +490,7 @@ class ImportSession(Base):
     rows_total: Mapped[int] = mapped_column(Integer, default=0)
     rows_imported: Mapped[int] = mapped_column(Integer, default=0)
     rows_failed: Mapped[int] = mapped_column(Integer, default=0)
+    rows_skipped: Mapped[int] = mapped_column(Integer, default=0)
     initiated_by: Mapped[str] = mapped_column(String(255))
     error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
