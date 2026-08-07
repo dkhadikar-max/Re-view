@@ -20,7 +20,7 @@ from app.integrations.ownership import SERVICE_OWNERSHIP, ServiceOwnership
 from app.integrations.queue import get_queue
 from app.integrations.stripe_payments import stripe_payments
 from app.integrations.whatsapp import whatsapp_client
-from app.models.entities import Guest, Offer, OfferStatus, Reservation
+from app.models.entities import Guest, Offer, OfferStatus, Property, Reservation
 from app.services.analytics import ROIMetrics, SalesAnalytics, build_roi_metrics, build_sales_analytics
 from app.services.audit import write_audit
 from app.services.messaging import apply_provider_status, ingest_inbound_whatsapp
@@ -300,6 +300,23 @@ def whatsapp_verify(
     return PlainTextResponse(content=str(challenge))
 
 
+def _tenant_for_whatsapp_number(db: Session, phone_number_id: str | None) -> str | None:
+    """Resolve which tenant owns the WhatsApp number a message arrived
+    at (CONCIERGE.md §3). Returns None for an unrecognized/unconfigured
+    number rather than guessing — same "unknown recipient -> drop, don't
+    process under someone else's tenant" principle EMAIL_IMPORT.md's
+    trust model already established for its own inbound surface.
+    """
+    if not phone_number_id:
+        return None
+    property_ = (
+        db.query(Property)
+        .filter(Property.whatsapp_phone_number_id == phone_number_id)
+        .first()
+    )
+    return property_.tenant_id if property_ else None
+
+
 @router.post("/webhooks/whatsapp")
 async def whatsapp_webhook(
     request: Request,
@@ -311,12 +328,24 @@ async def whatsapp_webhook(
         raise HTTPException(401, "Invalid signature")
     payload = await request.json()
     events = whatsapp_client.parse_webhook(payload)
-    tenant_id = "demo-hotel"
+    processed = 0
     for event in events:
+        tenant_id = _tenant_for_whatsapp_number(db, event.get("phone_number_id"))
+        if tenant_id is None:
+            # Unrecognized number — same non-probeable "accept and drop"
+            # response as Email Import's unknown-address case, not an
+            # error a prober could distinguish from a real one, and
+            # never processed under a fallback/demo tenant.
+            logger.warning(
+                "WhatsApp webhook for unrecognized phone_number_id=%s — dropped",
+                event.get("phone_number_id"),
+            )
+            continue
         if event["type"] == "status" and event.get("provider_message_id"):
             apply_provider_status(
                 db, event["provider_message_id"], event.get("status") or ""
             )
+            processed += 1
         elif event["type"] == "inbound" and event.get("from"):
             ingest_inbound_whatsapp(
                 db,
@@ -326,8 +355,9 @@ async def whatsapp_webhook(
                 provider_message_id=event.get("provider_message_id"),
                 contact_name=event.get("contact_name"),
             )
+            processed += 1
     db.commit()
-    return {"ok": True, "events": len(events)}
+    return {"ok": True, "events": processed}
 
 
 @router.post("/offers/{offer_id}/payment-link")

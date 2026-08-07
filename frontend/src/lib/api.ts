@@ -577,6 +577,7 @@ export type Property = {
   rooms: number;
   address?: string | null;
   google_review_url?: string | null;
+  whatsapp_phone_number_id?: string | null;
 };
 
 export type PropertyUpdate = {
@@ -587,6 +588,7 @@ export type PropertyUpdate = {
   timezone: string;
   rooms: number;
   brand_voice: string;
+  whatsapp_phone_number_id?: string | null;
   address?: string | null;
   google_review_url?: string | null;
 };

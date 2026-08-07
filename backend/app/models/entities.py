@@ -143,6 +143,14 @@ class Property(Base):
     rooms: Mapped[int] = mapped_column(Integer, default=40)
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     google_review_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # Meta's inbound webhook payload includes this on every message
+    # (value.metadata.phone_number_id) — set once per property when its
+    # WhatsApp number is provisioned under ReVisit's WABA (CONCIERGE.md
+    # §3), used to route an inbound message to the right tenant instead
+    # of guessing from the guest's own phone number.
+    whatsapp_phone_number_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, unique=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     guests: Mapped[list[Guest]] = relationship(back_populates="property")

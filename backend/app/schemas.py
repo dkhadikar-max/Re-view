@@ -244,6 +244,7 @@ class PropertyOut(ORMModel):
     rooms: int
     address: Optional[str] = None
     google_review_url: Optional[str] = None
+    whatsapp_phone_number_id: Optional[str] = None
 
 
 class PropertyUpdate(BaseModel):
@@ -256,6 +257,11 @@ class PropertyUpdate(BaseModel):
     brand_voice: str = Field(min_length=1)
     address: Optional[str] = Field(default=None, max_length=500)
     google_review_url: Optional[str] = Field(default=None, max_length=512)
+    # Provisioned under ReVisit's own WABA (CONCIERGE.md §3), not a hotel
+    # self-serve field in v1 — exposed here so a platform admin can set
+    # it the same way every other Property field is already updated,
+    # without a separate one-off admin endpoint.
+    whatsapp_phone_number_id: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("currency")
     @classmethod
