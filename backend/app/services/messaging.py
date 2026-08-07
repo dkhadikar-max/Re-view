@@ -9,6 +9,8 @@ from app.integrations.base import SendResult
 from app.integrations.email_providers import get_email_client
 from app.integrations.whatsapp import whatsapp_client
 from app.models.entities import Guest, Message, MessageChannel, MessageStatus, Property
+from app.services.context_builder import ContextBuilder, ContextBuilderError
+from app.services.escalation_filter import escalate_to_staff, evaluate_escalation
 from app.services.state_machine import MESSAGE_TRANSITIONS, transition
 
 logger = logging.getLogger(__name__)
@@ -175,6 +177,34 @@ def ingest_inbound_whatsapp(
     if any(w in lower for w in ("yes", "ok", "please", "book", "ja", "oui")):
         guest.upsell_acceptance = min(1.0, float(guest.upsell_acceptance or 0) + 0.1)
     db.flush()
+
+    # Escalation Filter (CONCIERGE.md §5.4/§8) — checked on every inbound
+    # message, before any future agent would run. Today there's no FAQ
+    # Agent yet to hand a cleared message to, so this step's only visible
+    # effect is that unsafe/out-of-scope messages get flagged to staff
+    # starting now; a cleared message simply gets no automated reply yet
+    # either way (unchanged from before this existed).
+    try:
+        context = ContextBuilder(db).build(tenant_id=tenant_id, guest_id=guest.id)
+        decision = evaluate_escalation(body, context)
+        if decision.needs_human:
+            escalate_to_staff(
+                db,
+                tenant_id=tenant_id,
+                guest_id=guest.id,
+                guest_name=guest.name,
+                message_body=body,
+                decision=decision,
+            )
+            db.flush()
+    except ContextBuilderError:
+        # A guest with a phone match but no resolvable Property (data
+        # inconsistency) shouldn't block the inbound message itself from
+        # being stored — log and move on rather than losing the message.
+        logger.exception(
+            "Escalation Filter could not build context for guest %s", guest.id
+        )
+
     return message
 
 
