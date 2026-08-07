@@ -249,3 +249,73 @@ def test_cache_expires_after_ttl(db_session):
 
     assert second is not first  # rebuilt, not served from an expired entry
     assert second.guest.id == first.guest.id  # still correct data either way
+
+
+def test_stale_knowledge_base_persists_until_invalidated(db_session):
+    """Demonstrates the exact risk a KB editor would introduce without
+    calling invalidate_tenant(): editing the underlying row does NOT by
+    itself refresh an already-cached context within the TTL window."""
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-kb-stale")
+    guest = _make_guest(db, tenant_id="hotel-kb-stale", property_id=property_.id)
+    kb = PropertyKnowledgeBase(
+        property_id=property_.id, tenant_id="hotel-kb-stale", wifi_password="old-password"
+    )
+    db.add(kb)
+    db.flush()
+
+    builder = ContextBuilder(db, cache_ttl_seconds=30.0)
+    first = builder.build(tenant_id="hotel-kb-stale", guest_id=guest.id)
+    assert first.knowledge_base.wifi_password == "old-password"
+
+    # A hotel edits their KB (this is exactly what a future KB editor
+    # endpoint would do) — the underlying row changes...
+    kb.wifi_password = "new-password"
+    db.flush()
+
+    # ...but without invalidation, the next build within the TTL still
+    # serves the stale cached context. This is the bug the review caught.
+    still_stale = builder.build(tenant_id="hotel-kb-stale", guest_id=guest.id)
+    assert still_stale.knowledge_base.wifi_password == "old-password"
+
+
+def test_invalidate_tenant_refreshes_stale_knowledge_base(db_session):
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-kb-fresh")
+    guest = _make_guest(db, tenant_id="hotel-kb-fresh", property_id=property_.id)
+    kb = PropertyKnowledgeBase(
+        property_id=property_.id, tenant_id="hotel-kb-fresh", wifi_password="old-password"
+    )
+    db.add(kb)
+    db.flush()
+
+    builder = ContextBuilder(db, cache_ttl_seconds=30.0)
+    first = builder.build(tenant_id="hotel-kb-fresh", guest_id=guest.id)
+    assert first.knowledge_base.wifi_password == "old-password"
+
+    kb.wifi_password = "new-password"
+    db.flush()
+    ContextBuilder.invalidate_tenant("hotel-kb-fresh")
+
+    refreshed = builder.build(tenant_id="hotel-kb-fresh", guest_id=guest.id)
+    assert refreshed.knowledge_base.wifi_password == "new-password"
+
+
+def test_invalidate_tenant_does_not_affect_other_tenants(db_session):
+    db = db_session
+    property_a = _make_property(db, tenant_id="hotel-inv-a")
+    guest_a = _make_guest(db, tenant_id="hotel-inv-a", property_id=property_a.id)
+    property_b = _make_property(db, tenant_id="hotel-inv-b", phone_number_id="PHONE_INV_B")
+    guest_b = _make_guest(db, tenant_id="hotel-inv-b", property_id=property_b.id)
+    db.flush()
+
+    builder = ContextBuilder(db, cache_ttl_seconds=30.0)
+    cached_a = builder.build(tenant_id="hotel-inv-a", guest_id=guest_a.id)
+    cached_b = builder.build(tenant_id="hotel-inv-b", guest_id=guest_b.id)
+
+    ContextBuilder.invalidate_tenant("hotel-inv-a")
+
+    # Tenant A was invalidated — rebuilding gives a new object.
+    assert builder.build(tenant_id="hotel-inv-a", guest_id=guest_a.id) is not cached_a
+    # Tenant B was untouched — still served from cache.
+    assert builder.build(tenant_id="hotel-inv-b", guest_id=guest_b.id) is cached_b
