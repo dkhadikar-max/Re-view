@@ -261,6 +261,26 @@ class ContextBuilder:
         """Test/ops escape hatch — not called from normal request flow."""
         cls._cache.clear()
 
+    @classmethod
+    def invalidate_tenant(cls, tenant_id: str) -> None:
+        """Evicts every cached context for one tenant, regardless of
+        which guest/reservation it was keyed under. Knowledge Base data
+        is per-property, not per-guest, so a KB edit invalidates every
+        guest's cached context for that tenant, not just one.
+
+        **Contract**: anything that writes to `PropertyKnowledgeBase` (or
+        any other property-wide fact this Context Builder reads —
+        `Property` itself, `Workflow` automations) MUST call this after
+        committing the write. There is no KB editor yet (only the model,
+        PR #12) — this exists so the editor has the right hook to call
+        from day one instead of the TTL being the only thing standing
+        between an edit and a guest getting a stale answer for up to
+        `cache_ttl_seconds`.
+        """
+        stale_keys = [key for key in cls._cache if key[0] == tenant_id]
+        for key in stale_keys:
+            cls._cache.pop(key, None)
+
     # -- assembly ----------------------------------------------------
 
     def _build_uncached(
