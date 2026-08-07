@@ -25,29 +25,55 @@ class WhatsAppCloudClient:
     name = "whatsapp"
 
     def __init__(self) -> None:
+        # Platform-level credentials only — one ReVisit-owned WABA can
+        # send through any phone number registered under it with the
+        # same access token, so the token stays global. The number
+        # itself never does (see `send`'s `phone_number_id` parameter).
         self.token = settings.whatsapp_access_token
-        self.phone_number_id = settings.whatsapp_phone_number_id
         self.api_version = settings.whatsapp_api_version
 
     @property
     def configured(self) -> bool:
-        return bool(self.token and self.phone_number_id)
+        """Whether ReVisit's platform-level WhatsApp integration has
+        credentials at all — independent of any specific tenant's
+        phone_number_id, which `send()` requires per call instead."""
+        return bool(self.token)
 
     @property
     def mode(self) -> str:
         return "live" if self.configured else "mock"
 
-    def send(self, *, to: str, body: str, subject: Optional[str] = None) -> SendResult:
+    def send(
+        self, *, phone_number_id: Optional[str], to: str, body: str, subject: Optional[str] = None
+    ) -> SendResult:
+        """Send through a specific WhatsApp Business number.
+
+        `phone_number_id` identifies which of ReVisit's WABA-hosted
+        numbers to send from — the caller (messaging.py) resolves this
+        from the recipient's own property. This client never falls back
+        to a shared/global number: a reply must leave from the same
+        number the conversation is actually associated with
+        (CONCIERGE.md §3 — multi-tenant routing applies to outbound
+        exactly as much as inbound).
+        """
+        if not phone_number_id:
+            raise ValueError(
+                "No WhatsApp phone_number_id supplied — the caller must "
+                "resolve this from the recipient's own property, not fall "
+                "back to a shared default"
+            )
         to_digits = "".join(ch for ch in to if ch.isdigit())
         if not self.configured:
             mid = f"wa_mock_{uuid.uuid4().hex[:12]}"
-            logger.info("WhatsApp MOCK send to=%s id=%s", to_digits, mid)
+            logger.info(
+                "WhatsApp MOCK send phone_number_id=%s to=%s id=%s",
+                phone_number_id,
+                to_digits,
+                mid,
+            )
             return SendResult(provider=self.name, provider_message_id=mid, status="sent")
 
-        url = (
-            f"https://graph.facebook.com/{self.api_version}/"
-            f"{self.phone_number_id}/messages"
-        )
+        url = f"https://graph.facebook.com/{self.api_version}/{phone_number_id}/messages"
         payload = {
             "messaging_product": "whatsapp",
             "to": to_digits,

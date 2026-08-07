@@ -60,9 +60,12 @@ class Settings(BaseSettings):
     cloudbeds_property_id: str = ""
     cloudbeds_redirect_uri: str = "http://127.0.0.1:8000/api/webhooks/cloudbeds/oauth/callback"
 
-    # WhatsApp (Meta Cloud API)
+    # WhatsApp (Meta Cloud API) — platform-level credentials only. There
+    # is deliberately no global phone_number_id setting: which number a
+    # message sends from is always resolved per-property
+    # (Property.whatsapp_phone_number_id, CONCIERGE.md §3), never a
+    # shared default, for both inbound and outbound.
     whatsapp_access_token: str = ""
-    whatsapp_phone_number_id: str = ""
     whatsapp_business_account_id: str = ""
     whatsapp_verify_token: str = "revisit-whatsapp-verify"
     whatsapp_app_secret: str = ""
@@ -174,7 +177,9 @@ class Settings(BaseSettings):
 
     @property
     def whatsapp_configured(self) -> bool:
-        return bool(self.whatsapp_access_token and self.whatsapp_phone_number_id)
+        # Platform-level only — whether a *specific* tenant can send is a
+        # separate, per-property check (Property.whatsapp_phone_number_id).
+        return bool(self.whatsapp_access_token)
 
     @property
     def email_configured(self) -> bool:

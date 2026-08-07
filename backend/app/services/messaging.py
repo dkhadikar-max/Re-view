@@ -5,12 +5,40 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.integrations.base import SendResult
 from app.integrations.email_providers import get_email_client
 from app.integrations.whatsapp import whatsapp_client
-from app.models.entities import Guest, Message, MessageChannel, MessageStatus
+from app.models.entities import Guest, Message, MessageChannel, MessageStatus, Property
 from app.services.state_machine import MESSAGE_TRANSITIONS, transition
 
 logger = logging.getLogger(__name__)
+
+
+def _property_for_message(db: Session, message: Message) -> Property | None:
+    return db.query(Property).filter(Property.tenant_id == message.tenant_id).first()
+
+
+def _send_via_whatsapp(db: Session, message: Message, to: str) -> SendResult:
+    """Resolves which of ReVisit's WABA-hosted numbers this tenant's
+    property owns and sends through it — never a shared/global number
+    (CONCIERGE.md §3; outbound routing follows the same rule inbound
+    already does). Raises if the property has no number configured yet,
+    which `deliver_message`'s existing exception handling already turns
+    into a logged, failed message rather than a silent wrong-number send.
+    """
+    property_ = _property_for_message(db, message)
+    if not property_ or not property_.whatsapp_phone_number_id:
+        raise ValueError(
+            f"Tenant {message.tenant_id}'s property has no configured "
+            "WhatsApp phone_number_id — cannot send without knowing which "
+            "number this hotel's guests were told to message"
+        )
+    return whatsapp_client.send(
+        phone_number_id=property_.whatsapp_phone_number_id,
+        to=to,
+        body=message.body,
+        subject=message.subject,
+    )
 
 
 def _recipient_for(db: Session, message: Message) -> str:
@@ -38,14 +66,15 @@ def deliver_message(db: Session, message: Message) -> Message:
     to = _recipient_for(db, message)
     try:
         if message.channel == MessageChannel.whatsapp:
-            result = whatsapp_client.send(to=to, body=message.body, subject=message.subject)
+            result = _send_via_whatsapp(db, message, to)
         elif message.channel == MessageChannel.email:
             result = get_email_client().send(
                 to=to, body=message.body, subject=message.subject
             )
         else:
-            # SMS: reuse WhatsApp mock path until Twilio is added
-            result = whatsapp_client.send(to=to, body=message.body, subject=message.subject)
+            # SMS: reuse WhatsApp mock path until Twilio is added — same
+            # per-property phone_number_id requirement applies.
+            result = _send_via_whatsapp(db, message, to)
 
         transition(message.status, MessageStatus.sent, MESSAGE_TRANSITIONS, "message")
         message.status = MessageStatus.sent
