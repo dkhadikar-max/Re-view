@@ -40,6 +40,41 @@ def ensure_schema_patches() -> None:
             )
         logger.info("Added properties.google_review_url column")
 
+    if "reservations" in insp.get_table_names():
+        res_cols = {c["name"] for c in insp.get_columns("reservations")}
+        if "import_session_id" not in res_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE reservations ADD COLUMN import_session_id VARCHAR(36)"
+                    )
+                )
+            logger.info("Added reservations.import_session_id column")
+
+    if "import_sessions" in insp.get_table_names():
+        session_cols = {c["name"] for c in insp.get_columns("import_sessions")}
+        if "rows_skipped" not in session_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE import_sessions ADD COLUMN rows_skipped "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            logger.info("Added import_sessions.rows_skipped column")
+        if "filename" not in session_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE import_sessions ADD COLUMN filename VARCHAR(255)")
+                )
+            logger.info("Added import_sessions.filename column")
+        if "validation_issues" not in session_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE import_sessions ADD COLUMN validation_issues TEXT")
+                )
+            logger.info("Added import_sessions.validation_issues column")
+
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:
         rows = conn.execute(text("SELECT id, country, currency FROM properties")).fetchall()

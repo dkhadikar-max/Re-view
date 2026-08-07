@@ -239,6 +239,9 @@ class Reservation(Base):
     currency: Mapped[str] = mapped_column(String(8), default="EUR")
     special_requests: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    import_session_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("import_sessions.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -454,6 +457,44 @@ class AuditLog(Base):
     entity_id: Mapped[str] = mapped_column(String(36))
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ImportSessionStatus(str, enum.Enum):
+    running = "running"
+    completed = "completed"
+    completed_with_errors = "completed_with_errors"
+    failed = "failed"
+
+
+class ImportSession(Base):
+    """One row per import run (manual entry counts as a 1-row import).
+
+    Every importer (manual, CSV, and future PDF/email/PMS connectors) creates
+    one of these before writing any Guest/Reservation rows, and every
+    Reservation it creates references it via `import_session_id`. This is
+    what makes import history, per-source auditing, and future retry-failed-
+    rows support possible without each importer inventing its own tracking.
+    """
+
+    __tablename__ = "import_sessions"
+    __table_args__ = (Index("ix_import_session_tenant_source", "tenant_id", "source"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    source: Mapped[str] = mapped_column(String(64))
+    status: Mapped[ImportSessionStatus] = mapped_column(
+        Enum(ImportSessionStatus), default=ImportSessionStatus.running
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    rows_total: Mapped[int] = mapped_column(Integer, default=0)
+    rows_imported: Mapped[int] = mapped_column(Integer, default=0)
+    rows_failed: Mapped[int] = mapped_column(Integer, default=0)
+    rows_skipped: Mapped[int] = mapped_column(Integer, default=0)
+    initiated_by: Mapped[str] = mapped_column(String(255))
+    error_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    validation_issues: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class Connector(Base):

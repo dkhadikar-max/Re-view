@@ -80,6 +80,7 @@ class ReservationOut(ORMModel):
     special_requests: Optional[str] = None
     created_at: datetime
     guest_name: Optional[str] = None
+    import_session_id: Optional[str] = None
 
 
 class ReservationCreate(BaseModel):
@@ -347,6 +348,56 @@ class SyncResult(BaseModel):
     imported: int
     events_emitted: int
     message: str
+    import_session_id: Optional[str] = None
+    rows_skipped: int = 0
+
+
+class CsvRowIssue(BaseModel):
+    line_number: int
+    field: Optional[str] = None
+    message: str
+
+
+class CsvValidationReport(BaseModel):
+    total_rows: int
+    valid_count: int
+    warning_count: int
+    error_count: int
+    warnings: list[CsvRowIssue]
+    errors: list[CsvRowIssue]
+
+
+class ImportSummaryOut(BaseModel):
+    import_session_id: str
+    source: str
+    status: str
+    reservations_imported: int
+    guests_created: int
+    returning_guests: int
+    birthdays_this_month: int
+    reviews_scheduled: int
+    upsell_opportunities: int
+
+
+class ImportSessionListItem(ORMModel):
+    id: str
+    source: str
+    status: str
+    filename: Optional[str] = None
+    initiated_by: str
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    rows_total: int
+    rows_imported: int
+    rows_skipped: int
+    rows_failed: int
+
+
+class ImportSessionDetail(ImportSessionListItem):
+    duration_ms: Optional[int] = None
+    error_summary: Optional[str] = None
+    warnings: list[CsvRowIssue] = []
+    errors: list[CsvRowIssue] = []
 
 
 class DecideResult(BaseModel):

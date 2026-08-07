@@ -2,6 +2,21 @@
 
 # ReVisit Engineering Handbook
 
+## Relationship to ARCHITECTURE.md
+
+`ARCHITECTURE.md` (root) describes a long-term, aspirational target
+architecture — including a `backend/modules/{domain}/{models,schemas,
+repositories,services,routers,events,tests}/` folder structure that does
+**not** match the current codebase, which uses a flatter `app/api`,
+`app/models`, `app/services` layout.
+
+Treat ARCHITECTURE.md's **principles** (event-driven, no god services,
+AI-as-a-service, tenant isolation, Stripe/Linear/Notion/HubSpot UI
+philosophy) as binding — they already match this handbook. Do **not**
+reorganize the codebase into its `modules/` folder layout without an
+explicit, separate decision to do that migration. Building new features
+inside the current flat structure is correct until that decision is made.
+
 ## Mission
 
 ReVisit helps businesses turn first-time customers into repeat customers.

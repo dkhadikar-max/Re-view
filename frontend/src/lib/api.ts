@@ -28,7 +28,9 @@ export function setToken(token: string | null) {
 async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const headers = new Headers(init?.headers || {});
   const useAuth = init?.auth !== false;
-  if (init?.body && !headers.has("Content-Type")) {
+  const isFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
+  if (init?.body && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   headers.set("Accept", "application/json");
@@ -275,6 +277,63 @@ export type Reservation = {
   adults: number;
   children: number;
   special_requests?: string;
+  import_session_id?: string | null;
+};
+
+export type SyncResult = {
+  imported: number;
+  events_emitted: number;
+  message: string;
+  import_session_id?: string | null;
+  rows_skipped?: number;
+};
+
+export type CsvRowIssue = {
+  line_number: number;
+  field?: string | null;
+  message: string;
+};
+
+export type CsvValidationReport = {
+  total_rows: number;
+  valid_count: number;
+  warning_count: number;
+  error_count: number;
+  warnings: CsvRowIssue[];
+  errors: CsvRowIssue[];
+};
+
+export type ImportSummary = {
+  import_session_id: string;
+  source: string;
+  status: string;
+  reservations_imported: number;
+  guests_created: number;
+  returning_guests: number;
+  birthdays_this_month: number;
+  reviews_scheduled: number;
+  upsell_opportunities: number;
+};
+
+export type ImportSessionListItem = {
+  id: string;
+  source: string;
+  status: string;
+  filename?: string | null;
+  initiated_by: string;
+  started_at: string;
+  completed_at?: string | null;
+  rows_total: number;
+  rows_imported: number;
+  rows_skipped: number;
+  rows_failed: number;
+};
+
+export type ImportSessionDetail = ImportSessionListItem & {
+  duration_ms?: number | null;
+  error_summary?: string | null;
+  warnings: CsvRowIssue[];
+  errors: CsvRowIssue[];
 };
 
 export type Message = {
@@ -588,6 +647,39 @@ export const api = {
     request<Reservation>("/api/reservations", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  validateCsv: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<CsvValidationReport>("/api/connectors/import-csv/validate", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importCsv: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<SyncResult>("/api/connectors/import-csv", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importSummary: (sessionId: string) =>
+    request<ImportSummary>(`/api/import-sessions/${sessionId}/summary`),
+  importSessions: (params?: { source?: string; status?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.source) q.set("source", params.source);
+    if (params?.status) q.set("status", params.status);
+    const qs = q.toString();
+    return request<ImportSessionListItem[]>(
+      `/api/import-sessions${qs ? `?${qs}` : ""}`
+    );
+  },
+  importSession: (sessionId: string) =>
+    request<ImportSessionDetail>(`/api/import-sessions/${sessionId}`),
+  requestEarlyAccess: (source: string) =>
+    request<{ ok: boolean }>(`/api/import-sources/${source}/early-access`, {
+      method: "POST",
     }),
   decide: (reservationId: string) =>
     request(`/api/reservations/${reservationId}/decide`, { method: "POST" }),

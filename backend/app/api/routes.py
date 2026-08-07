@@ -40,6 +40,8 @@ from app.models.entities import (
     Event,
     EventStatus,
     Guest,
+    ImportSession,
+    ImportSessionStatus,
     Message,
     MessageStatus,
     Notification,
@@ -62,10 +64,15 @@ from app.schemas import (
     ApprovalOut,
     AuditOut,
     ConnectorOut,
+    CsvRowIssue,
+    CsvValidationReport,
     DashboardStats,
     DecideResult,
     EventOut,
     GuestOut,
+    ImportSessionDetail,
+    ImportSessionListItem,
+    ImportSummaryOut,
     IntelligenceReport,
     IntelligenceTheme,
     LoginRequest,
@@ -103,6 +110,12 @@ from app.services.guest_intelligence import (
     list_opportunities,
 )
 from app.services.hotel_signup import ensure_trial_demo_data
+from app.services.import_orchestrator import (
+    build_import_summary,
+    finish_import_session,
+    import_reservation,
+    start_import_session,
+)
 from app.services.messaging import deliver_message, process_due_messages
 from app.services.state_machine import (
     APPROVAL_TRANSITIONS,
@@ -635,64 +648,23 @@ def create_reservation(
     db: Session = Depends(get_db),
 ) -> ReservationOut:
     property_ = _property_for_tenant(db, user.tenant_id)
-    guest = Guest(
+    session = start_import_session(
+        db,
         tenant_id=user.tenant_id,
-        property_id=property_.id,
-        name=payload.guest_name,
-        email=str(payload.guest_email) if payload.guest_email else None,
-        phone=payload.guest_phone,
-        country=payload.country,
-        language=payload.language,
-        travel_type=payload.travel_type,
-        purpose=payload.purpose,
-        children=payload.children,
-        communication_preference=payload.communication_preference,
-        stay_count=1,
-        lifetime_spend=payload.total_amount,
-        average_booking=payload.total_amount,
-        ltv_score=60.0,
-        satisfaction_score=70.0,
+        source="manual",
+        initiated_by=user.email,
+        rows_total=1,
     )
-    db.add(guest)
-    db.flush()
-    reservation = Reservation(
+    guest, reservation, _ = import_reservation(
+        db,
         tenant_id=user.tenant_id,
         property_id=property_.id,
-        guest_id=guest.id,
+        payload=payload,
         external_id=f"MAN-{uuid.uuid4()}",
-        source=payload.source,
-        status=ReservationStatus.confirmed,
-        room_type=payload.room_type,
-        check_in=payload.check_in,
-        check_out=payload.check_out,
-        adults=payload.adults,
-        children=payload.children,
-        total_amount=payload.total_amount,
-        currency=payload.currency.upper(),
-        special_requests=payload.special_requests,
+        event_source="api",
+        import_session=session,
     )
-    db.add(reservation)
-    db.flush()
-    event_bus.publish_and_process(
-        db,
-        user.tenant_id,
-        "GuestProfileCreated",
-        {"guest_id": guest.id, "property_id": property_.id},
-        source="api",
-        idempotency_key=f"GuestProfileCreated:{guest.id}",
-    )
-    event_bus.publish_and_process(
-        db,
-        user.tenant_id,
-        "ReservationCreated",
-        {
-            "reservation_id": reservation.id,
-            "guest_id": guest.id,
-            "property_id": property_.id,
-        },
-        source="api",
-        idempotency_key=f"ReservationCreated:{reservation.id}",
-    )
+    finish_import_session(db, session)
     db.commit()
     db.refresh(reservation)
     return _reservation_out(reservation, guest.name)
@@ -1346,8 +1318,8 @@ def sync_pms(user: ManagerUser, db: Session = Depends(get_db)) -> SyncResult:
     )
 
 
-def _csv_payload(row: dict[str, str | None], line_number: int) -> ReservationCreate:
-    raw = {
+def _csv_row_to_raw(row: dict[str, str | None]) -> dict[str, Any]:
+    return {
         "guest_name": (row.get("name") or "").strip(),
         "guest_email": (row.get("email") or "").strip() or None,
         "guest_phone": (row.get("phone") or "").strip() or None,
@@ -1366,24 +1338,84 @@ def _csv_payload(row: dict[str, str | None], line_number: int) -> ReservationCre
         "special_requests": (row.get("special_requests") or "").strip() or None,
         "communication_preference": (row.get("channel") or "email").strip().lower(),
     }
+
+
+def _validate_csv_row(
+    row: dict[str, str | None], line_number: int
+) -> tuple[ReservationCreate | None, list[CsvRowIssue], list[CsvRowIssue]]:
+    """Validate one CSV row without raising.
+
+    Returns (payload, warnings, errors). payload is None when the row has
+    errors and cannot be imported — the caller decides whether to skip it
+    or block the whole file, rather than this function deciding for them.
+    """
+    raw = _csv_row_to_raw(row)
+    warnings: list[CsvRowIssue] = []
+    if not raw["guest_email"]:
+        warnings.append(
+            CsvRowIssue(
+                line_number=line_number,
+                field="email",
+                message="No email — this guest can't be matched on repeat visits",
+            )
+        )
+    if not raw["guest_phone"]:
+        warnings.append(
+            CsvRowIssue(line_number=line_number, field="phone", message="No phone number")
+        )
     try:
-        return ReservationCreate.model_validate(raw)
+        payload = ReservationCreate.model_validate(raw)
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": f"Invalid CSV row {line_number}",
-                "errors": exc.errors(),
-            },
-        ) from exc
+        errors = [
+            CsvRowIssue(
+                line_number=line_number,
+                field=str(err["loc"][-1]) if err.get("loc") else None,
+                message=err["msg"],
+            )
+            for err in exc.errors()
+        ]
+        return None, warnings, errors
+    return payload, warnings, []
 
 
-@router.post("/connectors/import-csv", response_model=SyncResult)
-async def import_csv(
-    user: ManagerUser,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-) -> SyncResult:
+def _validate_csv_rows(
+    raw_rows: list[dict[str, str | None]],
+) -> tuple[list[tuple[int, ReservationCreate]], list[CsvRowIssue], list[CsvRowIssue]]:
+    """Validate every row in a parsed CSV. Returns (valid rows with their
+    line numbers, all warnings, all errors) — never raises. Also flags
+    emails that repeat across multiple rows in the same file.
+    """
+    valid: list[tuple[int, ReservationCreate]] = []
+    warnings: list[CsvRowIssue] = []
+    errors: list[CsvRowIssue] = []
+    email_lines: dict[str, list[int]] = {}
+    for line_number, row in enumerate(raw_rows, start=2):
+        payload, row_warnings, row_errors = _validate_csv_row(row, line_number)
+        warnings.extend(row_warnings)
+        errors.extend(row_errors)
+        if payload is not None:
+            valid.append((line_number, payload))
+            if payload.guest_email:
+                email_lines.setdefault(str(payload.guest_email).lower(), []).append(
+                    line_number
+                )
+    for email, lines in email_lines.items():
+        if len(lines) > 1:
+            warnings.append(
+                CsvRowIssue(
+                    line_number=lines[0],
+                    field="email",
+                    message=(
+                        f"{email} appears on {len(lines)} rows (lines "
+                        f"{', '.join(map(str, lines))}) — will be treated as one "
+                        "returning guest"
+                    ),
+                )
+            )
+    return valid, warnings, errors
+
+
+async def _read_csv_rows(file: UploadFile) -> list[dict[str, str | None]]:
     content = await file.read(settings.csv_max_bytes + 1)
     if len(content) > settings.csv_max_bytes:
         raise HTTPException(
@@ -1416,94 +1448,198 @@ async def import_csv(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="CSV contains no data rows",
         )
-    payloads = [
-        _csv_payload(row, line_number)
-        for line_number, row in enumerate(raw_rows, start=2)
-    ]
+    return raw_rows
+
+
+@router.post("/connectors/import-csv/validate", response_model=CsvValidationReport)
+async def validate_csv(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+) -> CsvValidationReport:
+    """Read-only: validates every row, writes nothing to the database.
+    Powers the Import flow's Validate step so hotels see problems before
+    anything is imported, instead of finding out mid-import.
+    """
+    raw_rows = await _read_csv_rows(file)
+    valid, warnings, errors = _validate_csv_rows(raw_rows)
+    return CsvValidationReport(
+        total_rows=len(raw_rows),
+        valid_count=len(valid),
+        warning_count=len({w.line_number for w in warnings}),
+        error_count=len({e.line_number for e in errors}),
+        warnings=warnings,
+        errors=errors,
+    )
+
+
+@router.post("/connectors/import-csv", response_model=SyncResult)
+async def import_csv(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> SyncResult:
+    raw_rows = await _read_csv_rows(file)
+    valid, warnings, errors = _validate_csv_rows(raw_rows)
     property_ = _property_for_tenant(db, user.tenant_id)
-    imported = 0
-    emitted = 0
-    for payload in payloads:
-        guest = None
-        if payload.guest_email:
-            guest = (
-                db.query(Guest)
-                .filter(
-                    Guest.tenant_id == user.tenant_id,
-                    func.lower(Guest.email) == str(payload.guest_email).lower(),
-                )
-                .first()
-            )
-        if guest is None:
-            guest = Guest(
-                tenant_id=user.tenant_id,
-                property_id=property_.id,
-                name=payload.guest_name,
-                email=str(payload.guest_email) if payload.guest_email else None,
-                phone=payload.guest_phone,
-                country=payload.country,
-                language=payload.language,
-                travel_type=payload.travel_type,
-                purpose=payload.purpose,
-                children=payload.children,
-                communication_preference=payload.communication_preference,
-                stay_count=1,
-                lifetime_spend=payload.total_amount,
-                average_booking=payload.total_amount,
-                ltv_score=50,
-                satisfaction_score=70,
-            )
-            db.add(guest)
-            db.flush()
-        else:
-            previous_stays = guest.stay_count
-            guest.name = payload.guest_name
-            guest.phone = payload.guest_phone or guest.phone
-            guest.country = payload.country or guest.country
-            guest.language = payload.language
-            guest.travel_type = payload.travel_type
-            guest.communication_preference = payload.communication_preference
-            guest.stay_count = previous_stays + 1
-            guest.lifetime_spend = float(guest.lifetime_spend) + payload.total_amount
-            guest.average_booking = float(guest.lifetime_spend) / guest.stay_count
-        reservation = Reservation(
+    session = start_import_session(
+        db,
+        tenant_id=user.tenant_id,
+        source="csv",
+        initiated_by=user.email,
+        rows_total=len(raw_rows),
+        filename=file.filename,
+    )
+    for _line_number, payload in valid:
+        import_reservation(
+            db,
             tenant_id=user.tenant_id,
             property_id=property_.id,
-            guest_id=guest.id,
+            payload=payload,
             external_id=f"CSV-{uuid.uuid4()}",
-            source="csv",
-            status=ReservationStatus.confirmed,
-            room_type=payload.room_type,
-            check_in=payload.check_in,
-            check_out=payload.check_out,
-            adults=payload.adults,
-            children=payload.children,
-            total_amount=payload.total_amount,
-            currency=payload.currency.upper(),
-            special_requests=payload.special_requests,
+            event_source="csv",
+            import_session=session,
         )
-        db.add(reservation)
-        db.flush()
-        event_bus.publish_and_process(
-            db,
-            user.tenant_id,
-            "ReservationCreated",
+    error_lines = sorted({issue.line_number for issue in errors})
+    session.rows_skipped = len(error_lines)
+    if error_lines:
+        session.error_summary = (
+            f"Skipped {len(error_lines)} row(s) with validation errors: "
+            f"lines {', '.join(map(str, error_lines))}"
+        )
+    if warnings or errors:
+        session.validation_issues = json.dumps(
             {
-                "reservation_id": reservation.id,
-                "guest_id": guest.id,
-                "property_id": property_.id,
-            },
-            source="csv",
-            idempotency_key=f"ReservationCreated:csv:{reservation.external_id}",
+                "warnings": [w.model_dump() for w in warnings],
+                "errors": [e.model_dump() for e in errors],
+            }
         )
-        imported += 1
-        emitted += 1
+    finish_import_session(db, session)
+    imported = session.rows_imported
+    emitted = imported
     db.commit()
     return SyncResult(
         imported=imported,
         events_emitted=emitted,
-        message=f"Imported {imported} rows from CSV",
+        import_session_id=session.id,
+        rows_skipped=session.rows_skipped,
+        message=(
+            f"Imported {imported} rows from CSV"
+            + (
+                f", skipped {session.rows_skipped} with errors"
+                if session.rows_skipped
+                else ""
+            )
+        ),
     )
+
+
+@router.get("/import-sessions", response_model=list[ImportSessionListItem])
+def list_import_sessions(
+    user: AuthUser,
+    source: str | None = Query(default=None),
+    session_status: str | None = Query(default=None, alias="status"),
+    skip: PageSkip = 0,
+    limit: PageLimit = 100,
+    db: Session = Depends(get_db),
+) -> list[ImportSession]:
+    query = db.query(ImportSession).filter(ImportSession.tenant_id == user.tenant_id)
+    if source:
+        query = query.filter(ImportSession.source == source)
+    if session_status:
+        try:
+            normalized_status = ImportSessionStatus(session_status)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid import session status",
+            ) from exc
+        query = query.filter(ImportSession.status == normalized_status)
+    return (
+        query.order_by(ImportSession.started_at.desc()).offset(skip).limit(limit).all()
+    )
+
+
+@router.get("/import-sessions/{session_id}", response_model=ImportSessionDetail)
+def get_import_session(
+    session_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> ImportSessionDetail:
+    session = get_tenant_entity(
+        db, ImportSession, session_id, user.tenant_id, not_found="Import session not found"
+    )
+    duration_ms: int | None = None
+    if session.completed_at:
+        duration_ms = int(
+            (session.completed_at - session.started_at).total_seconds() * 1000
+        )
+    warnings: list[CsvRowIssue] = []
+    errors: list[CsvRowIssue] = []
+    if session.validation_issues:
+        try:
+            parsed = json.loads(session.validation_issues)
+            warnings = [CsvRowIssue.model_validate(w) for w in parsed.get("warnings", [])]
+            errors = [CsvRowIssue.model_validate(e) for e in parsed.get("errors", [])]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return ImportSessionDetail(
+        id=session.id,
+        source=session.source,
+        status=session.status.value,
+        filename=session.filename,
+        initiated_by=session.initiated_by,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+        rows_total=session.rows_total,
+        rows_imported=session.rows_imported,
+        rows_skipped=session.rows_skipped,
+        rows_failed=session.rows_failed,
+        duration_ms=duration_ms,
+        error_summary=session.error_summary,
+        warnings=warnings,
+        errors=errors,
+    )
+
+
+@router.get("/import-sessions/{session_id}/summary", response_model=ImportSummaryOut)
+def get_import_summary(
+    session_id: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> ImportSummaryOut:
+    session = get_tenant_entity(
+        db, ImportSession, session_id, user.tenant_id, not_found="Import session not found"
+    )
+    summary = build_import_summary(db, session)
+    return ImportSummaryOut(
+        import_session_id=session.id,
+        source=session.source,
+        status=session.status.value,
+        **summary,
+    )
+
+
+@router.post("/import-sources/{source}/early-access")
+def request_early_access(
+    source: str,
+    user: StaffUser,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    """Records interest in a not-yet-built import source (PDF, email, PMS
+    connectors) so demand can be measured later via the audit log — no new
+    table, reuses the existing AuditLog exactly like every other action.
+    """
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="early_access_request",
+        entity_type="import_source",
+        entity_id=source,
+        details={"source": source},
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/workers/tick", response_model=WorkerResult)
