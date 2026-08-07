@@ -239,7 +239,6 @@ class PropertyService(Base):
     """
 
     __tablename__ = "property_services"
-    __table_args__ = (Index("ix_property_services_property_id", "property_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -270,7 +269,6 @@ class PropertyPackage(Base):
     """
 
     __tablename__ = "property_packages"
-    __table_args__ = (Index("ix_property_packages_property_id", "property_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
