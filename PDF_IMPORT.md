@@ -225,26 +225,47 @@ before PDF's `validate()`/`preview()` are written against it.
 ## 10. Explicitly out of scope for v1
 
 - Multi-provider AI fallback (§8)
-- OCR quality tuning beyond "does it produce usable text" (§3)
+- Real OCR implementation. v1 detects "no text layer" and routes those
+  PDFs straight to **Needs Review** with a message pointing at Manual
+  Entry, instead of silently pretending OCR exists. Tesseract needs a
+  system binary this environment can't verify end-to-end; shipping a
+  fake OCR path would be worse than being honest that it isn't built
+  yet. Tracked as its own fast-follow once real scanned samples exist
+  to test against.
 - Learning per-hotel PDF templates over time (mentioned as a future
   win in §2's "Direct booking" row, not a v1 requirement)
 - Retry-failed-rows UI (tracked separately, task #28 area) — PDF rows
   that fail import for a real system reason behave like any other
   `rows_failed` case already defined by the Import Foundation
+- Migrating CSV's existing functions into a formal `Importer`-conforming
+  class. The Protocol (§9) is defined now and `PdfImporter` implements
+  it from day one, but CSV's working, CI-verified functions aren't
+  being refactored into the same shape in this pass — repackaging
+  working code without being able to run the test suite live is a risk
+  not worth taking in the same change that ships new functionality.
+  Tracked as its own follow-up (task #37 stays open for that half).
 
-## 11. Open questions before implementation starts
+## 11. Decisions (resolved)
 
-1. Where does `external_id` come from for PDF-derived reservations, for
-   idempotent re-upload detection (§6)? CSV generates a random UUID per
-   upload; PDF needs something derived from the document's own
-   confirmation number, which means the extraction schema (§5) needs a
-   `confirmation_number` field even though `ReservationCreate` doesn't
-   currently have anywhere to put it as a first-class field. Needs a
-   decision, not an assumption.
-2. PDF text extraction library choice (pdfplumber vs. pypdf vs.
-   something else) — needs a quick spike against real sample PDFs from
-   the five sources in §2, not a decision made in the abstract.
-3. Where do uploaded PDFs live after processing — kept for audit/
-   reprocessing, or discarded once extraction completes? Affects
-   storage cost and whether "Download the original PDF" is possible
-   from the future Import Details page.
+1. **`external_id` / duplicate detection**: hash of the extracted
+   confirmation number (`external_id = sha256(f"{source}:{confirmation_number}")`,
+   truncated to fit the column). The AI Parser's extraction schema (§5)
+   includes `confirmation_number` as a first-class field for exactly
+   this reason. If the parser can't find one, the row is **Needs
+   Review** rather than silently getting a random ID — an unidentified
+   booking is exactly the kind of thing a human should look at once,
+   not something the system should guess an identity for.
+2. **Text extraction library**: `pdfplumber`, as the default starting
+   choice — no real sample PDFs from the five §2 sources were available
+   to spike against, so this is a reasoned default (handles both prose
+   text and tabular layouts, actively maintained) rather than the
+   "quick spike" this section originally called for. Revisit once real
+   hotel-submitted PDFs start arriving from pilots — that's the actual
+   spike data this decision needed.
+3. **PDF retention**: discard the original file after extraction
+   completes. Only the extracted, validated data persists (same
+   pattern CSV already uses — the uploaded file itself is never
+   stored, only what was parsed from it). No new storage
+   infrastructure, no ongoing guest-PII-in-a-file exposure. "Download
+   original PDF" from Import Details is explicitly not possible as a
+   result — accepted tradeoff.
