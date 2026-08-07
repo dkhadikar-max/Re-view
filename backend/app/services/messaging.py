@@ -187,16 +187,8 @@ def ingest_inbound_whatsapp(
     try:
         context = ContextBuilder(db).build(tenant_id=tenant_id, guest_id=guest.id)
         decision = evaluate_escalation(body, context)
-        if decision.needs_human:
-            escalate_to_staff(
-                db,
-                tenant_id=tenant_id,
-                guest_id=guest.id,
-                guest_name=guest.name,
-                message_body=body,
-                decision=decision,
-            )
-            db.flush()
+        if decision.escalate:
+            escalate_to_staff(db, context=context, message_body=body, decision=decision)
     except ContextBuilderError:
         # A guest with a phone match but no resolvable Property (data
         # inconsistency) shouldn't block the inbound message itself from

@@ -3,22 +3,32 @@
     WhatsApp Webhook -> Tenant Routing -> Context Builder ->
     Escalation Filter -> FAQ Agent (not yet built)
 
-A binary gate, checked BEFORE any AI-generated reply exists: does this
-message need a human, or can it proceed toward an answer? Per explicit
-direction, v1 is deterministic (rule-based pattern matching), not an
-LLM call — same "don't call a model for what a regex can answer for
-free" discipline as everywhere else in this app, and a safety gate is
-exactly the kind of decision that should be auditable and predictable,
-not probabilistic.
+`evaluate_escalation()` is the filter itself: one pure function, no
+database access, no state, no AI call. It does exactly one thing —
 
-"No AI. Ever." on the escalated path means exactly that: escalating
-creates a Task for staff and the pipeline stops there. No agent runs,
-no reply is generated, until a human has responded. Since the FAQ Agent
-itself doesn't exist yet (that's the next step after this one), a
-message that clears this gate today simply doesn't get an automated
-reply yet either — this PR's deliverable is that unsafe/out-of-scope
-messages get flagged to staff starting now, not that safe ones get
-answered starting now.
+    Message + ConciergeContext -> EscalationDecision
+
+— and nothing else. It doesn't generate an AI reply, doesn't do FAQ
+lookup, doesn't modify the Context it was given (which is frozen and
+couldn't be modified even if something tried), and doesn't write
+anything to the database. `escalate_to_staff()` is a **separate**
+function for the side effect that happens *after* a decision says
+`escalate=True` — creating the staff Task and the audit trail. Keeping
+these two functions separate, not one function that decides-and-acts,
+is what keeps `evaluate_escalation()` trivially testable and reusable
+(the Conversation Manager, once it exists, calls the same pure decision
+function without needing a database at all).
+
+Per explicit direction, v1 is fully deterministic (regex pattern
+matching), not an LLM call — same "don't call a model for what a regex
+can answer for free" discipline as everywhere else in this app, and a
+safety gate is exactly the kind of decision that should be auditable
+and predictable, not probabilistic.
+
+Stateless by design: no conversation history is read or required here.
+Whether the *same* topic was already asked and answered five messages
+ago is the Conversation Manager's job, not this filter's — evaluate()
+only ever looks at the current message and the current Context.
 """
 
 from __future__ import annotations
@@ -31,6 +41,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.models.entities import Task, TaskPriority, TaskStatus
+from app.services.audit import write_audit
 from app.services.context_builder import ConciergeContext
 
 
@@ -41,9 +52,12 @@ class EscalationCategory(str, Enum):
     complaint = "complaint"
     refund_billing = "refund_billing"
     threat_abuse_harassment = "threat_abuse_harassment"
+    # Not in the original 7-category list — kept because "let me speak
+    # to someone" is a distinct, high-confidence signal worth its own
+    # category rather than folding into complaint/outside_knowledge_base
+    # and losing that specificity in the staff queue and audit log.
     human_requested = "human_requested"
     outside_knowledge_base = "outside_knowledge_base"
-    none = "none"
 
 
 # The four categories where "escalated late" is qualitatively worse than
@@ -59,12 +73,18 @@ _CRITICAL_CATEGORIES = {
 # Order matters: checked top to bottom, first match wins. Safety-critical
 # categories are listed first so a message that could plausibly match
 # more than one pattern is never mis-triaged toward the less urgent one.
-_ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
+# Confidence is fixed per category, not computed — these are regex
+# matches, not model scores; the number exists so logging/tuning has
+# something to look at (§8's "internal only", never surfaced to a
+# guest or hotel), not because a match is more or less "sure" than
+# another match of the same kind.
+_ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]", float]] = [
     (
         EscalationCategory.emergency,
         re.compile(
             r"\b(emergency|ambulance|call\s*911|dying|can'?t breathe)\b", re.IGNORECASE
         ),
+        0.95,
     ),
     (
         EscalationCategory.medical,
@@ -73,6 +93,7 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
             r"bleed\w*|chest pain|seizure|diabetic|asthma attack)\b",
             re.IGNORECASE,
         ),
+        0.9,
     ),
     (
         EscalationCategory.safety,
@@ -81,6 +102,7 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
             r"suspicious person)\b",
             re.IGNORECASE,
         ),
+        0.9,
     ),
     (
         EscalationCategory.threat_abuse_harassment,
@@ -89,6 +111,7 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
             r"racist|discriminat\w*)\b",
             re.IGNORECASE,
         ),
+        0.9,
     ),
     (
         EscalationCategory.refund_billing,
@@ -97,6 +120,7 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
             r"charged (twice|wrong)|dispute\w* (charge|payment))\b",
             re.IGNORECASE,
         ),
+        0.85,
     ),
     (
         EscalationCategory.complaint,
@@ -105,6 +129,7 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
             r"dirty room|not clean|broken|not working|too (loud|noisy))\b",
             re.IGNORECASE,
         ),
+        0.75,
     ),
     (
         EscalationCategory.human_requested,
@@ -114,16 +139,17 @@ _ESCALATION_PATTERNS: list[tuple[EscalationCategory, "re.Pattern[str]"]] = [
             r"customer service)\b",
             re.IGNORECASE,
         ),
+        0.95,
     ),
 ]
 
 # Recognized Knowledge Base topics and the keywords that indicate a
 # guest is asking about one. Used only for the "outside_knowledge_base"
 # category below: a recognized topic with an EMPTY field still
-# escalates (can't answer, won't guess — same convention as the FAQ
-# Agent will use once it exists); no topic match at all also escalates,
-# per CONCIERGE.md §0 ("when in doubt, escalate") and because there's no
-# FAQ Agent yet to hand an unrecognized message to regardless.
+# escalates (can't answer, won't guess — same convention the FAQ Agent
+# will use once it exists); no topic match at all also escalates, per
+# CONCIERGE.md §0 ("when in doubt, escalate") and because there's no FAQ
+# Agent yet to hand an unrecognized message to regardless.
 _KNOWLEDGE_BASE_TOPICS: dict[str, "re.Pattern[str]"] = {
     "wifi_password": re.compile(
         r"\b(wifi|wi-fi|internet password|network password)\b", re.IGNORECASE
@@ -153,23 +179,31 @@ _KNOWLEDGE_BASE_TOPICS: dict[str, "re.Pattern[str]"] = {
 class EscalationDecision(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    needs_human: bool
-    category: EscalationCategory
+    escalate: bool
+    category: Optional[EscalationCategory] = None
     reason: str
+    # Internal only (CONCIERGE.md §8) — never surfaced to a guest or
+    # hotel, same "no raw confidence number" convention as everywhere
+    # else in this app. Exists for logging/tuning once real pilot
+    # conversations show what's actually being missed.
+    confidence: float
 
 
 def evaluate_escalation(message_body: str, context: ConciergeContext) -> EscalationDecision:
-    """The binary gate. Deterministic — never calls an LLM (see module
-    docstring). `context` is only consulted for the Knowledge Base check;
-    the hard-trigger categories don't need it at all."""
+    """The filter. Pure — no database access, no state, no AI call, no
+    mutation of `context` (which is frozen regardless). See module
+    docstring for why the database-writing half lives in a separate
+    function.
+    """
     text = message_body or ""
 
-    for category, pattern in _ESCALATION_PATTERNS:
+    for category, pattern, confidence in _ESCALATION_PATTERNS:
         if pattern.search(text):
             return EscalationDecision(
-                needs_human=True,
+                escalate=True,
                 category=category,
                 reason=f"Matched {category.value} pattern",
+                confidence=confidence,
             )
 
     matched_field: Optional[str] = None
@@ -183,57 +217,79 @@ def evaluate_escalation(message_body: str, context: ConciergeContext) -> Escalat
         field_value = getattr(kb, matched_field, None) if kb else None
         if field_value:
             return EscalationDecision(
-                needs_human=False,
-                category=EscalationCategory.none,
+                escalate=False,
+                category=None,
                 reason=(
                     f"Recognized knowledge-base topic '{matched_field}' with an "
                     "answer available"
                 ),
+                confidence=0.8,
             )
         return EscalationDecision(
-            needs_human=True,
+            escalate=True,
             category=EscalationCategory.outside_knowledge_base,
             reason=(
                 f"Recognized topic '{matched_field}' but the property's knowledge "
                 "base has no answer for it"
             ),
+            confidence=0.7,
         )
 
     return EscalationDecision(
-        needs_human=True,
+        escalate=True,
         category=EscalationCategory.outside_knowledge_base,
         reason="Message didn't match any recognized knowledge-base topic",
+        # Lower confidence than an actual keyword match — this is the
+        # "when in doubt" default-safe branch (§0), not a positive
+        # signal of anything in particular.
+        confidence=0.4,
     )
 
 
 def escalate_to_staff(
     db: Session,
     *,
-    tenant_id: str,
-    guest_id: str,
-    guest_name: str,
+    context: ConciergeContext,
     message_body: str,
     decision: EscalationDecision,
 ) -> Task:
-    """Creates the staff-queue item. Reuses the existing `Task` model —
-    the same one Approvals-adjacent staff work already uses — rather
-    than inventing a parallel "concierge inbox" table for something that
-    is, at its core, a task someone needs to act on.
+    """The side effect half. Creates the staff-queue Task (reusing the
+    existing `Task` model — the same one Approvals-adjacent staff work
+    already uses — rather than a parallel "concierge inbox" table) and
+    an audit log entry recording tenant_id, guest_id, reservation_id (if
+    present), category, the triggering text, and a timestamp — pilot
+    data for refining the rules, per the same review that asked for it.
     """
+    assert decision.category is not None  # only called when escalate=True
     priority = (
         TaskPriority.critical
         if decision.category in _CRITICAL_CATEGORIES
         else TaskPriority.high
     )
     task = Task(
-        tenant_id=tenant_id,
-        title=f"WhatsApp escalation ({decision.category.value}): {guest_name}",
+        tenant_id=context.tenant_id,
+        title=f"WhatsApp escalation ({decision.category.value}): {context.guest.name}",
         description=f'Guest message: "{message_body}"\n\nEscalation reason: {decision.reason}',
         status=TaskStatus.open,
         priority=priority,
         related_type="guest",
-        related_id=guest_id,
+        related_id=context.guest.id,
     )
     db.add(task)
     db.flush()
+
+    write_audit(
+        db,
+        tenant_id=context.tenant_id,
+        actor="escalation_filter",
+        action="escalate",
+        entity_type="guest",
+        entity_id=context.guest.id,
+        details={
+            "category": decision.category.value,
+            "reservation_id": context.reservation.id if context.reservation else None,
+            "triggering_text": message_body,
+            "task_id": task.id,
+        },
+    )
     return task
