@@ -31,6 +31,8 @@ from app.models.entities import (
     Offer,
     Property,
     PropertyKnowledgeBase,
+    PropertyPackage,
+    PropertyService,
     Reservation,
     ReservationStatus,
     Workflow,
@@ -168,6 +170,36 @@ class AutomationContext(BaseModel):
     trigger_event: str
 
 
+class ServiceContext(BaseModel):
+    """One hotel-configured, bookable service — the Revenue Agent's
+    source of truth. A service_type with no matching row here simply
+    doesn't exist for this property; the Revenue Agent must never
+    recommend one that isn't in this list."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    service_type: str
+    name: str
+    description: Optional[str] = None
+    price: Optional[float] = None
+    currency: str
+    complimentary: bool
+    available: bool
+
+
+class PackageContext(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    occasions: list[str] = []
+    price: Optional[float] = None
+    currency: str
+    available: bool
+
+
 class ChannelMetadata(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -192,6 +224,8 @@ class ConciergeContext(BaseModel):
     knowledge_base: Optional[KnowledgeBaseContext] = None
     current_time: datetime
     available_automations: list[AutomationContext] = []
+    services: list[ServiceContext] = []
+    packages: list[PackageContext] = []
     channel: ChannelMetadata
 
 
@@ -321,6 +355,8 @@ class ContextBuilder:
         )
         previous_offers = self._load_previous_offers(tenant_id=tenant_id, guest_id=guest_id)
         automations = self._load_available_automations(tenant_id)
+        services = self._load_services(property_.id, tenant_id)
+        packages = self._load_packages(property_.id, tenant_id)
 
         return ConciergeContext(
             tenant_id=tenant_id,
@@ -356,6 +392,8 @@ class ContextBuilder:
             knowledge_base=knowledge_base,
             current_time=datetime.utcnow(),
             available_automations=automations,
+            services=services,
+            packages=packages,
             channel=ChannelMetadata(
                 channel="whatsapp",
                 phone_number_id=property_.whatsapp_phone_number_id,
@@ -513,4 +551,63 @@ class ContextBuilder:
         return [
             AutomationContext(id=w.id, name=w.name, trigger_event=w.trigger_event)
             for w in workflows
+        ]
+
+    def _load_services(self, property_id: str, tenant_id: str) -> list[ServiceContext]:
+        """The Revenue Agent's source of truth (CONCIERGE.md §5.3): the
+        hotel's own configured services, nothing invented. Includes
+        unavailable rows too — the agent needs to see "configured but
+        unavailable" to escalate, distinct from "never configured at all".
+        """
+        services = (
+            self.db.query(PropertyService)
+            .filter(
+                PropertyService.property_id == property_id,
+                PropertyService.tenant_id == tenant_id,
+            )
+            .all()
+        )
+        return [
+            ServiceContext(
+                id=s.id,
+                service_type=s.service_type,
+                name=s.name,
+                description=s.description,
+                price=float(s.price) if s.price is not None else None,
+                currency=s.currency,
+                complimentary=s.complimentary,
+                available=s.available,
+            )
+            for s in services
+        ]
+
+    def _load_packages(self, property_id: str, tenant_id: str) -> list[PackageContext]:
+        """Occasion-triggered bundles (Romance Package, Celebration
+        Package) configured by the hotel. `occasions` is stored as a
+        comma-separated string; parsed here into a clean list so agents
+        never have to know the storage format.
+        """
+        packages = (
+            self.db.query(PropertyPackage)
+            .filter(
+                PropertyPackage.property_id == property_id,
+                PropertyPackage.tenant_id == tenant_id,
+            )
+            .all()
+        )
+        return [
+            PackageContext(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                occasions=[
+                    occasion.strip()
+                    for occasion in (p.occasions or "").split(",")
+                    if occasion.strip()
+                ],
+                price=float(p.price) if p.price is not None else None,
+                currency=p.currency,
+                available=p.available,
+            )
+            for p in packages
         ]

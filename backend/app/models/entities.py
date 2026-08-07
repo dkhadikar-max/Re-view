@@ -212,6 +212,83 @@ class PropertyKnowledgeBase(Base):
     property: Mapped[Property] = relationship(back_populates="knowledge_base")
 
 
+class PropertyService(Base):
+    """A hotel-configured, bookable service — the source of truth the
+    Revenue Agent recommends from. `service_type` is a plain string, not
+    a hard enum: the well-known identifiers (late_checkout, early_checkin,
+    breakfast, dinner, room_service, laundry, spa, airport_transfer,
+    parking, kids_activities, tours, gym, cab_booking) are what the
+    Revenue Agent's own trigger patterns (`revenue_agent.py`) key off
+    of, but "any service configured by the hotel" (per spec) means a
+    hotel can also add a custom one — it's still reachable via a
+    literal name-mention fallback, it just won't be recognized from
+    action-oriented free-text phrasing without a matching fixed
+    pattern, the same honest limitation PDF_IMPORT.md's heuristic
+    parser already documents for its own closed vocabulary.
+
+    `room_service` is shared vocabulary with the Ordering Agent
+    (`ordering_agent.py`, MENU_ORDERING.md): Revenue Agent quotes/books
+    it as a paid extra when explicitly asked in a booking sense ("can I
+    order room service"), Ordering Agent hands off to it as the active
+    food-ordering channel when the guest is hungry — the Router
+    priority order (Ordering before Revenue) is what resolves which one
+    actually answers a given message; this table doesn't need to care.
+    `breakfast`/`dinner` here are bookable add-on packages, distinct
+    from actively ordering food off a menu (still MENU_ORDERING.md's
+    frozen, not-yet-built `MenuItem` domain).
+    """
+
+    __tablename__ = "property_services"
+    __table_args__ = (Index("ix_property_services_property_id", "property_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"), index=True)
+
+    service_type: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
+    complimentary: Mapped[bool] = mapped_column(Boolean, default=False)
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class PropertyPackage(Base):
+    """A hotel-configured, occasion-triggered bundle (Romance Package,
+    Celebration Package). `occasions` is a comma-separated list of
+    trigger keywords (e.g. "anniversary,honeymoon") — a plain string,
+    not a join table, matching this app's convention of keeping simple
+    list-like fields as text (same pattern PropertyKnowledgeBase's
+    restaurants/attractions fields already use) rather than
+    over-normalizing a small, hotel-curated list.
+    """
+
+    __tablename__ = "property_packages"
+    __table_args__ = (Index("ix_property_packages_property_id", "property_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"), index=True)
+
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    occasions: Mapped[str] = mapped_column(String(255), default="")
+    price: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class Guest(Base):
     __tablename__ = "guests"
     __table_args__ = (
