@@ -61,7 +61,7 @@ export default function HotelSignupPage() {
           </p>
           <h1 className="mt-2 font-display text-3xl">Your hotel is ready</h1>
           <p className="mt-3 text-sm text-ink-300">
-            Opening Operations — explore Guest Intelligence, approvals, and revenue.
+            Opening Dashboard — explore Guests, approvals, and revenue.
           </p>
         </div>
       </div>
@@ -80,7 +80,7 @@ export default function HotelSignupPage() {
           </h1>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-600">
             {REVISIT.tagline}. Create a trial workspace — Living Guest
-            Intelligence, Celebrate Rewards, and AI-assisted approvals.
+            Intelligence, Celebrate Rewards, and approvals.
           </p>
           <ol className="mt-6 space-y-2 rounded-2xl border border-ink-200/60 bg-white/60 p-4 text-sm text-ink-700">
             {REVISIT.celebrateLoop.map((step, i) => (

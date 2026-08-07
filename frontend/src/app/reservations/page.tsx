@@ -69,7 +69,7 @@ export default function ReservationsPage() {
     <div>
       <TopBar
         title="Reservations"
-        subtitle="Every reservation is an event — AI decides the next best action."
+        subtitle="Every reservation automatically starts the guest journey."
         action={
           <Button onClick={() => setShowForm((v) => !v)}>
             {showForm ? "Cancel" : "New reservation"}
@@ -109,7 +109,7 @@ export default function ReservationsPage() {
           ))}
           <div className="sm:col-span-2 lg:col-span-4">
             <Button type="submit" disabled={busy === "create"}>
-              Create &amp; trigger AI
+              Create reservation
             </Button>
           </div>
         </form>
@@ -158,7 +158,7 @@ export default function ReservationsPage() {
                           disabled={busy === r.id}
                           onClick={() => runDecide(r.id)}
                         >
-                          AI decide
+                          Generate recommendation
                         </Button>
                         {r.status !== "checked_out" &&
                           r.status !== "cancelled" && (

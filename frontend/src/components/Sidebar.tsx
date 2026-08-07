@@ -25,16 +25,15 @@ import { setToken, type User } from "@/lib/api";
 import { ARGUS, REVISIT } from "@/lib/brand";
 
 const nav = [
-  { href: "/", label: "Operations", icon: LayoutDashboard },
-  { href: "/analytics", label: "Sales Analytics", icon: TrendingUp },
-  { href: "/guests", label: "Guest Intelligence", icon: Users },
-  { href: "/celebrate", label: "Celebrate Rewards", icon: Gift },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/guests", label: "Guests", icon: Users },
   { href: "/reservations", label: "Reservations", icon: CalendarDays },
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/reviews", label: "Reviews", icon: Star },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
   { href: "/revenue", label: "Revenue", icon: TrendingUp },
-  { href: "/intelligence", label: "Intelligence", icon: Sparkles },
+  { href: "/intelligence", label: "Insights", icon: Sparkles },
+  { href: "/celebrate", label: "Rewards", icon: Gift },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

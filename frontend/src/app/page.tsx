@@ -23,6 +23,7 @@ export default function OperationsPage() {
   const currency = useWorkspaceCurrency();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [roi, setRoi] = useState<ROIMetrics | null>(null);
+  const [guestSatisfaction, setGuestSatisfaction] = useState<number | null>(null);
   const [arrivals, setArrivals] = useState<Reservation[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -52,6 +53,13 @@ export default function OperationsPage() {
       setReviews(r.filter((x) => x.rating <= 2 && !x.responded).slice(0, 3));
       setTasks(t.filter((x) => x.status === "open").slice(0, 4));
 
+      // Guest satisfaction is additive — never block the page if it's slow/missing
+      try {
+        setGuestSatisfaction((await api.salesAnalytics(30)).guest_satisfaction);
+      } catch {
+        setGuestSatisfaction(null);
+      }
+
       // ROI is additive — never block the page if the endpoint is missing/old
       try {
         setRoi(await api.roiMetrics(30));
@@ -73,7 +81,7 @@ export default function OperationsPage() {
           celebrate_unlocked: 0,
           currency: s.currency || currency,
           narrative:
-            "AI-assisted guest revenue in motion — approvals, reviews, and upsells for your property.",
+            "Guest revenue in motion — approvals, reviews, and upsells for your property.",
           generated_at: new Date().toISOString(),
         });
       }
@@ -138,7 +146,7 @@ export default function OperationsPage() {
     celebrate_unlocked: 0,
     currency: stats.currency || currency,
     narrative:
-      "AI-assisted guest revenue in motion — approvals, reviews, and upsells for your property.",
+      "Guest revenue in motion — approvals, reviews, and upsells for your property.",
     generated_at: new Date().toISOString(),
   };
 
@@ -149,7 +157,7 @@ export default function OperationsPage() {
   return (
     <div>
       <TopBar
-        title="Operations"
+        title="Dashboard"
         subtitle={`${REVISIT.tagline} — outcomes first, then what needs attention today.`}
         action={
           <Button onClick={handleSync} disabled={syncing} variant="secondary">
@@ -203,7 +211,7 @@ export default function OperationsPage() {
           </div>
           <div className="rounded-xl bg-white/5 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-ink-400">
-              AI hours saved
+              Hours saved
             </p>
             <p className="mt-1 font-display text-3xl">{roiBoard.ai_hours_saved}</p>
           </div>
@@ -230,48 +238,59 @@ export default function OperationsPage() {
       <p className="mb-3 text-xs font-medium uppercase tracking-wider text-ink-400">
         Today at the property
       </p>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Arrivals" value={stats.arrivals_today} accent="sea" delay={0} />
-        <Stat label="Departures" value={stats.departures_today} accent="sand" delay={40} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Stat
-          label="Pending approvals"
-          value={stats.pending_approvals}
+          label="Today's arrivals"
+          value={stats.arrivals_today}
+          accent="sea"
+          delay={0}
+        />
+        <Stat
+          label="Today's departures"
+          value={stats.departures_today}
+          accent="sand"
+          delay={40}
+        />
+        <Stat
+          label="Pending reviews"
+          value={stats.negative_reviews}
+          hint="Rating ≤2, awaiting reply"
           accent="coral"
           delay={80}
         />
         <Stat
-          label="Upsell revenue"
+          label="Revenue influenced"
           value={money(stats.upsell_revenue)}
           hint={`${stats.upsells_waiting} offers waiting`}
           accent="sea"
           delay={120}
         />
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="Repeat guests" value={stats.repeat_guests} delay={160} />
         <Stat
-          label="Revenue today"
-          value={money(stats.revenue_today)}
-          delay={160}
-        />
-        <Stat
-          label="Google rating"
-          value={stats.google_rating.toFixed(1)}
-          hint={`${stats.review_conversion}% review conversion`}
+          label="Guest satisfaction"
+          value={guestSatisfaction != null ? guestSatisfaction : "—"}
+          hint={`Google ${stats.google_rating.toFixed(1)}★`}
           delay={200}
         />
+      </div>
+
+      <p className="mb-3 mt-6 text-xs font-medium uppercase tracking-wider text-ink-400">
+        Operations
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
-          label="AI hours saved"
-          value={`${stats.ai_saved_hours}h`}
-          hint={`${stats.response_time_hours}h avg response · AI assisted`}
+          label="Pending approvals"
+          value={stats.pending_approvals}
+          accent="coral"
           delay={240}
         />
+        <Stat label="Open tasks" value={stats.open_tasks} delay={280} />
+        <Stat label="Revenue today" value={money(stats.revenue_today)} delay={320} />
         <Stat
-          label="Open tasks"
-          value={stats.open_tasks}
-          hint={`${stats.negative_reviews} negative reviews`}
-          accent="coral"
-          delay={280}
+          label="Hours saved"
+          value={`${stats.ai_saved_hours}h`}
+          hint={`${stats.response_time_hours}h avg response time`}
+          delay={360}
         />
       </div>
 
@@ -326,11 +345,6 @@ export default function OperationsPage() {
                         {a.content}
                       </p>
                     </div>
-                    {a.confidence != null && (
-                      <span className="shrink-0 text-xs text-ink-400">
-                        {Math.round(a.confidence * 100)}%
-                      </span>
-                    )}
                   </div>
                   <div className="mt-3 flex gap-2">
                     <Button onClick={() => handleApproval(a.id, "approve")}>

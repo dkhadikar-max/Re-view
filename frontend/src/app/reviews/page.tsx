@@ -45,7 +45,7 @@ export default function ReviewsPage() {
     <div>
       <TopBar
         title="Review Engine"
-        subtitle="Encourage authentic feedback. Draft replies. Never fabricate reviews. Verified reviewers unlock Celebrate Rewards."
+        subtitle="Encourage authentic feedback. Draft replies. Never fabricate reviews. Verified reviewers unlock Rewards."
       />
       {invite && (
         <p className="mb-4 break-all rounded-xl bg-sea-500/10 px-3 py-2 text-xs text-sea-700">
@@ -120,7 +120,7 @@ export default function ReviewsPage() {
                 {r.ai_draft_response && (
                   <div className="mt-4 rounded-xl border border-dashed border-sea-400/40 bg-sea-500/5 p-4">
                     <p className="text-xs font-medium uppercase tracking-wider text-sea-700">
-                      AI draft response
+                      Suggested reply
                     </p>
                     <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-ink-800">
                       {r.ai_draft_response}
@@ -139,7 +139,7 @@ export default function ReviewsPage() {
                             disabled={busy === r.id}
                             onClick={() => unlockCelebrate(r.guest_id!, r.id)}
                           >
-                            Unlock Celebrate Rewards
+                            Unlock Rewards
                           </Button>
                         )}
                       </div>
@@ -151,7 +151,7 @@ export default function ReviewsPage() {
                           disabled={busy === r.id}
                           onClick={() => unlockCelebrate(r.guest_id!, r.id)}
                         >
-                          Unlock / invite Celebrate Rewards
+                          Unlock / invite Rewards
                         </Button>
                       </div>
                     )}

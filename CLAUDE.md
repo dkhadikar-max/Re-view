@@ -1,5 +1,3 @@
-@AGENTS.md
-
 # ReVisit Engineering Handbook
 
 ## Mission

@@ -141,6 +141,8 @@ class Property(Base):
     brand_voice: Mapped[str] = mapped_column(Text, default="Warm, professional, and helpful.")
     google_rating: Mapped[float] = mapped_column(Float, default=4.5)
     rooms: Mapped[int] = mapped_column(Integer, default=40)
+    address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    google_review_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     guests: Mapped[list[Guest]] = relationship(back_populates="property")

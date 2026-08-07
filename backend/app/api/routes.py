@@ -73,6 +73,7 @@ from app.schemas import (
     NotificationOut,
     OfferOut,
     PropertyOut,
+    PropertyUpdate,
     ReservationCreate,
     ReservationOut,
     ReviewCreate,
@@ -490,6 +491,39 @@ def dashboard_stats(user: AuthUser, db: Session = Depends(get_db)) -> DashboardS
 @router.get("/properties", response_model=list[PropertyOut])
 def list_properties(user: AuthUser, db: Session = Depends(get_db)) -> list[Property]:
     return db.query(Property).filter(Property.tenant_id == user.tenant_id).all()
+
+
+@router.patch("/properties/{property_id}", response_model=PropertyOut)
+def update_property(
+    property_id: str,
+    payload: PropertyUpdate,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> Property:
+    property_ = get_tenant_entity(
+        db, Property, property_id, user.tenant_id, not_found="Property not found"
+    )
+    property_.name = payload.name.strip()
+    property_.city = payload.city.strip()
+    property_.country = payload.country.strip()
+    property_.currency = payload.currency
+    property_.timezone = payload.timezone.strip()
+    property_.rooms = payload.rooms
+    property_.brand_voice = payload.brand_voice.strip()
+    property_.address = payload.address
+    property_.google_review_url = payload.google_review_url
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="update_property",
+        entity_type="property",
+        entity_id=property_.id,
+        details={"name": property_.name, "city": property_.city, "country": property_.country},
+    )
+    db.commit()
+    db.refresh(property_)
+    return property_
 
 
 @router.get("/guests", response_model=list[GuestIntelligence])

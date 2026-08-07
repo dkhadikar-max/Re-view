@@ -15,15 +15,15 @@ export const ARGUS = {
 
 export const REVISIT = {
   name: "Revisit",
-  tagline: "AI Guest Operating System",
+  tagline: "Guest Experience Platform",
   /** Compact line used under the product name in chrome */
-  shortPitch: "AI-assisted guest revenue — human approved",
+  shortPitch: "Guest revenue & engagement — approval required for sensitive actions",
   /** Meta / share description */
   description:
-    "Revisit — the AI Guest Operating System from Argus OS. Guest intelligence, Celebrate Rewards, approvals, and revenue after booking.",
+    "Revisit — the Guest Experience Platform from Argus OS. Guest intelligence, Celebrate Rewards, approvals, and revenue after booking.",
   /** Suggested blurb when linking from the Argus product grid */
   productBlurb:
-    "AI Guest Operating System. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.",
+    "Guest Experience Platform. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.",
   siteUrl:
     process.env.NEXT_PUBLIC_REVISIT_SITE_URL || "https://revisit.argusai.online",
   parent: ARGUS,
@@ -35,7 +35,7 @@ export const REVISIT = {
   vision: [
     "Every guest known before they arrive",
     "Every touchpoint guided by memory",
-    "Every commercial action human-approved",
+    "Every commercial action reviewed before it ships",
     "Lifetime that compounds stay after stay",
   ],
   celebrateLoop: [
