@@ -400,6 +400,60 @@ class ImportSessionDetail(ImportSessionListItem):
     errors: list[CsvRowIssue] = []
 
 
+class PdfExtractionIssue(BaseModel):
+    field: Optional[str] = None
+    message: str
+
+
+class PdfExtractedRow(BaseModel):
+    """One reservation extracted from a PDF, staged for mandatory human
+    review (PDF_IMPORT.md §7) — nothing here has been imported yet.
+    `reservation` is None when extraction couldn't produce a valid
+    `ReservationCreate` at all (e.g. missing dates); the row still shows
+    up as Needs Review so a human can fix it via Manual Entry instead of
+    the PDF simply vanishing.
+    """
+
+    row_index: int
+    review_state: Literal["ready_to_import", "needs_review"]
+    confirmation_number: Optional[str] = None
+    reservation: Optional[ReservationCreate] = None
+    issues: list[PdfExtractionIssue] = []
+    raw_text_excerpt: Optional[str] = None
+
+
+class PdfValidationReport(BaseModel):
+    filename: str
+    total_reservations: int
+    ready_count: int
+    needs_review_count: int
+    rows: list[PdfExtractedRow]
+
+
+class PdfConfirmRow(BaseModel):
+    """What the Review screen submits back per approved (optionally
+    edited) row. `confirmation_number` is required here even though it
+    was optional during extraction — a human confirming a Needs Review
+    row without one is exactly the "guessing an identity" case §11.1
+    decided against; the API rejects it rather than silently assigning
+    a random one."""
+
+    confirmation_number: str = Field(min_length=1, max_length=128)
+    reservation: ReservationCreate
+
+
+class PdfImportRequest(BaseModel):
+    filename: Optional[str] = None
+    rows: list[PdfConfirmRow] = Field(min_length=1)
+
+
+class PdfImportResult(BaseModel):
+    import_session_id: str
+    imported: int
+    duplicates_skipped: int
+    message: str
+
+
 class DecideResult(BaseModel):
     decision: AIDecisionOut
     execution: dict[str, Any]
