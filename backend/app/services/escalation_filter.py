@@ -1,7 +1,7 @@
 """Escalation Filter — CONCIERGE.md §5.4/§8, Week 1 remaining step 2.
 
     WhatsApp Webhook -> Tenant Routing -> Context Builder ->
-    Escalation Filter -> FAQ Agent (not yet built)
+    Escalation Filter -> Concierge Router (concierge_router.py)
 
 `evaluate_escalation()` is the filter itself: one pure function, no
 database access, no state, no AI call. It does exactly one thing —
@@ -29,6 +29,22 @@ Stateless by design: no conversation history is read or required here.
 Whether the *same* topic was already asked and answered five messages
 ago is the Conversation Manager's job, not this filter's — evaluate()
 only ever looks at the current message and the current Context.
+
+**Scope, revised for the Concierge Router (concierge_router.py):**
+`evaluate_escalation()` checks only the hard safety/urgency categories
+below (`_ESCALATION_PATTERNS`) — genuine "a human must see this now"
+signals that pre-empt every agent, full stop. It used to *also* run its
+own duplicate pass over `KNOWLEDGE_BASE_TOPIC_PATTERNS` and escalate
+any message that wasn't a recognized-and-answerable KB fact-lookup —
+correct back when FAQAgent was the only agent that existed (PR #13),
+but wrong now: "not a KB topic" and "no agent can help" stopped being
+the same thing the moment Ordering/Revenue/Guest Memory Agents existed
+to try first. That logic was removed from here; it isn't lost, it moved
+to where it actually belongs — FAQAgent already escalates itself when
+a recognized topic has no configured value (its own `should_escalate`,
+independent of this filter, per its own docstring), and the Router's
+own fallback escalates when *no* agent recognizes a message at all, but
+only after Ordering/Revenue/Guest Memory each get a real chance first.
 """
 
 from __future__ import annotations
@@ -195,7 +211,8 @@ def evaluate_escalation(message_body: str, context: ConciergeContext) -> Escalat
     """The filter. Pure — no database access, no state, no AI call, no
     mutation of `context` (which is frozen regardless). See module
     docstring for why the database-writing half lives in a separate
-    function.
+    function, and for why this no longer also runs its own KB-topic
+    pass (that moved to FAQAgent + the Concierge Router's own fallback).
     """
     text = message_body or ""
 
@@ -208,43 +225,17 @@ def evaluate_escalation(message_body: str, context: ConciergeContext) -> Escalat
                 confidence=confidence,
             )
 
-    matched_field: Optional[str] = None
-    for field_name, pattern in KNOWLEDGE_BASE_TOPIC_PATTERNS.items():
-        if pattern.search(text):
-            matched_field = field_name
-            break
-
-    if matched_field is not None:
-        kb = context.knowledge_base
-        field_value = getattr(kb, matched_field, None) if kb else None
-        if field_value:
-            return EscalationDecision(
-                escalate=False,
-                category=None,
-                reason=(
-                    f"Recognized knowledge-base topic '{matched_field}' with an "
-                    "answer available"
-                ),
-                confidence=0.8,
-            )
-        return EscalationDecision(
-            escalate=True,
-            category=EscalationCategory.outside_knowledge_base,
-            reason=(
-                f"Recognized topic '{matched_field}' but the property's knowledge "
-                "base has no answer for it"
-            ),
-            confidence=0.7,
-        )
-
+    # No hard safety/urgency signal — let the Concierge Router try each
+    # agent (FAQ, Ordering, Revenue, Guest Memory) before anything here
+    # decides a human is needed. `context` is still part of this
+    # function's signature (kept for interface stability — callers and
+    # tests already pass it, and a future hard-trigger pattern may need
+    # it) even though this branch doesn't currently read it.
     return EscalationDecision(
-        escalate=True,
-        category=EscalationCategory.outside_knowledge_base,
-        reason="Message didn't match any recognized knowledge-base topic",
-        # Lower confidence than an actual keyword match — this is the
-        # "when in doubt" default-safe branch (§0), not a positive
-        # signal of anything in particular.
-        confidence=0.4,
+        escalate=False,
+        category=None,
+        reason="No hard safety/urgency pattern matched",
+        confidence=1.0,
     )
 
 

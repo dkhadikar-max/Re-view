@@ -97,7 +97,10 @@ Resolve tenant via phone_number_id (§3)
         │
         ▼
    Escalation Filter (§8) — runs on the raw message,
-   before Context Builder, before any agent, full stop
+   before Context Builder, before any agent, full stop.
+   Hard safety/urgency categories ONLY (medical, emergency,
+   safety, threat, refund/billing, complaint, human-requested)
+   — see §4.1 for why "not a KB topic" moved out of here.
         │
    ┌────┴─────┐
    │          │
@@ -111,45 +114,77 @@ staff    │ Context                     │
 Notif-   │ ├── Reservation             │
 ication) │ ├── Property                │
 No AI    │ ├── Knowledge Base          │
-reply    │ ├── Conversation History    │
-sent.    │ ├── Current Time            │
+reply    │ ├── Services & Packages     │
+sent.    │ ├── Conversation History    │
+         │ ├── Current Time            │
          │ ├── Previous AI Actions     │
          │ └── Available Automations   │
          └─────────────┬───────────────┘
                         │
                         ▼
-              Router — deterministic first (§4.1)
+              Router (concierge_router.py) — tries each
+              agent in fixed priority order, calls exactly
+              one, first handled=True wins:
                         │
-              ┌─────────┼──────────┐
-              │         │          │
-          FAQ Agent  Guest      Revenue
-          (§5.1)     Memory     Agent
-                      Agent     (§5.3)
-                      (§5.2)
-              │         │          │
-              └─────────┼──────────┘
-                        ▼
-              Conversation Manager (§5.5)
-                        │
-                        ▼
-                    WhatsApp
+              ┌─────┬───┴────┬─────────┐
+              │     │        │         │
+            FAQ  Ordering  Revenue   Guest
+           Agent   Agent    Agent   Memory
+          (§5.1) (food/    (§5.3)   Agent
+                  menu)              (§5.2)
+              │     │        │         │
+              └─────┴────┬───┴─────────┘
+                          ▼
+              Router escalates to staff if the agent
+              that handled it set should_escalate=True,
+              or if NO agent recognized the message at
+              all (§0: escalate rather than answer
+              imperfectly) — never silently dropped.
+                          │
+                          ▼
+              Conversation Manager (§5.5, not yet built)
+                          │
+                          ▼
+                      WhatsApp
 ```
 
-### 4.1 Router — deterministic first, LLM only for ambiguity
+### 4.1 Router — deterministic, fixed priority order
 
 Sending every inbound message to an LLM just to decide *which agent*
 should handle it is unnecessary latency and cost for the common case.
-Router is a two-stage pipeline:
+As built (`concierge_router.py`), the Router is fully deterministic: it
+tries each agent in a fixed priority order and returns the first
+`handled=True` response, without ever calling more than one agent per
+message or letting one agent see another's output:
 
-1. **Intent rules** (deterministic, no model call): pattern/keyword
-   matching against the raw message. E.g. "wifi"/"password" → FAQ
-   Agent; "late checkout"/"upgrade"/"spa" → Revenue Agent; "I've stayed
-   before"/"last time" → Guest Memory Agent; "restaurant"/"nearby"/
-   "recommend" → FAQ Agent (§5.1's note on local recommendations —
-   deliberately not a fifth agent, see below).
-2. **LLM fallback**, only when stage 1 doesn't confidently match
-   anything — a single classification call ("which of these four
-   categories"), never an answer-generating one.
+    FAQ Agent → Ordering Agent (food/menu) → Revenue Agent
+    (services & upsells) → Guest Memory Agent → escalate to staff
+
+This keeps responsibilities clean: FAQ answers questions, Ordering
+handles food, Revenue sells hotel services and fulfills service
+requests, Guest Memory learns from confirmed interactions — and each
+agent's own pattern matching (§5.1-§5.3) is precise enough that no LLM
+classification pass has been needed to disambiguate between them.
+"Restaurant"/"nearby"/"recommend" still routes to FAQ Agent (§5.1's
+note on local recommendations — deliberately not a fifth agent).
+
+An LLM fallback classification call, only for messages none of the four
+agents recognizes, remains a reasonable future addition — not yet
+built; today an unrecognized message escalates to staff instead
+(`concierge_router.py`'s own fallback), which is the safer default for
+a pre-pilot system with no real conversation volume yet to tune
+against.
+
+**FAQ Agent runs first, which creates one subtlety worth being
+explicit about**: several Knowledge Base topics (checkout, parking,
+spa, gym, airport transfer, breakfast, room service) share a bare
+keyword with an actionable Revenue/Ordering Agent request — "what time
+is checkout" (FAQ) and "can I check out at 4pm" (Revenue) both mention
+"checkout". FAQ Agent defers instead of claiming the topic whenever the
+message also matches the corresponding agent's own action-oriented
+pattern (`faq_agent.py`'s `_TOPIC_OVERRIDE_SERVICE_TYPES`) — reusing
+that agent's already-tested pattern rather than a second heuristic that
+could drift out of sync with it.
 
 **On "Local Guide" as its own category**: local recommendations route
 to the **FAQ Agent**, not a fifth agent. The FAQ Agent's contract

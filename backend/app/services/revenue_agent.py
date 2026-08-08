@@ -75,87 +75,67 @@ _ACTIVE_OFFER_STATUSES = {"offered", "accepted"}
 # lookup); "can I add breakfast" is this agent's (a sales/service ask).
 # A hotel-configured service outside this fixed list is still
 # reachable via the literal-name fallback in `_match_service`.
-_SERVICE_TYPE_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    (
-        "late_checkout",
-        re.compile(
-            r"\b(late check.?out|check.?out (later|late)|check out at \d|"
-            r"stay a bit longer)\b",
-            re.IGNORECASE,
-        ),
+#
+# Public (not module-private) for the same reason
+# `KNOWLEDGE_BASE_TOPIC_PATTERNS` is (escalation_filter.py): FAQAgent
+# imports this dict to tell "what time is checkout" (its own fact-
+# lookup territory) apart from "can I check out at 4pm" (this agent's
+# territory) for the topics where the two collide on a bare keyword —
+# reusing these already-tested patterns rather than a second, parallel
+# heuristic that could drift out of sync with them. A dict (not a list
+# of tuples) so FAQAgent can look one up by service_type directly;
+# insertion order is still what `_match_service` iterates in below, so
+# first-match priority is unchanged.
+SERVICE_TYPE_PATTERNS: dict[str, "re.Pattern[str]"] = {
+    "late_checkout": re.compile(
+        r"\b(late check.?out|check.?out (later|late)|check out at \d|"
+        r"stay a bit longer)\b",
+        re.IGNORECASE,
     ),
-    (
-        "early_checkin",
-        re.compile(
-            r"\b(early check.?in|check in (early|earlier)|arrive early)\b", re.IGNORECASE
-        ),
+    "early_checkin": re.compile(
+        r"\b(early check.?in|check in (early|earlier)|arrive early)\b", re.IGNORECASE
     ),
-    (
-        "breakfast",
-        re.compile(
-            r"\b(add breakfast|breakfast package|include breakfast|"
-            r"(get|book|can i (get|have)) breakfast)\b",
-            re.IGNORECASE,
-        ),
+    "breakfast": re.compile(
+        r"\b(add breakfast|breakfast package|include breakfast|"
+        r"(get|book|can i (get|have)) breakfast)\b",
+        re.IGNORECASE,
     ),
-    (
-        "dinner",
-        re.compile(
-            r"\b(reserve (a table|dinner)|book (a table|dinner)|dinner reservation|"
-            r"table for \d)\b",
-            re.IGNORECASE,
-        ),
+    "dinner": re.compile(
+        r"\b(reserve (a table|dinner)|book (a table|dinner)|dinner reservation|"
+        r"table for \d)\b",
+        re.IGNORECASE,
     ),
-    (
-        "room_service",
-        re.compile(r"\b(order room service|room service (please|order))\b", re.IGNORECASE),
+    "room_service": re.compile(
+        r"\b(order room service|room service (please|order))\b", re.IGNORECASE
     ),
-    (
-        "laundry",
-        re.compile(
-            r"\b(laundry service|do my laundry|laundry pickup|get my laundry)\b",
-            re.IGNORECASE,
-        ),
+    "laundry": re.compile(
+        r"\b(laundry service|do my laundry|laundry pickup|get my laundry)\b",
+        re.IGNORECASE,
     ),
-    (
-        "spa",
-        re.compile(
-            r"\bbook (a )?(spa|massage|treatment)\b|\bspa (appointment|booking)\b",
-            re.IGNORECASE,
-        ),
+    "spa": re.compile(
+        r"\bbook (a )?(spa|massage|treatment)\b|\bspa (appointment|booking)\b",
+        re.IGNORECASE,
     ),
-    (
-        "airport_transfer",
-        re.compile(
-            r"\b(airport (transfer|pickup|pick.?up)|pick me up|"
-            r"(ride|transfer) to the airport|need an? (airport )?transfer)\b",
-            re.IGNORECASE,
-        ),
+    "airport_transfer": re.compile(
+        r"\b(airport (transfer|pickup|pick.?up)|pick me up|"
+        r"(ride|transfer) to the airport|need an? (airport )?transfer)\b",
+        re.IGNORECASE,
     ),
-    (
-        "parking",
-        re.compile(r"\b(book|reserve|need|want) .{0,15}parking\b", re.IGNORECASE),
+    "parking": re.compile(r"\b(book|reserve|need|want) .{0,15}parking\b", re.IGNORECASE),
+    "kids_activities": re.compile(
+        r"\b(kids? (club|activities)|activities for (my|our) (kids|children))\b",
+        re.IGNORECASE,
     ),
-    (
-        "kids_activities",
-        re.compile(
-            r"\b(kids? (club|activities)|activities for (my|our) (kids|children))\b",
-            re.IGNORECASE,
-        ),
+    "tours": re.compile(
+        r"\b(book a tour|city tour|sightseeing tour|guided tour)\b", re.IGNORECASE
     ),
-    (
-        "tours",
-        re.compile(r"\b(book a tour|city tour|sightseeing tour|guided tour)\b", re.IGNORECASE),
+    "gym": re.compile(
+        r"\b(gym package|fitness package|personal train(er|ing))\b", re.IGNORECASE
     ),
-    (
-        "gym",
-        re.compile(r"\b(gym package|fitness package|personal train(er|ing))\b", re.IGNORECASE),
+    "cab_booking": re.compile(
+        r"\b(book a cab|call a taxi|arrange a taxi|cab booking)\b", re.IGNORECASE
     ),
-    (
-        "cab_booking",
-        re.compile(r"\b(book a cab|call a taxi|arrange a taxi|cab booking)\b", re.IGNORECASE),
-    ),
-]
+}
 
 # Explicit asks tied to an occasion/package — a definite request that
 # deserves a definite answer, so a miss here escalates rather than
@@ -238,7 +218,7 @@ def _match_service(
     """Returns (service_type, matching configured row or None). A
     non-None service_type with a None row means the guest clearly asked
     for something this property hasn't configured at all."""
-    for service_type, pattern in _SERVICE_TYPE_PATTERNS:
+    for service_type, pattern in SERVICE_TYPE_PATTERNS.items():
         if pattern.search(guest_message):
             row = next(
                 (s for s in services if s.service_type.strip().lower() == service_type),

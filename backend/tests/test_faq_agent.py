@@ -109,6 +109,37 @@ def test_never_invents_information_beyond_the_stored_fact():
     assert response.answer is None
 
 
+@pytest.mark.parametrize(
+    "field,value,message",
+    [
+        ("checkin_time", "3pm", "Could I check in early tomorrow?"),
+        ("checkout_time", "11am", "Can I check out at 4 PM?"),
+        ("late_checkout_policy", "Subject to availability", "Can I get a late checkout?"),
+        ("parking_info", "Free lot behind the hotel", "I need to book parking for my car"),
+        ("spa_hours", "10am-6pm", "I'd like to book a spa treatment"),
+        ("gym_hours", "24/7", "Do you offer a gym package?"),
+        ("airport_transfer_info", "Available on request", "I need an airport transfer"),
+        ("breakfast_hours", "7-10am", "Can I add breakfast package to my stay?"),
+        ("restaurants", "Try Osteria Bella", "Can I book a table at the restaurant for dinner?"),
+        ("services", "Room service, laundry", "Can I order room service please"),
+        ("services", "Room service, laundry", "Can you arrange laundry service?"),
+    ],
+)
+def test_defers_to_revenue_or_ordering_agent_for_actionable_phrasing(field, value, message):
+    """A booking-shaped message must not be hijacked by FAQ Agent just
+    because it shares a keyword with one of FAQ's own fact-lookup
+    topics — this is exactly the tension the Concierge Router's
+    priority order (FAQ first) would otherwise create. `source is None`
+    is what tells the Router "not my topic, try the next agent",
+    verified via the parametrized fixtures in test_concierge_router.py
+    too."""
+    kb = KnowledgeBaseContext(**{field: value})
+    response = faq_agent.answer(_make_context(kb), message)
+
+    assert response.source is None
+    assert response.answer is None
+
+
 def test_agent_is_stateless_same_inputs_give_identical_results():
     kb = KnowledgeBaseContext(wifi_password="guest1234")
     context = _make_context(kb)

@@ -53,7 +53,12 @@ from app.services.context_builder import ConciergeContext
 # actions are hand off to room service, point at the restaurant, or
 # escalate; there's no wrong dish to invent, so a wider net than the
 # Revenue Agent's action-oriented patterns is safe here.
-_FOOD_INTENT_PATTERN = re.compile(
+#
+# Public (not module-private) for the same reason
+# `revenue_agent.SERVICE_TYPE_PATTERNS` is: FAQAgent imports this to
+# tell a genuine "what services do you offer" fact lookup apart from an
+# actual food-ordering ask that happens to share the word "service".
+FOOD_INTENT_PATTERN = re.compile(
     r"\b(i'?m hungry|i am hungry|get (some )?food|order (some )?food|"
     r"something to eat|what can i eat|(get|order) room service|"
     r"can i (get|have|order) (something|food)|food options|hungry)\b",
@@ -68,7 +73,7 @@ class OrderingAgent:
     def answer(self, context: ConciergeContext, guest_message: str) -> AgentResponse:
         text = guest_message or ""
 
-        if not _FOOD_INTENT_PATTERN.search(text):
+        if not FOOD_INTENT_PATTERN.search(text):
             return AgentResponse(
                 handled=False, response=None, should_escalate=False, metadata={}
             )
