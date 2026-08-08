@@ -71,22 +71,17 @@ _ACTIVE_OFFER_STATUSES = {"offered", "accepted"}
 
 # Canonical `service_type` slugs this agent recognizes by phrasing, per
 # the spec's "Hotel services" list. Action/request-oriented, not topic-
-# oriented — "what time is breakfast" is FAQ Agent's territory (a fact
-# lookup); "can I add breakfast" is this agent's (a sales/service ask).
-# A hotel-configured service outside this fixed list is still
-# reachable via the literal-name fallback in `_match_service`.
+# oriented — this agent is only ever called for SERVICE_REQUEST-intent
+# messages (`intent_classifier.py` decides that first), so there's no
+# FAQ-overlap concern here to design around, unlike an earlier version
+# of this file. A hotel-configured service outside this fixed list is
+# still reachable via the literal-name fallback in `_match_service`.
 #
-# Public (not module-private) for the same reason
-# `KNOWLEDGE_BASE_TOPIC_PATTERNS` is (escalation_filter.py): FAQAgent
-# imports this dict to tell "what time is checkout" (its own fact-
-# lookup territory) apart from "can I check out at 4pm" (this agent's
-# territory) for the topics where the two collide on a bare keyword —
-# reusing these already-tested patterns rather than a second, parallel
-# heuristic that could drift out of sync with them. A dict (not a list
-# of tuples) so FAQAgent can look one up by service_type directly;
-# insertion order is still what `_match_service` iterates in below, so
-# first-match priority is unchanged.
-SERVICE_TYPE_PATTERNS: dict[str, "re.Pattern[str]"] = {
+# A dict (not a list of tuples) so a lookup by service_type is O(1)
+# where needed (`is_service_request` below); insertion order is still
+# what `_match_service` iterates in, so first-match priority on a
+# genuine ambiguity is unchanged.
+_SERVICE_TYPE_PATTERNS: dict[str, "re.Pattern[str]"] = {
     "late_checkout": re.compile(
         r"\b(late check.?out|check.?out (later|late)|check out at \d|"
         r"stay a bit longer)\b",
@@ -218,7 +213,7 @@ def _match_service(
     """Returns (service_type, matching configured row or None). A
     non-None service_type with a None row means the guest clearly asked
     for something this property hasn't configured at all."""
-    for service_type, pattern in SERVICE_TYPE_PATTERNS.items():
+    for service_type, pattern in _SERVICE_TYPE_PATTERNS.items():
         if pattern.search(guest_message):
             row = next(
                 (s for s in services if s.service_type.strip().lower() == service_type),
@@ -241,6 +236,24 @@ def _match_service(
                 return service.service_type, service
 
     return None, None
+
+
+def is_service_request(guest_message: str, context: ConciergeContext) -> bool:
+    """True when this agent would recognize the message as a service or
+    occasion/package request — used by `intent_classifier.py` to
+    classify SERVICE_REQUEST intent without duplicating this agent's
+    own matching logic a second time. Reuses `_match_service` (so the
+    context-aware literal-name fallback is covered too, not just the
+    fixed patterns) plus the occasion trigger patterns."""
+    text = guest_message or ""
+    service_type, _ = _match_service(text, context.services)
+    if service_type is not None:
+        return True
+    if any(pattern.search(text) for _, pattern in _OCCASION_REQUEST_PATTERNS):
+        return True
+    if any(pattern.search(text) for _, pattern in _OCCASION_MENTION_PATTERNS):
+        return True
+    return False
 
 
 def _match_occasion_package(

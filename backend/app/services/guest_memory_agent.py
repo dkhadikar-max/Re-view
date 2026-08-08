@@ -93,6 +93,26 @@ _RETURNING_GUEST_TRIGGER = re.compile(
 )
 
 
+def is_memory_signal(text: str) -> bool:
+    """True when the message matches one of this agent's own patterns —
+    used by `intent_classifier.py` to classify a message as MEMORY
+    intent without duplicating these patterns a second time. Kept in
+    sync automatically since it's the same regex list `answer()` uses,
+    not a parallel heuristic."""
+    text = text or ""
+    if any(pattern.search(text) for pattern, _, _ in _DIETARY_PATTERNS):
+        return True
+    if _ALLERGY_PATTERN.search(text):
+        return True
+    if any(pattern.search(text) for pattern, _, _ in _ROOM_PREFERENCE_PATTERNS):
+        return True
+    if any(pattern.search(text) for pattern, _, _ in _NOTE_WORTHY_PATTERNS):
+        return True
+    if _RETURNING_GUEST_TRIGGER.search(text):
+        return True
+    return False
+
+
 class MemoryUpdate(BaseModel):
     model_config = ConfigDict(frozen=True)
 

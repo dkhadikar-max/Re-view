@@ -292,3 +292,80 @@ def test_reservation_and_conversation_ids_are_passed_through_to_context_builder(
 
     assert response.handled is True
     assert response.metadata["agent"] == "guest_memory"
+
+
+def test_faq_agent_never_invoked_for_a_service_request_sharing_a_keyword(db_session, monkeypatch):
+    """The exact scenario that motivated intent-first dispatch: the KB
+    has an answerable checkout_time fact AND the hotel has a configured
+    late_checkout service. "Can I check out at 4 PM?" must go to
+    Revenue Agent, and FAQ Agent must never even be called — not "called
+    and correctly deferred", never invoked at all."""
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-k")
+    db.add(PropertyKnowledgeBase(property_id=property_.id, tenant_id="hotel-k", checkout_time="11am"))
+    _make_service(
+        db, tenant_id="hotel-k", property_id=property_.id, service_type="late_checkout",
+        name="Late Checkout", price=30.0, currency="EUR", complimentary=False, available=True,
+    )
+    guest = _make_guest(db, tenant_id="hotel-k", property_id=property_.id)
+    db.flush()
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("FAQ Agent should never be invoked for a SERVICE_REQUEST message")
+
+    monkeypatch.setattr(faq_agent, "answer", _fail_if_called)
+
+    response = concierge_router.route(
+        db, tenant_id="hotel-k", guest_id=guest.id, message_body="Can I check out at 4 PM?"
+    )
+
+    assert response.metadata["agent"] == "revenue"
+    assert response.intent == "service_request"
+
+
+def test_revenue_agent_never_invoked_for_a_bare_information_question(db_session, monkeypatch):
+    """The mirror case: even with a "Breakfast" service configured
+    (so the literal-name fallback in `is_service_request` could in
+    principle fire), a bare fact lookup like "What time is breakfast?"
+    still classifies as INFORMATION, not SERVICE_REQUEST — there's no
+    action/booking word for the fallback to key off of. Revenue Agent
+    is never even invoked."""
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-l")
+    db.add(PropertyKnowledgeBase(property_id=property_.id, tenant_id="hotel-l", breakfast_hours="7-10am"))
+    _make_service(
+        db, tenant_id="hotel-l", property_id=property_.id, service_type="breakfast",
+        name="Breakfast", price=15.0, currency="EUR", complimentary=False, available=True,
+    )
+    guest = _make_guest(db, tenant_id="hotel-l", property_id=property_.id)
+    db.flush()
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("Revenue Agent should never be invoked for an INFORMATION message")
+
+    monkeypatch.setattr(revenue_agent, "answer", _fail_if_called)
+
+    response = concierge_router.route(
+        db, tenant_id="hotel-l", guest_id=guest.id, message_body="What time is breakfast?"
+    )
+
+    assert response.metadata["agent"] == "faq"
+    assert response.intent == "information"
+    assert "7-10am" in response.response
+
+
+def test_small_talk_is_acknowledged_without_escalating(db_session):
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-m")
+    guest = _make_guest(db, tenant_id="hotel-m", property_id=property_.id)
+    db.flush()
+
+    response = concierge_router.route(
+        db, tenant_id="hotel-m", guest_id=guest.id, message_body="Thanks so much, see you soon!"
+    )
+
+    assert response.handled is False
+    assert response.should_escalate is False
+    assert response.intent == "small_talk"
+    tasks = db.query(Task).filter(Task.tenant_id == "hotel-m").all()
+    assert len(tasks) == 0

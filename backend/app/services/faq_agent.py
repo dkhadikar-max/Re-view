@@ -13,26 +13,19 @@ assembled onto `ConciergeContext`, and nothing else.
   Knowledge Base fact, wrapped in a fixed template sentence, never
   generated or embellished.
 - Escalates when the answer isn't in the Knowledge Base, via
-  `should_escalate` — its own safety net. The Escalation Filter
-  (`escalation_filter.py`) used to also run a duplicate KB-topic pass
-  before this agent even existed; that's been removed (see its module
-  docstring) now that the Concierge Router lets Ordering/Revenue/Guest
-  Memory Agents try a message too — this agent's own `should_escalate`
-  is now the *only* place "recognized topic, no answer" gets decided.
+  `should_escalate` — its own safety net. This agent is only ever
+  called for INFORMATION-intent messages (`intent_classifier.py`
+  decides that before this agent ever runs), so a bare-keyword match
+  here is safe — a booking-shaped message like "can I add a breakfast
+  package" is classified SERVICE_REQUEST and routed to Revenue Agent
+  before FAQ Agent ever sees it, not something this agent has to detect
+  and defer on itself.
 - Returns structured output only. It does not send a WhatsApp message
   and does not decide the outcome on the pipeline's behalf — that's the
-  Concierge Router's job (`concierge_router.py`): send the answer,
-  escalate, or try the next agent. This agent is one input to that
-  decision, adapted into the Router's shared `AgentResponse` shape
-  there (this agent keeps its own `FAQResponse` — see
-  `agent_protocol.py`'s docstring for why it wasn't retrofitted).
-- Defers instead of claiming a topic when the message is actually a
-  Revenue/Ordering Agent request that happens to share a keyword with
-  one of this agent's KB topics (e.g. "breakfast" appears in both "what
-  time is breakfast" and "can I add a breakfast package") — see
-  `_TOPIC_OVERRIDE_SERVICE_TYPE` below. Without this, FAQ Agent running
-  first in the Router's priority order would hijack a booking ask
-  before Revenue/Ordering Agent ever got to it.
+  Concierge Router's job (`concierge_router.py`). This agent is one
+  input to that decision, adapted into the Router's shared
+  `AgentResponse` shape there (this agent keeps its own `FAQResponse`
+  — see `agent_protocol.py`'s docstring for why it wasn't retrofitted).
 
 v1 is deterministic, same discipline as the Escalation Filter: matching
 a guest's question to a Knowledge Base topic is closer to keyword
@@ -51,36 +44,6 @@ from pydantic import BaseModel, ConfigDict
 
 from app.services.context_builder import ConciergeContext
 from app.services.escalation_filter import KNOWLEDGE_BASE_TOPIC_PATTERNS
-from app.services.ordering_agent import FOOD_INTENT_PATTERN
-from app.services.revenue_agent import SERVICE_TYPE_PATTERNS
-
-# Topics where a bare keyword match isn't enough to safely claim as
-# FAQ's own — they overlap with an actionable Revenue/Ordering Agent
-# service request, not just a fact lookup. "What time is breakfast?"
-# (this agent's job) and "Can I add a breakfast package?" (Revenue
-# Agent's) both mention "breakfast"; only the Router's priority order
-# (FAQ first) makes this matter, since FAQ would otherwise hijack the
-# booking ask before Revenue/Ordering Agent ever sees it. Maps each
-# overlapping KB field to the Revenue Agent service_type(s) whose own
-# tested pattern(s) should override a bare match here — reusing those
-# patterns rather than inventing a second, parallel heuristic that
-# could drift out of sync with them. A field can list more than one
-# service_type ("services" is a broad catch-all that overlaps both
-# room_service and laundry phrasing). Purely-informational topics
-# (wifi, pool, pet policy, cafes, etc.) have no such overlap and aren't
-# listed; they keep matching on the bare keyword exactly as before.
-_TOPIC_OVERRIDE_SERVICE_TYPES: dict[str, list[str]] = {
-    "checkin_time": ["early_checkin"],
-    "checkout_time": ["late_checkout"],
-    "late_checkout_policy": ["late_checkout"],
-    "parking_info": ["parking"],
-    "spa_hours": ["spa"],
-    "gym_hours": ["gym"],
-    "airport_transfer_info": ["airport_transfer"],
-    "breakfast_hours": ["breakfast"],
-    "restaurants": ["dinner"],
-    "services": ["room_service", "laundry"],
-}
 
 # Wraps the raw stored fact in a short sentence. The wrapper text is
 # fixed and never guest- or context-specific beyond the {value}
@@ -161,27 +124,9 @@ class FAQAgent:
     @staticmethod
     def _match_topic(text: str) -> Optional[str]:
         for field_name, pattern in KNOWLEDGE_BASE_TOPIC_PATTERNS.items():
-            if pattern.search(text) and not FAQAgent._is_actionable_override(
-                field_name, text
-            ):
+            if pattern.search(text):
                 return field_name
         return None
-
-    @staticmethod
-    def _is_actionable_override(field_name: str, text: str) -> bool:
-        """True when this message is actually a Revenue/Ordering Agent
-        request that happens to share a keyword with one of this
-        agent's fact-lookup topics — see
-        `_TOPIC_OVERRIDE_SERVICE_TYPES`. A match here means FAQAgent
-        should defer instead of claiming the topic, letting the Router
-        try Ordering/Revenue Agent next.
-        """
-        for service_type in _TOPIC_OVERRIDE_SERVICE_TYPES.get(field_name, []):
-            if SERVICE_TYPE_PATTERNS[service_type].search(text):
-                return True
-        if field_name == "services" and FOOD_INTENT_PATTERN.search(text):
-            return True
-        return False
 
 
 faq_agent = FAQAgent()

@@ -4,46 +4,57 @@
                            reservation_id=None, conversation_id=None)
         -> AgentResponse
 
-The orchestrator that turns the four independently-built agents into one
-working concierge. Per CONCIERGE.md's own diagram:
+The orchestrator that turns the four independently-built agents into
+one working concierge. Per CONCIERGE.md's own diagram:
 
     WhatsApp -> Tenant Routing -> Escalation Filter -> Context Builder ->
-    Router -> [FAQ | Ordering | Revenue | Guest Memory] -> (Conversation
-    Manager, not yet built) -> WhatsApp
+    Intent Classifier -> [FAQ | Ordering | Revenue | Guest Memory] ->
+    (Conversation Manager, not yet built) -> WhatsApp
 
 This module owns exactly the "Router" box and nothing else: it contains
 NO business logic of its own — every actual decision (what to say,
-whether a specific service request needs escalating, what a guest's
-memory update should be) belongs to the Escalation Filter or one of the
-four agents. This file only decides which already-built component gets
-to look at a message, in what order, and returns whatever that
-component decided, unchanged.
+which intent a message is, whether a specific service request needs
+escalating, what a guest's memory update should be) belongs to the
+Escalation Filter, the Intent Classifier, or one of the four agents.
+This file only decides which already-built component gets to look at a
+message, in what order, and returns whatever that component decided,
+unchanged.
+
+**Intent-first dispatch, not "try each agent until one claims it".**
+An earlier version of this Router tried each agent in a fixed priority
+order and took the first `handled=True` response — which meant FAQ
+Agent, running first, needed to know about Revenue/Ordering Agent's own
+patterns just to defer correctly on messages that shared a keyword
+("breakfast" appears in both "what time is breakfast" and "can I add a
+breakfast package"). That's exactly the kind of cross-agent coupling
+this design avoids: `intent_classifier.py` classifies the message
+*once*, and the Router calls **exactly one** agent — the one that owns
+that intent — which never even sees a message outside its territory.
 
 Responsibilities:
-- Run the Escalation Filter first, on the raw message, before any agent
-  ever sees it (CONCIERGE.md §8) — a message that needs a human never
-  reaches an agent at all.
+- Run the Escalation Filter first, on the raw message, before Context
+  Builder or Intent Classifier ever runs (CONCIERGE.md §8) — a message
+  that needs a human never reaches an agent at all.
 - Build the `ConciergeContext` once per message and hand the exact same
-  object to whichever agent runs — no agent builds or re-fetches its
-  own context.
-- Call agents in the priority order the reviewed spec established: FAQ
-  -> Ordering (food/menu) -> Revenue (services & upsells) -> Guest
-  Memory. First `handled=True` wins; the Router calls exactly one agent
-  per message and never merges two agents' output or lets a "no" from
-  one become a reason to also ask another the same question.
-- Never let one agent call another, or see another's output — every
-  agent only ever receives the same frozen `ConciergeContext`, nothing
-  from a sibling agent.
+  object to the Intent Classifier and whichever agent runs.
+- Classify intent, then call the one agent mapped to that intent
+  category: INFORMATION -> FAQ, ORDER -> Ordering, SERVICE_REQUEST ->
+  Revenue, MEMORY -> Guest Memory. SMALL_TALK is acknowledged without
+  escalating (a "thanks!" doesn't need staff); UNKNOWN escalates
+  immediately, same as an agent that was dispatched but still
+  couldn't help — under intent-first routing there's no second agent
+  to fall back to, so "the mapped agent returned handled=False" and
+  "no intent was recognized at all" both mean the same thing: escalate.
+- Never let one agent call another, or see another's output — the
+  agent selected by intent only ever receives the shared, frozen
+  `ConciergeContext`, nothing from a sibling agent.
 - Escalate to staff (via the Escalation Filter's own `escalate_to_staff`
   — the Router never writes a `Task`/`AuditLog` row itself) whenever
-  (a) the Escalation Filter's own check trips, or (b) the agent that
-  handled the message set `should_escalate=True` on its own response
-  (e.g. Revenue Agent's configured-but-unavailable case), or (c) no
-  agent recognized the message at all. Case (c) is a deliberate Router-
-  level decision, not copied from any single agent: CONCIERGE.md §0
-  says to escalate rather than answer imperfectly, and a message no
-  agent recognizes is exactly that — it must not just be silently
-  dropped with nothing said and nobody notified.
+  (a) the Escalation Filter's own check trips, (b) the intent's mapped
+  agent set `should_escalate=True` on its own response, or (c) intent
+  classification came back UNKNOWN or the mapped agent still returned
+  `handled=False`. CONCIERGE.md §0: escalate rather than answer
+  imperfectly, never silently drop a message.
 
 FAQAgent predates the shared `Agent` Protocol and returns its own
 `FAQResponse` shape (`agent_protocol.py`'s docstring explains why it
@@ -51,15 +62,15 @@ wasn't retrofitted). This is the one place that adapts it into the
 unified `AgentResponse` every other agent already returns natively —
 FAQAgent itself stays untouched.
 
+`AgentResponse.intent`/`.confidence` are filled in here, from the
+Intent Classifier's own decision, purely for observability — no agent
+sets these itself (`agent_protocol.py`'s docstring).
+
 Deliberately NOT this module's job (still roadmap steps ahead):
 - Sending the winning response back to the guest over WhatsApp. Per
   CONCIERGE.md's diagram, that's the Conversation Manager's job (§5.5,
-  not yet built — the very next roadmap step after this one). This
-  Router returns a decision; it does not act on it. Wiring its output
-  straight to an outbound WhatsApp send would start sending
-  AI-generated replies to real guests before the component designed to
-  own history/dedup/tone/throttling for that exists, which is a bigger
-  step than "orchestrate the four agents" — left for that next step.
+  not yet built — the very next roadmap step). This Router returns a
+  decision; it does not act on it.
 """
 
 from __future__ import annotations
@@ -78,34 +89,35 @@ from app.services.escalation_filter import (
 )
 from app.services.faq_agent import FAQResponse, faq_agent
 from app.services.guest_memory_agent import guest_memory_agent
+from app.services.intent_classifier import IntentCategory, IntentDecision, classify_intent
 from app.services.ordering_agent import ordering_agent
 from app.services.revenue_agent import revenue_agent
 
-# No agent recognized the message at all. Not one of the Escalation
-# Filter's own categories (those are about *why a human is needed*);
-# this is the Router's own fallback, reusing the closest existing
-# category rather than adding new schema for a single new case.
-_NO_AGENT_MATCHED_REASON = "No agent recognized this message"
+_NO_INTENT_RECOGNIZED_REASON = "No intent was recognized for this message"
+_AGENT_COULD_NOT_HELP_REASON = "{agent} could not fulfill this request"
 
 
 def _faq_response_as_agent_response(faq_response: FAQResponse) -> AgentResponse:
     """Adapts FAQAgent's own `FAQResponse` into the shared
     `AgentResponse` shape. `source` is set whenever FAQAgent recognized
     the message as one of its own Knowledge Base topics — whether or
-    not that field actually had a value — so a recognized-but-empty
-    topic (e.g. a WiFi question the hotel never configured) is treated
-    as *handled by FAQ, escalate*, not as "FAQ has nothing, let Revenue
-    Agent guess at a WiFi password." `source is None` is the only case
-    that means "not FAQ's topic at all," which is when the Router
-    should try the next agent instead.
+    not that field actually had a value. Since FAQAgent is only ever
+    called here for INFORMATION-intent messages (the same
+    `KNOWLEDGE_BASE_TOPIC_PATTERNS` the Intent Classifier already
+    checked), `source` should always be set in practice — this stays
+    defensive rather than assuming, the same "refuse to guess" instinct
+    FAQAgent's own docstring describes.
     """
-    topic_recognized = faq_response.source is not None
     return AgentResponse(
-        handled=topic_recognized,
+        handled=faq_response.source is not None,
         response=faq_response.answer,
         should_escalate=faq_response.should_escalate,
         metadata={"source": faq_response.source, "confidence": faq_response.confidence},
     )
+
+
+def _with_agent_tag(response: AgentResponse, agent_name: str) -> AgentResponse:
+    return response.model_copy(update={"metadata": {**response.metadata, "agent": agent_name}})
 
 
 class ConciergeRouter:
@@ -144,29 +156,92 @@ class ConciergeRouter:
                 },
             )
 
-        response = self._dispatch(context, message_body)
+        intent_decision = classify_intent(message_body, context)
 
-        if response.handled:
-            if response.should_escalate:
-                escalate_to_staff(
-                    db,
-                    context=context,
-                    message_body=message_body,
-                    decision=EscalationDecision(
-                        escalate=True,
-                        category=EscalationCategory.outside_knowledge_base,
-                        reason=(
-                            f"{response.metadata.get('agent', 'agent')} could not fulfill "
-                            "this request"
-                        ),
-                        confidence=1.0,
+        if intent_decision.category == IntentCategory.small_talk:
+            # A pure pleasantry ("thanks!", "see you soon!") doesn't
+            # need a human — acknowledge without escalating, and
+            # without any agent trying to turn it into a fact lookup,
+            # a sale, or a memory update.
+            return AgentResponse(
+                handled=False,
+                response=None,
+                should_escalate=False,
+                intent=intent_decision.category.value,
+                confidence=intent_decision.confidence,
+                metadata={},
+            )
+
+        if intent_decision.category == IntentCategory.unknown:
+            return self._escalate_unhandled(
+                db, context, message_body, intent_decision, _NO_INTENT_RECOGNIZED_REASON
+            )
+
+        response = self._dispatch(intent_decision.category, context, message_body)
+        response = response.model_copy(
+            update={"intent": intent_decision.category.value, "confidence": intent_decision.confidence}
+        )
+
+        if not response.handled:
+            # The one agent mapped to this intent still couldn't help —
+            # under intent-first routing there's no second agent to try,
+            # so this means the same thing as an unrecognized message.
+            return self._escalate_unhandled(
+                db,
+                context,
+                message_body,
+                intent_decision,
+                _AGENT_COULD_NOT_HELP_REASON.format(
+                    agent=response.metadata.get("agent", "the selected agent")
+                ),
+                existing_response=response,
+            )
+
+        if response.should_escalate:
+            escalate_to_staff(
+                db,
+                context=context,
+                message_body=message_body,
+                decision=EscalationDecision(
+                    escalate=True,
+                    category=EscalationCategory.outside_knowledge_base,
+                    reason=_AGENT_COULD_NOT_HELP_REASON.format(
+                        agent=response.metadata.get("agent", "agent")
                     ),
-                )
-            return response
+                    confidence=intent_decision.confidence,
+                ),
+            )
 
-        # No agent recognized this message at all — CONCIERGE.md §0:
-        # escalate rather than leave a guest message unanswered and
-        # unseen by anyone.
+        return response
+
+    def _dispatch(
+        self, category: IntentCategory, context: ConciergeContext, message_body: str
+    ) -> AgentResponse:
+        if category == IntentCategory.information:
+            return _with_agent_tag(
+                _faq_response_as_agent_response(faq_agent.answer(context, message_body)), "faq"
+            )
+        if category == IntentCategory.order:
+            return _with_agent_tag(ordering_agent.answer(context, message_body), "ordering")
+        if category == IntentCategory.service_request:
+            return _with_agent_tag(revenue_agent.answer(context, message_body), "revenue")
+        if category == IntentCategory.memory:
+            return _with_agent_tag(guest_memory_agent.answer(context, message_body), "guest_memory")
+        raise AssertionError(
+            f"No agent mapped for intent category {category!r} — small_talk/unknown are "
+            "handled before this is ever called"
+        )
+
+    def _escalate_unhandled(
+        self,
+        db: Session,
+        context: ConciergeContext,
+        message_body: str,
+        intent_decision: IntentDecision,
+        reason: str,
+        *,
+        existing_response: Optional[AgentResponse] = None,
+    ) -> AgentResponse:
         escalate_to_staff(
             db,
             context=context,
@@ -174,41 +249,19 @@ class ConciergeRouter:
             decision=EscalationDecision(
                 escalate=True,
                 category=EscalationCategory.outside_knowledge_base,
-                reason=_NO_AGENT_MATCHED_REASON,
-                confidence=0.0,
+                reason=reason,
+                confidence=intent_decision.confidence,
             ),
         )
-        return AgentResponse(
-            handled=False,
-            response=None,
-            should_escalate=True,
-            metadata={"escalated_by": "router_fallback"},
+        base = existing_response or AgentResponse(handled=False, response=None)
+        return base.model_copy(
+            update={
+                "should_escalate": True,
+                "intent": intent_decision.category.value,
+                "confidence": intent_decision.confidence,
+                "metadata": {**base.metadata, "escalated_by": "router_fallback"},
+            }
         )
-
-    def _dispatch(self, context: ConciergeContext, message_body: str) -> AgentResponse:
-        """Priority order per the reviewed spec: FAQ answers questions,
-        Ordering handles food, Revenue sells hotel services and
-        fulfills service requests, Guest Memory learns from confirmed
-        interactions. First `handled=True` wins — no agent ever sees
-        another agent's output, only the same shared `context`."""
-        faq_response = _faq_response_as_agent_response(faq_agent.answer(context, message_body))
-        if faq_response.handled:
-            return faq_response.model_copy(
-                update={"metadata": {**faq_response.metadata, "agent": "faq"}}
-            )
-
-        for name, agent in (
-            ("ordering", ordering_agent),
-            ("revenue", revenue_agent),
-            ("guest_memory", guest_memory_agent),
-        ):
-            response = agent.answer(context, message_body)
-            if response.handled:
-                return response.model_copy(
-                    update={"metadata": {**response.metadata, "agent": name}}
-                )
-
-        return AgentResponse(handled=False, response=None, should_escalate=False, metadata={})
 
 
 concierge_router = ConciergeRouter()
