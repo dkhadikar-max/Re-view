@@ -522,3 +522,30 @@ after Intent Classification has run and an `AgentResponse` has been
 produced — covering every outcome a turn can have: an agent's answer or
 proposal, an Escalation Filter trip, an unrecognized (`UNKNOWN`) intent,
 and small talk.
+
+**`intent`, `agent`, and `action_type` answer three different
+questions** (review feedback after PR #18): intent is what the guest
+wanted, agent is who handled it, `action_type` is what actually
+happened. `action_type` is a small, closed, `UPPER_SNAKE` vocabulary —
+`FAQ_ANSWERED`, `OFFER_PROPOSED`, `MEMORY_PROPOSED`, `ORDER_PROPOSED`,
+`SMALL_TALK_ACKNOWLEDGED`, `ESCALATED` — not a proliferation of ad-hoc
+per-agent strings; Argus learns more effectively from a consistent
+action taxonomy than from re-deriving it out of free text.
+`ESCALATED` is deliberately one canonical value covering every
+escalation path (an Escalation Filter trip, an `UNKNOWN` intent, an
+agent returning `handled=False`, an agent's own `should_escalate`) —
+the *why* already lives in `decision`/`intent`/`agent`, so
+`action_type` doesn't need to encode it too.
+
+**Future transitions (once the Conversation Manager exists) must be
+new events, not mutated status.** `ActionLogger.log_accept`/
+`log_reject`/`log_complete`/`log_failure` exist and can technically
+flip a row's `status` in place, but the preferred pattern going forward
+is: when a proposal resolves (a guest confirms an offer, staff
+completes a task), log a *new* `ActionEvent` — e.g. `OFFER_ACCEPTED` —
+sharing the original's `correlation_id`, rather than turning the
+existing `OFFER_PROPOSED` row into something else. That produces a
+complete, replayable event stream ("`OFFER_PROPOSED` then
+`OFFER_ACCEPTED`") instead of a single row whose meaning silently
+changed underneath it — the shape Argus actually needs to learn from a
+decision chain.
