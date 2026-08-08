@@ -79,7 +79,7 @@ there, not new Meta-side infrastructure. **Task 1 of §13 — nothing else
 can be safely built before this, since without it every reply risks
 going to, or being attributed to, the wrong hotel.**
 
-## 4. Architecture: Router → Context Builder → Agents → Conversation Manager
+## 4. Architecture: Context Builder → Intent Classifier → Agents → Conversation Manager
 
 **The single biggest architecture decision in this document: the LLM
 never queries the database.** A `Context Builder` assembles everything
@@ -97,7 +97,10 @@ Resolve tenant via phone_number_id (§3)
         │
         ▼
    Escalation Filter (§8) — runs on the raw message,
-   before Context Builder, before any agent, full stop
+   before Context Builder, before any agent, full stop.
+   Hard safety/urgency categories ONLY (medical, emergency,
+   safety, threat, refund/billing, complaint, human-requested)
+   — see §4.1 for why "not a KB topic" moved out of here.
         │
    ┌────┴─────┐
    │          │
@@ -111,45 +114,101 @@ staff    │ Context                     │
 Notif-   │ ├── Reservation             │
 ication) │ ├── Property                │
 No AI    │ ├── Knowledge Base          │
-reply    │ ├── Conversation History    │
-sent.    │ ├── Current Time            │
+reply    │ ├── Services & Packages     │
+sent.    │ ├── Conversation History    │
+         │ ├── Current Time            │
          │ ├── Previous AI Actions     │
          │ └── Available Automations   │
          └─────────────┬───────────────┘
                         │
                         ▼
-              Router — deterministic first (§4.1)
+              Intent Classifier (intent_classifier.py, §4.1)
+              classifies once, Router calls exactly the ONE
+              agent that owns that intent — no agent ever
+              sees a message outside its own territory:
                         │
-              ┌─────────┼──────────┐
-              │         │          │
-          FAQ Agent  Guest      Revenue
-          (§5.1)     Memory     Agent
-                      Agent     (§5.3)
-                      (§5.2)
-              │         │          │
-              └─────────┼──────────┘
-                        ▼
-              Conversation Manager (§5.5)
-                        │
-                        ▼
-                    WhatsApp
+         ┌──────────┬───┴──────┬──────────┬───────────┐
+         │          │          │          │           │
+   INFORMATION    ORDER   SERVICE_    MEMORY      SMALL_TALK /
+         │          │     REQUEST       │           UNKNOWN
+         ▼          ▼          ▼        ▼               │
+       FAQ      Ordering   Revenue    Guest        Acknowledge
+      Agent       Agent     Agent    Memory       (no escalate)
+     (§5.1)     (food/     (§5.3)    Agent          / Escalate
+                 menu)               (§5.2)         (UNKNOWN only)
+         │          │          │        │
+         └──────────┴────┬─────┴────────┘
+                          ▼
+              Router escalates to staff if the agent
+              that handled it set should_escalate=True,
+              or if it still returned handled=False (no
+              second agent to fall back to under intent-
+              first dispatch — §0: escalate rather than
+              answer imperfectly, never silently dropped).
+                          │
+                          ▼
+              Conversation Manager (§5.5, not yet built)
+                          │
+                          ▼
+                      WhatsApp
 ```
 
-### 4.1 Router — deterministic first, LLM only for ambiguity
+### 4.1 Intent Classifier — deterministic, classify once, dispatch once
 
 Sending every inbound message to an LLM just to decide *which agent*
 should handle it is unnecessary latency and cost for the common case.
-Router is a two-stage pipeline:
+The Router (`concierge_router.py`) doesn't try each agent in turn and
+take the first one to claim the message — an earlier version did, and
+it meant agents were competing over *vocabulary* instead of owning
+*intent*: "breakfast" appears in an information question ("what time is
+breakfast"), a service request ("can I add breakfast"), and an order
+("I'd like breakfast delivered to my room"), and whichever agent ran
+first would grab any message containing a keyword it recognized. FAQ
+Agent, forced to run first, ended up needing to import Revenue and
+Ordering Agent's own patterns just to know when to defer — the Router
+untangling conflicts that shouldn't have existed in the first place.
 
-1. **Intent rules** (deterministic, no model call): pattern/keyword
-   matching against the raw message. E.g. "wifi"/"password" → FAQ
-   Agent; "late checkout"/"upgrade"/"spa" → Revenue Agent; "I've stayed
-   before"/"last time" → Guest Memory Agent; "restaurant"/"nearby"/
-   "recommend" → FAQ Agent (§5.1's note on local recommendations —
-   deliberately not a fifth agent, see below).
-2. **LLM fallback**, only when stage 1 doesn't confidently match
-   anything — a single classification call ("which of these four
-   categories"), never an answer-generating one.
+Instead, `intent_classifier.py` classifies a message into exactly one
+category *before* any agent runs, and the Router calls exactly that
+category's one agent — which never even sees a message outside its own
+territory:
+
+    INFORMATION      → FAQ Agent (§5.1)
+    ORDER            → Ordering Agent (`ordering_agent.py`,
+                       MENU_ORDERING.md, food/menu)
+    SERVICE_REQUEST  → Revenue Agent (§5.3, services & upsells)
+    MEMORY           → Guest Memory Agent (§5.2)
+    SMALL_TALK       → acknowledged, not escalated (a "thanks!" doesn't
+                       need a human)
+    UNKNOWN          → escalate to staff (§0: when in doubt, escalate)
+
+Checked in that precedence — MEMORY, ORDER, SERVICE_REQUEST,
+INFORMATION, SMALL_TALK — because the more specific, action-oriented
+signal should win over the broadest one (INFORMATION's bare keyword
+match). "Can I check out at 4 PM?" and "What time is breakfast?" both
+still work correctly even though both mention a KB-topic keyword,
+because SERVICE_REQUEST is resolved before INFORMATION is ever checked
+— FAQ Agent is never even invoked for the first message, Revenue Agent
+is never even invoked for the second. "Restaurant"/"nearby"/"recommend"
+still routes to FAQ Agent via INFORMATION (§5.1's note on local
+recommendations — deliberately not a fifth agent).
+
+The classifier reuses each agent's own already-tested detection logic
+(`ordering_agent.is_food_order`, `revenue_agent.is_service_request`,
+`guest_memory_agent.is_memory_signal`, the same
+`KNOWLEDGE_BASE_TOPIC_PATTERNS` FAQAgent's own topic matching checks)
+rather than a second, parallel set of patterns that could drift out of
+sync with them — the one exception is SMALL_TALK's short pleasantry
+list, which no existing agent owns.
+
+If the mapped agent still returns `handled=False` (the classifier
+thought this was, say, a service request, but Revenue Agent's own
+finer-grained matching didn't actually recognize it), there's no second
+agent to fall back to under intent-first dispatch — that's treated the
+same as UNKNOWN and escalates. An LLM classification fallback for
+UNKNOWN messages remains a reasonable future addition — not yet built;
+today escalating is the safer default for a pre-pilot system with no
+real conversation volume yet to tune against.
 
 **On "Local Guide" as its own category**: local recommendations route
 to the **FAQ Agent**, not a fifth agent. The FAQ Agent's contract

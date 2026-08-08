@@ -52,13 +52,23 @@ from app.services.context_builder import ConciergeContext
 # can I eat", "order some food") since this agent's only downstream
 # actions are hand off to room service, point at the restaurant, or
 # escalate; there's no wrong dish to invent, so a wider net than the
-# Revenue Agent's action-oriented patterns is safe here.
+# Revenue Agent's action-oriented patterns is safe here. This agent is
+# only ever called for ORDER-intent messages (`intent_classifier.py`
+# decides that first, via `is_food_order` below), so there's no
+# FAQ/Revenue-overlap concern to design around here.
 _FOOD_INTENT_PATTERN = re.compile(
     r"\b(i'?m hungry|i am hungry|get (some )?food|order (some )?food|"
     r"something to eat|what can i eat|(get|order) room service|"
     r"can i (get|have|order) (something|food)|food options|hungry)\b",
     re.IGNORECASE,
 )
+
+
+def is_food_order(text: str) -> bool:
+    """True when the message matches this agent's own food-intent
+    pattern — used by `intent_classifier.py` to classify ORDER intent
+    without duplicating the pattern a second time."""
+    return bool(_FOOD_INTENT_PATTERN.search(text or ""))
 
 
 class OrderingAgent:

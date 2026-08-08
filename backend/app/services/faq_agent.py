@@ -13,15 +13,19 @@ assembled onto `ConciergeContext`, and nothing else.
   Knowledge Base fact, wrapped in a fixed template sentence, never
   generated or embellished.
 - Escalates when the answer isn't in the Knowledge Base, via
-  `should_escalate` — its own safety net, independent of (and a
-  deliberate duplicate of) the Escalation Filter's own KB-topic check.
-  Defense in depth: if the pipeline is ever composed differently and
-  this agent is called without the Escalation Filter having already
-  run, it still refuses to guess.
+  `should_escalate` — its own safety net. This agent is only ever
+  called for INFORMATION-intent messages (`intent_classifier.py`
+  decides that before this agent ever runs), so a bare-keyword match
+  here is safe — a booking-shaped message like "can I add a breakfast
+  package" is classified SERVICE_REQUEST and routed to Revenue Agent
+  before FAQ Agent ever sees it, not something this agent has to detect
+  and defer on itself.
 - Returns structured output only. It does not send a WhatsApp message
   and does not decide the outcome on the pipeline's behalf — that's the
-  Concierge Router's job (not yet built): send the answer, escalate, or
-  ask for clarification. This agent is one input to that decision.
+  Concierge Router's job (`concierge_router.py`). This agent is one
+  input to that decision, adapted into the Router's shared
+  `AgentResponse` shape there (this agent keeps its own `FAQResponse`
+  — see `agent_protocol.py`'s docstring for why it wasn't retrofitted).
 
 v1 is deterministic, same discipline as the Escalation Filter: matching
 a guest's question to a Knowledge Base topic is closer to keyword

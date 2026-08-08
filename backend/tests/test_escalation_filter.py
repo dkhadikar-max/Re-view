@@ -95,34 +95,41 @@ def test_normal_faq_question_does_not_escalate():
     assert decision.category is None
 
 
-def test_recognized_topic_with_no_answer_escalates():
+def test_recognized_topic_with_no_answer_does_not_escalate_here_anymore():
+    """As of the Concierge Router (concierge_router.py), this filter no
+    longer runs its own KB-topic pass — a recognized-but-unanswerable
+    topic is FAQAgent's own `should_escalate` to raise (see
+    test_faq_agent.py's `test_recognized_topic_with_empty_field_escalates`),
+    which the Router turns into a real staff escalation after giving
+    FAQAgent (and only FAQAgent, since it's asked first) the chance to
+    say so. This filter now only ever escalates for a hard safety/
+    urgency pattern, regardless of Knowledge Base state."""
     kb = KnowledgeBaseContext(wifi_password=None)  # KB exists but field empty
     decision = evaluate_escalation("What's the wifi password?", _make_context(kb))
-    assert decision.escalate is True
-    assert decision.category == EscalationCategory.outside_knowledge_base
+    assert decision.escalate is False
 
 
-def test_no_knowledge_base_at_all_escalates_recognized_topic():
+def test_no_knowledge_base_at_all_does_not_escalate_here_anymore():
     decision = evaluate_escalation("What's the wifi password?", _make_context(None))
-    assert decision.escalate is True
-    assert decision.category == EscalationCategory.outside_knowledge_base
+    assert decision.escalate is False
 
 
-def test_unknown_message_defaults_to_safe_behavior():
-    """Unknown/out-of-scope messages default to escalate — "when in
-    doubt, escalate" (CONCIERGE.md §0), not answered speculatively."""
+def test_unrecognized_message_does_not_escalate_here_anymore():
+    """As of the Concierge Router, an unrecognized message is no longer
+    this filter's concern either — Ordering/Revenue/Guest Memory Agents
+    each get a real chance to recognize it first; only the Router's own
+    fallback (see test_concierge_router.py) escalates if none of the
+    four agents do. "When in doubt, escalate" (CONCIERGE.md §0) still
+    holds, just one layer up from here now."""
     decision = evaluate_escalation("Do you sell lottery tickets here?", _make_context())
-    assert decision.escalate is True
-    assert decision.category == EscalationCategory.outside_knowledge_base
-    # Lower confidence than an actual pattern match — a real signal, not
-    # a guess dressed up as one.
-    assert decision.confidence < 0.5
+    assert decision.escalate is False
 
 
-def test_medical_pattern_takes_priority_over_knowledge_base_topic_overlap():
-    # "broken" is a complaint-pattern word, but a real emergency phrase
-    # should still win if it appears — patterns are checked before any
-    # KB-topic matching, and emergency is checked before complaint.
+def test_medical_pattern_takes_priority_over_complaint_pattern_overlap():
+    # A real emergency phrase should still win even when a complaint-
+    # adjacent word ("pool") also appears in the same message — patterns
+    # are checked in the fixed, safety-first order defined in
+    # _ESCALATION_PATTERNS (emergency before complaint).
     decision = evaluate_escalation(
         "Emergency — my child broke their arm by the pool", _make_context()
     )

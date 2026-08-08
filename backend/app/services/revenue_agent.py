@@ -71,91 +71,66 @@ _ACTIVE_OFFER_STATUSES = {"offered", "accepted"}
 
 # Canonical `service_type` slugs this agent recognizes by phrasing, per
 # the spec's "Hotel services" list. Action/request-oriented, not topic-
-# oriented — "what time is breakfast" is FAQ Agent's territory (a fact
-# lookup); "can I add breakfast" is this agent's (a sales/service ask).
-# A hotel-configured service outside this fixed list is still
-# reachable via the literal-name fallback in `_match_service`.
-_SERVICE_TYPE_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    (
-        "late_checkout",
-        re.compile(
-            r"\b(late check.?out|check.?out (later|late)|check out at \d|"
-            r"stay a bit longer)\b",
-            re.IGNORECASE,
-        ),
+# oriented — this agent is only ever called for SERVICE_REQUEST-intent
+# messages (`intent_classifier.py` decides that first), so there's no
+# FAQ-overlap concern here to design around, unlike an earlier version
+# of this file. A hotel-configured service outside this fixed list is
+# still reachable via the literal-name fallback in `_match_service`.
+#
+# A dict (not a list of tuples) so a lookup by service_type is O(1)
+# where needed (`is_service_request` below); insertion order is still
+# what `_match_service` iterates in, so first-match priority on a
+# genuine ambiguity is unchanged.
+_SERVICE_TYPE_PATTERNS: dict[str, "re.Pattern[str]"] = {
+    "late_checkout": re.compile(
+        r"\b(late check.?out|check.?out (later|late)|check out at \d|"
+        r"stay a bit longer)\b",
+        re.IGNORECASE,
     ),
-    (
-        "early_checkin",
-        re.compile(
-            r"\b(early check.?in|check in (early|earlier)|arrive early)\b", re.IGNORECASE
-        ),
+    "early_checkin": re.compile(
+        r"\b(early check.?in|check in (early|earlier)|arrive early)\b", re.IGNORECASE
     ),
-    (
-        "breakfast",
-        re.compile(
-            r"\b(add breakfast|breakfast package|include breakfast|"
-            r"(get|book|can i (get|have)) breakfast)\b",
-            re.IGNORECASE,
-        ),
+    "breakfast": re.compile(
+        r"\b(add breakfast|breakfast package|include breakfast|"
+        r"(get|book|can i (get|have)) breakfast)\b",
+        re.IGNORECASE,
     ),
-    (
-        "dinner",
-        re.compile(
-            r"\b(reserve (a table|dinner)|book (a table|dinner)|dinner reservation|"
-            r"table for \d)\b",
-            re.IGNORECASE,
-        ),
+    "dinner": re.compile(
+        r"\b(reserve (a table|dinner)|book (a table|dinner)|dinner reservation|"
+        r"table for \d)\b",
+        re.IGNORECASE,
     ),
-    (
-        "room_service",
-        re.compile(r"\b(order room service|room service (please|order))\b", re.IGNORECASE),
+    "room_service": re.compile(
+        r"\b(order room service|room service (please|order))\b", re.IGNORECASE
     ),
-    (
-        "laundry",
-        re.compile(
-            r"\b(laundry service|do my laundry|laundry pickup|get my laundry)\b",
-            re.IGNORECASE,
-        ),
+    "laundry": re.compile(
+        r"\b(laundry service|do my laundry|laundry pickup|get my laundry)\b",
+        re.IGNORECASE,
     ),
-    (
-        "spa",
-        re.compile(
-            r"\bbook (a )?(spa|massage|treatment)\b|\bspa (appointment|booking)\b",
-            re.IGNORECASE,
-        ),
+    "spa": re.compile(
+        r"\bbook (a )?(spa|massage|treatment)\b|\bspa (appointment|booking)\b",
+        re.IGNORECASE,
     ),
-    (
-        "airport_transfer",
-        re.compile(
-            r"\b(airport (transfer|pickup|pick.?up)|pick me up|"
-            r"(ride|transfer) to the airport|need an? (airport )?transfer)\b",
-            re.IGNORECASE,
-        ),
+    "airport_transfer": re.compile(
+        r"\b(airport (transfer|pickup|pick.?up)|pick me up|"
+        r"(ride|transfer) to the airport|need an? (airport )?transfer)\b",
+        re.IGNORECASE,
     ),
-    (
-        "parking",
-        re.compile(r"\b(book|reserve|need|want) .{0,15}parking\b", re.IGNORECASE),
+    "parking": re.compile(r"\b(book|reserve|need|want) .{0,15}parking\b", re.IGNORECASE),
+    "kids_activities": re.compile(
+        r"\b(kids? (club|activities)|activities for (my|our) (kids|children))\b",
+        re.IGNORECASE,
     ),
-    (
-        "kids_activities",
-        re.compile(
-            r"\b(kids? (club|activities)|activities for (my|our) (kids|children))\b",
-            re.IGNORECASE,
-        ),
+    "tours": re.compile(
+        r"\b(book a tour|city tour|sightseeing tour|guided tour)\b", re.IGNORECASE
     ),
-    (
-        "tours",
-        re.compile(r"\b(book a tour|city tour|sightseeing tour|guided tour)\b", re.IGNORECASE),
+    "gym": re.compile(
+        r"\b(gym package|fitness package|personal train(er|ing))\b", re.IGNORECASE
     ),
-    (
-        "gym",
-        re.compile(r"\b(gym package|fitness package|personal train(er|ing))\b", re.IGNORECASE),
+    "cab_booking": re.compile(
+        r"\b(book a cab|call a taxi|arrange a taxi|cab booking)\b", re.IGNORECASE
     ),
-    (
-        "cab_booking",
-        re.compile(r"\b(book a cab|call a taxi|arrange a taxi|cab booking)\b", re.IGNORECASE),
-    ),
-]
+}
 
 # Explicit asks tied to an occasion/package — a definite request that
 # deserves a definite answer, so a miss here escalates rather than
@@ -238,7 +213,7 @@ def _match_service(
     """Returns (service_type, matching configured row or None). A
     non-None service_type with a None row means the guest clearly asked
     for something this property hasn't configured at all."""
-    for service_type, pattern in _SERVICE_TYPE_PATTERNS:
+    for service_type, pattern in _SERVICE_TYPE_PATTERNS.items():
         if pattern.search(guest_message):
             row = next(
                 (s for s in services if s.service_type.strip().lower() == service_type),
@@ -261,6 +236,24 @@ def _match_service(
                 return service.service_type, service
 
     return None, None
+
+
+def is_service_request(guest_message: str, context: ConciergeContext) -> bool:
+    """True when this agent would recognize the message as a service or
+    occasion/package request — used by `intent_classifier.py` to
+    classify SERVICE_REQUEST intent without duplicating this agent's
+    own matching logic a second time. Reuses `_match_service` (so the
+    context-aware literal-name fallback is covered too, not just the
+    fixed patterns) plus the occasion trigger patterns."""
+    text = guest_message or ""
+    service_type, _ = _match_service(text, context.services)
+    if service_type is not None:
+        return True
+    if any(pattern.search(text) for _, pattern in _OCCASION_REQUEST_PATTERNS):
+        return True
+    if any(pattern.search(text) for _, pattern in _OCCASION_MENTION_PATTERNS):
+        return True
+    return False
 
 
 def _match_occasion_package(
