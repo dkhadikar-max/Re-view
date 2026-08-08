@@ -195,7 +195,7 @@ def test_small_talk_creates_one_completed_action_event(db_session):
     event = events[0]
     assert event.intent == "small_talk"
     assert event.agent is None
-    assert event.action_type == "SMALL_TALK_ACKNOWLEDGED"
+    assert event.action_type == "SMALL_TALK"
     assert event.status == ActionEventStatus.completed
 
 
@@ -214,7 +214,7 @@ def test_unknown_intent_creates_one_escalated_action_event(db_session):
     event = events[0]
     assert event.intent == "unknown"
     assert event.agent is None
-    assert event.action_type == "ESCALATED"
+    assert event.action_type == "UNKNOWN"
     assert event.status == ActionEventStatus.escalated
 
 

@@ -112,16 +112,24 @@ _AGENT_COULD_NOT_HELP_REASON = "{agent} could not fulfill this request"
 
 # action_type answers a different question than intent/agent do: intent
 # is what the guest wanted, agent is who handled it, action_type is
-# what actually happened (PR #18 review). A small, closed, UPPER_SNAKE
-# vocabulary — Argus learns from a consistent action taxonomy, not a
-# proliferation of ad-hoc per-agent/per-branch strings. ESCALATED is
-# deliberately a single canonical value covering every escalation path
-# (Escalation Filter trip, UNKNOWN intent, an agent returning
-# handled=False, an agent's own should_escalate) — the *why* already
-# lives in `decision`/`intent`/`agent`, action_type doesn't need to
-# encode it too.
+# what actually happened (PR #18/#19 review). Frozen as of PR #19 —
+# CONCIERGE.md's Action Ledger section lists the full v1 vocabulary,
+# including values reserved for the Conversation Manager/Memory Manager
+# that this Router doesn't emit yet. New capabilities should reuse an
+# existing value where possible; a genuinely new one is a deliberate,
+# documented addition, not an ad-hoc string invented at a call site.
+#
+# ESCALATED covers every "an agent tried and couldn't help" path (an
+# agent returning handled=False, an agent's own should_escalate, or the
+# Escalation Filter's own hard-safety trip) — the *why* already lives in
+# `decision`/`intent`/`agent`. UNKNOWN is kept separate: it specifically
+# means the Intent Classifier itself had no opinion at all, a fact worth
+# distinguishing from "an agent had an opinion and still couldn't help."
+# Both still result in a staff Task today (`status=escalated` either
+# way) — that's an infrastructure fact, not what action_type encodes.
 _ACTION_TYPE_ESCALATED = "ESCALATED"
-_ACTION_TYPE_SMALL_TALK_ACKNOWLEDGED = "SMALL_TALK_ACKNOWLEDGED"
+_ACTION_TYPE_UNKNOWN = "UNKNOWN"
+_ACTION_TYPE_SMALL_TALK = "SMALL_TALK"
 _ACTION_TYPE_AGENT_RESPONDED = "AGENT_RESPONDED"
 
 # Per-agent (action_type, terminal status) for a handled, non-escalating
@@ -319,7 +327,7 @@ class ConciergeRouter:
                 context,
                 intent=intent_decision.category.value,
                 agent=None,
-                action_type=_ACTION_TYPE_SMALL_TALK_ACKNOWLEDGED,
+                action_type=_ACTION_TYPE_SMALL_TALK,
                 status=ActionEventStatus.completed,
                 confidence=intent_decision.confidence,
                 input_summary="Guest sent a conversational pleasantry.",
@@ -343,6 +351,7 @@ class ConciergeRouter:
                 intent_decision,
                 _NO_INTENT_RECOGNIZED_REASON,
                 input_summary="Guest message did not match any recognized intent.",
+                action_type=_ACTION_TYPE_UNKNOWN,
             )
 
         response = self._dispatch(intent_decision.category, context, message_body)
@@ -443,6 +452,7 @@ class ConciergeRouter:
         reason: str,
         *,
         input_summary: str,
+        action_type: str = _ACTION_TYPE_ESCALATED,
         existing_response: Optional[AgentResponse] = None,
     ) -> AgentResponse:
         # escalate_to_staff needs the guest's real message — staff have
@@ -466,7 +476,7 @@ class ConciergeRouter:
             context,
             intent=intent_decision.category.value,
             agent=agent_name,
-            action_type=_ACTION_TYPE_ESCALATED,
+            action_type=action_type,
             status=ActionEventStatus.escalated,
             confidence=intent_decision.confidence,
             input_summary=input_summary,
