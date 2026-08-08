@@ -7,9 +7,11 @@
 The orchestrator that turns the four independently-built agents into
 one working concierge. Per CONCIERGE.md's own diagram:
 
-    WhatsApp -> Tenant Routing -> Escalation Filter -> Context Builder ->
-    Intent Classifier -> [FAQ | Ordering | Revenue | Guest Memory] ->
-    Action Logger -> (Conversation Manager, not yet built) -> WhatsApp
+    WhatsApp -> Tenant Routing -> Escalation Filter ->
+    Conversation Manager gate (active PendingAction?) ->
+    Context Builder -> Intent Classifier ->
+    [FAQ | Ordering | Revenue | Guest Memory] ->
+    Action Logger -> Conversation Manager -> WhatsApp
 
 This module owns exactly the "Router" box and nothing else: it contains
 NO business logic of its own — every actual decision (what to say,
@@ -32,9 +34,16 @@ this design avoids: `intent_classifier.py` classifies the message
 that intent — which never even sees a message outside its territory.
 
 Responsibilities:
-- Run the Escalation Filter first, on the raw message, before Context
-  Builder or Intent Classifier ever runs (CONCIERGE.md §8) — a message
-  that needs a human never reaches an agent at all.
+- Run the Escalation Filter first, on the raw message, before Intent
+  Classifier ever runs (CONCIERGE.md §8) — a message that needs a
+  human never reaches an agent at all.
+- Check the Conversation Manager's own gate next (CONCIERGE.md §5.5/
+  §16): is there an active `PendingAction` for this guest? If so, this
+  message is a reply to an already-open question, not a fresh
+  request — hand it straight to `ConversationManager.resolve()` and
+  skip Intent Classification and agent dispatch entirely. A guest's
+  "yes" to a late-checkout offer must never get re-classified as
+  SMALL_TALK just because it superficially resembles one.
 - Build the `ConciergeContext` once per message and hand the exact same
   object to the Intent Classifier and whichever agent runs.
 - Classify intent, then call the one agent mapped to that intent
@@ -78,11 +87,16 @@ FAQAgent itself stays untouched.
 Intent Classifier's own decision, purely for observability — no agent
 sets these itself (`agent_protocol.py`'s docstring).
 
-Deliberately NOT this module's job (still roadmap steps ahead):
+Deliberately NOT this module's job:
 - Sending the winning response back to the guest over WhatsApp. Per
-  CONCIERGE.md's diagram, that's the Conversation Manager's job (§5.5,
-  not yet built — the very next roadmap step). This Router returns a
-  decision; it does not act on it.
+  CONCIERGE.md's diagram, that's a later orchestration step's job —
+  this Router (and, when it runs instead, the Conversation Manager)
+  returns a decision; neither one sends it.
+- Anything the Conversation Manager itself owns once its gate fires:
+  interpreting a guest's confirmation/cancellation, creating a staff
+  `Task` for a confirmed action, or deciding which `action_type` a
+  resolution logs. This Router only asks "is one active?" and, if so,
+  gets out of the way (`app/services/conversation_manager.py`).
 """
 
 from __future__ import annotations
@@ -91,10 +105,11 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import ActionEventStatus, ActorType
+from app.models.entities import ActionEvent, ActionEventStatus, ActorType
 from app.services.action_logger import action_logger
 from app.services.agent_protocol import AgentResponse
 from app.services.context_builder import ConciergeContext, ContextBuilder
+from app.services.conversation_manager import conversation_manager
 from app.services.escalation_filter import (
     EscalationCategory,
     EscalationDecision,
@@ -316,6 +331,17 @@ class ConciergeRouter:
                 },
             )
 
+        # Conversation Manager's own gate — checked before Intent
+        # Classification, not after (CONCIERGE.md §5.5/§16): a reply to
+        # an open question must never get re-classified as a fresh
+        # intent (a guest's "yes" to a late-checkout offer is not
+        # SMALL_TALK just because it superficially resembles one).
+        pending = conversation_manager.find_active(
+            db, tenant_id=context.tenant_id, guest_id=context.guest.id
+        )
+        if pending is not None:
+            return conversation_manager.resolve(db, context, pending, message_body)
+
         intent_decision = classify_intent(message_body, context)
 
         if intent_decision.category == IntentCategory.small_talk:
@@ -422,7 +448,7 @@ class ConciergeRouter:
         action_type, status = _SUCCESS_ACTION_TYPE.get(
             agent_name or "", (_ACTION_TYPE_AGENT_RESPONDED, ActionEventStatus.proposed)
         )
-        self._log(
+        event = self._log(
             db,
             context,
             intent=intent_decision.category.value,
@@ -431,7 +457,7 @@ class ConciergeRouter:
             status=status,
             # An agent produced this outcome — every success path today
             # is the AI acting, never a guest or staff member (those are
-            # reserved for the Conversation Manager, not yet built).
+            # reserved for the Conversation Manager).
             actor=ActorType.ai,
             confidence=intent_decision.confidence,
             input_summary=input_summary,
@@ -439,6 +465,11 @@ class ConciergeRouter:
             output_summary=output_summary,
             metadata=response.metadata,
         )
+        # Conversation Manager decides for itself whether this
+        # action_type has a real confirmation flow yet (today, only
+        # OFFER_PROPOSED does) — the Router doesn't need to know that
+        # distinction, it just always offers the freshly-logged event.
+        conversation_manager.register_proposal(db, event=event)
         return response
 
     def _dispatch(
@@ -526,7 +557,7 @@ class ConciergeRouter:
         decision_text: str,
         output_summary: Optional[str],
         metadata: Optional[dict] = None,
-    ) -> None:
+    ) -> ActionEvent:
         """One `ActionEvent` per `route()` call — see this module's own
         docstring and `action_logger.py`. `input_summary`/`decision_text`/
         `output_summary` are always already-built, structured summaries
@@ -541,8 +572,12 @@ class ConciergeRouter:
         the Router/Classifier/Escalation Filter decided without one),
         and a shared default would hide that distinction instead of
         forcing every new call site to state it.
+
+        Returns the created event so a caller (today, just the agent
+        success branch below) can hand it to `ConversationManager` —
+        the Router itself never reads it back.
         """
-        action_logger.log_action(
+        return action_logger.log_action(
             db,
             tenant_id=context.tenant_id,
             guest_id=context.guest.id,
