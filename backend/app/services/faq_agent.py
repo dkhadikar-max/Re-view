@@ -76,6 +76,51 @@ _ANSWER_TEMPLATES: dict[str, str] = {
 _ANSWERED_CONFIDENCE = 0.85
 _NO_ANSWER_CONFIDENCE = 0.0
 
+# Fields whose stored value is a credential, not a fact meant to be
+# read back to anyone but the guest it's answered to. The Knowledge
+# Base Editor's "what would the guest actually be told" preview
+# (CONCIERGE.md §7) must never echo one of these back in a UI or log —
+# reuses `render_answer`/`preview_answers` below, so this exclusion
+# only needs to be declared once, here, not at every call site.
+PREVIEW_EXCLUDED_FIELDS = frozenset({"wifi_password"})
+
+
+def render_answer(field_name: str, value: Optional[str]) -> Optional[str]:
+    """Renders one Knowledge Base field's stored value into the exact
+    sentence `FAQAgent.answer()` itself would give a guest for it.
+    Returns `None` when there's no value to show — an empty field is an
+    honest "don't know", not a reason to render a hollow sentence.
+    """
+    if not value:
+        return None
+    return _ANSWER_TEMPLATES.get(field_name, "{value}").format(value=value)
+
+
+def preview_answers(kb: object) -> dict[str, str]:
+    """Every populated field's rendered guest-facing answer — the
+    Knowledge Base Editor's live preview. Reuses `_ANSWER_TEMPLATES`,
+    the exact templates `FAQAgent.answer()` uses for real guest
+    messages, so the preview can never drift from actual agent
+    behavior. `wifi_password` is deliberately excluded even though it
+    has a template above (see `PREVIEW_EXCLUDED_FIELDS`) — a credential
+    shouldn't be echoed back in a preview pane, only entered and
+    stored. Accepts anything with the right attributes (a
+    `PropertyKnowledgeBase` row, or `None` for a property with no
+    Knowledge Base row yet) rather than importing the ORM entity here,
+    keeping this module's only real dependency on Knowledge Base shape
+    the field names themselves.
+    """
+    if kb is None:
+        return {}
+    preview: dict[str, str] = {}
+    for field_name in _ANSWER_TEMPLATES:
+        if field_name in PREVIEW_EXCLUDED_FIELDS:
+            continue
+        rendered = render_answer(field_name, getattr(kb, field_name, None))
+        if rendered is not None:
+            preview[field_name] = rendered
+    return preview
+
 
 class FAQResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -113,9 +158,8 @@ class FAQAgent:
                 should_escalate=True,
             )
 
-        template = _ANSWER_TEMPLATES.get(matched_field, "{value}")
         return FAQResponse(
-            answer=template.format(value=field_value),
+            answer=render_answer(matched_field, field_value),
             confidence=_ANSWERED_CONFIDENCE,
             source=matched_field,
             should_escalate=False,

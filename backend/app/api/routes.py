@@ -48,6 +48,7 @@ from app.models.entities import (
     Offer,
     OfferStatus,
     Property,
+    PropertyKnowledgeBase,
     Reservation,
     ReservationStatus,
     Review,
@@ -82,6 +83,8 @@ from app.schemas import (
     PdfImportRequest,
     PdfImportResult,
     PdfValidationReport,
+    PropertyKnowledgeBaseOut,
+    PropertyKnowledgeBaseUpdate,
     PropertyOut,
     PropertyUpdate,
     ReservationCreate,
@@ -109,8 +112,10 @@ from app.services.ai_orchestrator import (
 from app.services.audit import write_audit
 from app.services.celebrate_rewards import run_celebrate_campaigns, unlock_after_review
 from app.services.connectors import sync_connector
+from app.services.context_builder import ContextBuilder
 from app.services.currency import currency_for_country
 from app.services.event_bus import event_bus
+from app.services.faq_agent import preview_answers
 from app.services.guest_intelligence import (
     GuestIntelligence,
     GuestOpportunity,
@@ -549,6 +554,90 @@ def update_property(
     db.commit()
     db.refresh(property_)
     return property_
+
+
+def _knowledge_base_out(kb: PropertyKnowledgeBase | None) -> PropertyKnowledgeBaseOut:
+    """Builds the response for both the GET and PATCH knowledge-base
+    endpoints — a property with no row yet is a valid, honest empty
+    state (never a 404), not a reason to fabricate a row."""
+    data = (
+        {
+            field: getattr(kb, field)
+            for field in PropertyKnowledgeBaseOut.model_fields
+            if field != "preview"
+        }
+        if kb is not None
+        else {}
+    )
+    return PropertyKnowledgeBaseOut(**data, preview=preview_answers(kb))
+
+
+@router.get(
+    "/properties/{property_id}/knowledge-base", response_model=PropertyKnowledgeBaseOut
+)
+def get_property_knowledge_base(
+    property_id: str, user: AuthUser, db: Session = Depends(get_db)
+) -> PropertyKnowledgeBaseOut:
+    get_tenant_entity(db, Property, property_id, user.tenant_id, not_found="Property not found")
+    kb = (
+        db.query(PropertyKnowledgeBase)
+        .filter(PropertyKnowledgeBase.property_id == property_id)
+        .first()
+    )
+    return _knowledge_base_out(kb)
+
+
+@router.patch(
+    "/properties/{property_id}/knowledge-base", response_model=PropertyKnowledgeBaseOut
+)
+def update_property_knowledge_base(
+    property_id: str,
+    payload: PropertyKnowledgeBaseUpdate,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> PropertyKnowledgeBaseOut:
+    get_tenant_entity(db, Property, property_id, user.tenant_id, not_found="Property not found")
+    kb = (
+        db.query(PropertyKnowledgeBase)
+        .filter(PropertyKnowledgeBase.property_id == property_id)
+        .first()
+    )
+    if kb is None:
+        kb = PropertyKnowledgeBase(property_id=property_id, tenant_id=user.tenant_id)
+        db.add(kb)
+
+    # Only the fields actually present in the request are touched — a
+    # client omitting a field leaves its stored value alone; explicitly
+    # sending null clears it (PropertyKnowledgeBaseUpdate's own
+    # docstring).
+    changed_fields = payload.model_dump(exclude_unset=True)
+    for field, value in changed_fields.items():
+        setattr(kb, field, value)
+    db.flush()
+
+    # The hotel owns the truth, the AI consumes it — a stale cached
+    # context is exactly the failure mode ContextBuilder.invalidate_tenant
+    # exists to prevent (its own docstring: "anything that writes to
+    # PropertyKnowledgeBase ... MUST call this after committing").
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="update_knowledge_base",
+        entity_type="property_knowledge_base",
+        entity_id=kb.id,
+        # Field *names* only, never values — wifi_password is a
+        # credential, and several other fields (house_rules,
+        # emergency_contacts) are long free text that doesn't belong in
+        # an audit blob either. Which facts changed is what staff need
+        # to see in an audit trail, not a duplicate copy of the facts
+        # themselves (those already live in PropertyKnowledgeBase).
+        details={"changed_fields": sorted(changed_fields)},
+    )
+    db.commit()
+    db.refresh(kb)
+    ContextBuilder.invalidate_tenant(user.tenant_id)
+    return _knowledge_base_out(kb)
 
 
 @router.get("/guests", response_model=list[GuestIntelligence])

@@ -593,6 +593,38 @@ export type PropertyUpdate = {
   google_review_url?: string | null;
 };
 
+// Field list mirrors the backend's PropertyKnowledgeBase exactly — no
+// new content architecture, per the Knowledge Base Editor's own scope.
+export type PropertyKnowledgeBase = {
+  wifi_password?: string | null;
+  breakfast_hours?: string | null;
+  pool_hours?: string | null;
+  gym_hours?: string | null;
+  spa_hours?: string | null;
+  parking_info?: string | null;
+  checkin_time?: string | null;
+  checkout_time?: string | null;
+  late_checkout_policy?: string | null;
+  airport_transfer_info?: string | null;
+  pet_policy?: string | null;
+  house_rules?: string | null;
+  policies?: string | null;
+  restaurants?: string | null;
+  cafes?: string | null;
+  nearby_attractions?: string | null;
+  services?: string | null;
+  room_service_hours?: string | null;
+  emergency_contacts?: string | null;
+  // field_name -> the exact sentence FAQAgent would answer a guest
+  // with today. Never includes wifi_password — a credential, not a
+  // fact meant to be echoed back anywhere but a guest's own answer.
+  preview: Record<string, string>;
+};
+
+export type PropertyKnowledgeBaseUpdate = Partial<
+  Omit<PropertyKnowledgeBase, "preview">
+>;
+
 export const api = {
   login: async (email: string, password: string) => {
     const body = new URLSearchParams();
@@ -622,6 +654,16 @@ export const api = {
   properties: () => request<Property[]>("/api/properties"),
   updateProperty: (id: string, payload: PropertyUpdate) =>
     request<Property>(`/api/properties/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  propertyKnowledgeBase: (propertyId: string) =>
+    request<PropertyKnowledgeBase>(`/api/properties/${propertyId}/knowledge-base`),
+  updatePropertyKnowledgeBase: (
+    propertyId: string,
+    payload: PropertyKnowledgeBaseUpdate
+  ) =>
+    request<PropertyKnowledgeBase>(`/api/properties/${propertyId}/knowledge-base`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
