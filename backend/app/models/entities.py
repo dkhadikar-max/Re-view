@@ -109,6 +109,20 @@ class ActionEventStatus(str, enum.Enum):
     escalated = "escalated"
 
 
+class ActorType(str, enum.Enum):
+    """Who performed an `ActionEvent` — a platform contract as of PR #20
+    review, frozen alongside `action_type` (CONCIERGE.md's Action Ledger
+    section). Stored uppercase (unlike this file's other enums) to match
+    that exact contract. `ai`/`system` are the only values the Router
+    emits today; `guest`/`staff` are reserved for the Conversation
+    Manager (a guest confirming/declining, staff completing a task)."""
+
+    ai = "AI"
+    guest = "GUEST"
+    staff = "STAFF"
+    system = "SYSTEM"
+
+
 class Tenant(Base):
     __tablename__ = "tenants"
 
@@ -469,6 +483,18 @@ class ActionEvent(Base):
     a multi-turn resolution is the Conversation Manager's job once it
     exists (not yet — see roadmap), by passing the original event's
     `correlation_id` through when it re-dispatches to the owning agent.
+
+    `actor` identifies who performed the action — `ActorType.ai` when a
+    specific agent (FAQ/Revenue/Guest Memory/Ordering) actually ran and
+    produced the outcome, whether that outcome was an answer, a
+    proposal, or the agent's own `should_escalate`/`handled=False`.
+    `ActorType.system` is for a decision made *without* any agent
+    running at all — the Escalation Filter's own hard-safety pattern
+    match, an `UNKNOWN` intent classification, or an auto-acknowledged
+    `SMALL_TALK`. `ActorType.guest`/`ActorType.staff` are reserved for
+    the Conversation Manager (a guest confirming/declining, staff
+    completing a task) — required on every row, same "identify who did
+    this" discipline the review that added it described.
     """
 
     __tablename__ = "action_events"
@@ -480,6 +506,7 @@ class ActionEvent(Base):
         Index("ix_action_event_created_at", "created_at"),
         Index("ix_action_event_action_type", "action_type"),
         Index("ix_action_event_correlation_id", "correlation_id"),
+        Index("ix_action_event_actor", "actor"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -494,6 +521,17 @@ class ActionEvent(Base):
     intent: Mapped[str] = mapped_column(String(32))
     agent: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     action_type: Mapped[str] = mapped_column(String(64))
+    # values_callable is required here (unlike every other Enum column
+    # in this file): SQLAlchemy's Enum type defaults to storing a Python
+    # enum's *name*, not its .value. Every other enum in this file has
+    # name == value (e.g. ActionEventStatus.proposed == "proposed"), so
+    # the default was invisible; ActorType.ai == "AI" deliberately
+    # differs (lowercase member for callers, uppercase stored value per
+    # the platform contract) and would otherwise silently insert "ai"
+    # against a Postgres enum type that only accepts "AI".
+    actor: Mapped[ActorType] = mapped_column(
+        Enum(ActorType, values_callable=lambda enum_cls: [member.value for member in enum_cls])
+    )
 
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 

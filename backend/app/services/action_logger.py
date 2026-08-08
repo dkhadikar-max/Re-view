@@ -43,7 +43,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import ActionEvent, ActionEventStatus
+from app.models.entities import ActionEvent, ActionEventStatus, ActorType
 
 _MAX_TEXT_LENGTH = 2000
 
@@ -72,6 +72,7 @@ class ActionLogger:
         tenant_id: str,
         guest_id: str,
         intent: str,
+        actor: ActorType,
         input_summary: str,
         decision: str,
         reservation_id: Optional[str] = None,
@@ -89,6 +90,12 @@ class ActionLogger:
         construct an `ActionEvent` — every other method here only
         transitions `status` on a row this method already created.
 
+        `actor` is required, not optional — "every ActionEvent should
+        identify who performed the action" (review after PR #20), a
+        platform contract same as `action_type`. See `ActionEvent`'s own
+        docstring in `entities.py` for the `ActorType.ai`/`.system`
+        distinction this codebase's callers use today.
+
         `correlation_id` groups every event from the same guest
         interaction, even across separate turns (`ActionEvent`'s own
         docstring). Defaults to a fresh id — the common case today,
@@ -105,6 +112,7 @@ class ActionLogger:
             intent=intent,
             agent=agent,
             action_type=action_type,
+            actor=actor,
             confidence=confidence,
             input_summary=_cap(input_summary) or "",
             decision=_cap(decision) or "",
