@@ -516,6 +516,111 @@ class PdfImportResult(BaseModel):
     message: str
 
 
+# -- Menu Importer (MENU_ORDERING.md §3, frozen v1 sub-scope) --
+# Deliberately mirrors the PDF import schemas above field-for-field —
+# same review-before-publish contract, same Ready to Import / Needs
+# Review shape, applied to menu items instead of reservations.
+
+
+class MenuExtractionIssue(BaseModel):
+    field: Optional[str] = None
+    message: str
+
+
+class MenuItemDraft(BaseModel):
+    """The structured shape both AI/heuristic extraction and a human's
+    edits on the Review screen produce — the menu equivalent of
+    `ReservationCreate`."""
+
+    menu_name: str = Field(default="Menu", max_length=128)
+    name: str = Field(min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=64)
+    description: Optional[str] = None
+    price: float = Field(ge=0)
+    currency: str = Field(default="EUR", min_length=3, max_length=3)
+    available: bool = True
+    vegetarian: bool = False
+    vegan: bool = False
+    gluten_free: bool = False
+    spicy: bool = False
+
+
+class MenuExtractedItem(BaseModel):
+    """One item extracted from an uploaded menu, staged for mandatory
+    human review (MENU_ORDERING.md's own guardrail: no AI-extracted item
+    becomes guest-visible automatically) — nothing here has been
+    imported yet. `item` is None when extraction couldn't produce a
+    valid `MenuItemDraft` at all (missing name or price); the row still
+    shows up as Needs Review rather than the line simply vanishing.
+    """
+
+    row_index: int
+    review_state: Literal["ready_to_import", "needs_review"]
+    item: Optional[MenuItemDraft] = None
+    issues: list[MenuExtractionIssue] = []
+    raw_text_excerpt: Optional[str] = None
+
+
+class MenuValidationReport(BaseModel):
+    filename: str
+    total_items: int
+    ready_count: int
+    needs_review_count: int
+    rows: list[MenuExtractedItem]
+
+
+class MenuConfirmItem(BaseModel):
+    """What the Review screen submits back per approved (optionally
+    edited) row."""
+
+    item: MenuItemDraft
+
+
+class MenuImportRequest(BaseModel):
+    filename: Optional[str] = None
+    rows: list[MenuConfirmItem] = Field(min_length=1)
+
+
+class MenuImportResult(BaseModel):
+    import_session_id: str
+    imported: int
+    message: str
+
+
+class MenuItemOut(ORMModel):
+    id: str
+    menu_name: str
+    name: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    price: float
+    currency: str
+    available: bool
+    vegetarian: bool
+    vegan: bool
+    gluten_free: bool
+    spicy: bool
+    source_import_id: Optional[str] = None
+
+
+class MenuItemUpdate(BaseModel):
+    """Every field optional so a partial edit only touches what the
+    staff member actually changed — same `exclude_unset` convention the
+    Knowledge Base Editor's update schema already uses."""
+
+    menu_name: Optional[str] = Field(default=None, max_length=128)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=64)
+    description: Optional[str] = None
+    price: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    available: Optional[bool] = None
+    vegetarian: Optional[bool] = None
+    vegan: Optional[bool] = None
+    gluten_free: Optional[bool] = None
+    spicy: Optional[bool] = None
+
+
 class DecideResult(BaseModel):
     decision: AIDecisionOut
     execution: dict[str, Any]
