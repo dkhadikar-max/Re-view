@@ -100,6 +100,15 @@ class WorkflowRunStatus(str, enum.Enum):
     failed = "failed"
 
 
+class ActionEventStatus(str, enum.Enum):
+    proposed = "proposed"
+    accepted = "accepted"
+    rejected = "rejected"
+    completed = "completed"
+    failed = "failed"
+    escalated = "escalated"
+
+
 class Tenant(Base):
     __tablename__ = "tenants"
 
@@ -419,6 +428,88 @@ class Message(Base):
 
     guest: Mapped[Guest] = relationship(back_populates="messages")
     reservation: Mapped[Optional[Reservation]] = relationship(back_populates="messages")
+
+
+class ActionEvent(Base):
+    """The Action Ledger — CONCIERGE.md's "Action Ledger" section.
+    ReVisit's operational record of every meaningful AI decision, and
+    the future learning dataset for Argus (ReVisit's parent product).
+    Not used for runtime decision-making by anything in this codebase
+    today — this table exists purely to capture what happened, not to
+    influence what happens next.
+
+    Immutable by convention, not by database constraint: only
+    `ActionLogger` (`app/services/action_logger.py`) may create a row,
+    and only its own `log_accept`/`log_reject`/`log_complete`/
+    `log_failure` methods may ever change one after creation — and even
+    then, only the `status` field. Every other field is set once, at
+    `log_action()` time, and never rewritten.
+
+    `intent`/`agent`/`action_type` are plain strings, not hard enums —
+    same "closed vocabulary today, extensible tomorrow" reasoning
+    `PropertyService.service_type` already documents; `agent` is `None`
+    for events that never reached an agent (e.g. an Escalation Filter
+    trip or an UNKNOWN intent).
+
+    `input_summary`/`decision`/`output_summary` are short, structured
+    descriptions built from each agent's own already-structured
+    metadata (a service name, a KB topic, a memory field) — never the
+    guest's raw message text, and never a secret value (a KB fact like
+    `wifi_password` is referenced by topic only, not quoted). The full
+    transcript already lives in `Message`/Conversation History; this
+    table isn't a second copy of it, no summarization model or
+    analytics involved, just concise templating (`concierge_router.py`'s
+    own `_summarize_*` helpers).
+
+    `correlation_id` groups every `ActionEvent` that stems from the same
+    guest interaction, even across separate turns — e.g. "Revenue Offer
+    Proposed" now and "Guest Accepted"/"Staff Completed" later, once a
+    reply resolves it. A fresh one is generated per `route()` call by
+    default (`ActionLogger.log_action`); carrying the *same* one across
+    a multi-turn resolution is the Conversation Manager's job once it
+    exists (not yet — see roadmap), by passing the original event's
+    `correlation_id` through when it re-dispatches to the owning agent.
+    """
+
+    __tablename__ = "action_events"
+    __table_args__ = (
+        Index("ix_action_event_tenant_id", "tenant_id"),
+        Index("ix_action_event_guest_id", "guest_id"),
+        Index("ix_action_event_reservation_id", "reservation_id"),
+        Index("ix_action_event_conversation_id", "conversation_id"),
+        Index("ix_action_event_created_at", "created_at"),
+        Index("ix_action_event_action_type", "action_type"),
+        Index("ix_action_event_correlation_id", "correlation_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    correlation_id: Mapped[str] = mapped_column(String(36), default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"))
+    reservation_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("reservations.id"), nullable=True
+    )
+    conversation_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    intent: Mapped[str] = mapped_column(String(32))
+    agent: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    action_type: Mapped[str] = mapped_column(String(64))
+
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    input_summary: Mapped[str] = mapped_column(Text)
+    decision: Mapped[str] = mapped_column(Text)
+    output_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    status: Mapped[ActionEventStatus] = mapped_column(
+        Enum(ActionEventStatus), default=ActionEventStatus.proposed
+    )
+    # Python attribute avoids colliding with SQLAlchemy's own
+    # declarative `Base.metadata` class attribute; the physical column
+    # is still named "metadata" per spec.
+    event_metadata: Mapped[str] = mapped_column("metadata", Text, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Review(Base):
