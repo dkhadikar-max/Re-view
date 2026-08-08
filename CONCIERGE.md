@@ -526,26 +526,69 @@ and small talk.
 **`intent`, `agent`, and `action_type` answer three different
 questions** (review feedback after PR #18): intent is what the guest
 wanted, agent is who handled it, `action_type` is what actually
-happened. `action_type` is a small, closed, `UPPER_SNAKE` vocabulary —
-`FAQ_ANSWERED`, `OFFER_PROPOSED`, `MEMORY_PROPOSED`, `ORDER_PROPOSED`,
-`SMALL_TALK_ACKNOWLEDGED`, `ESCALATED` — not a proliferation of ad-hoc
-per-agent strings; Argus learns more effectively from a consistent
-action taxonomy than from re-deriving it out of free text.
-`ESCALATED` is deliberately one canonical value covering every
-escalation path (an Escalation Filter trip, an `UNKNOWN` intent, an
-agent returning `handled=False`, an agent's own `should_escalate`) —
-the *why* already lives in `decision`/`intent`/`agent`, so
-`action_type` doesn't need to encode it too.
+happened. Argus learns more effectively from a consistent action
+taxonomy than from re-deriving it out of free text or a proliferation
+of ad-hoc per-agent strings.
+
+**The v1 `action_type` vocabulary is frozen as of PR #19.** New
+capabilities should reuse an existing value where possible; a
+genuinely new one is a deliberate addition, documented here, not an
+ad-hoc string invented at a call site.
+
+| `action_type` | Emitted today by | Status |
+|---|---|---|
+| `FAQ_ANSWERED` | FAQ Agent (§5.1) | ✅ live |
+| `OFFER_PROPOSED` | Revenue Agent (§5.3) | ✅ live |
+| `OFFER_ACCEPTED` | Conversation Manager (§5.5, not yet built) | reserved |
+| `OFFER_REJECTED` | Conversation Manager | reserved |
+| `ORDER_PROPOSED` | Ordering Agent | ✅ live |
+| `ORDER_CONFIRMED` | Conversation Manager | reserved |
+| `ORDER_CANCELLED` | Conversation Manager | reserved |
+| `ORDER_COMPLETED` | Conversation Manager / staff | reserved |
+| `MEMORY_PROPOSED` | Guest Memory Agent (§5.2) | ✅ live |
+| `MEMORY_ACCEPTED` | Memory Manager (not yet built) | reserved |
+| `MEMORY_REJECTED` | Memory Manager | reserved |
+| `TASK_CREATED` | Conversation Manager (staff execution path) | reserved |
+| `TASK_COMPLETED` | Staff (via Conversation Manager) | reserved |
+| `ESCALATED` | Escalation Filter, or any agent that couldn't help | ✅ live |
+| `SMALL_TALK` | Intent Classifier (no agent involved) | ✅ live |
+| `UNKNOWN` | Intent Classifier (no agent involved) | ✅ live |
+
+`ESCALATED` covers every "an agent tried and couldn't help" path (an
+agent returning `handled=False`, an agent's own `should_escalate`, or
+the Escalation Filter's own hard-safety trip) — the *why* already lives
+in `decision`/`intent`/`agent`. `UNKNOWN` is kept distinct from
+`ESCALATED`: it specifically means the Intent Classifier itself had no
+opinion at all, worth telling apart from "an agent had an opinion and
+still couldn't help." Both still result in a staff `Task` today
+(`status=escalated` either way) — that's an infrastructure fact, not
+what `action_type` encodes.
 
 **Future transitions (once the Conversation Manager exists) must be
 new events, not mutated status.** `ActionLogger.log_accept`/
 `log_reject`/`log_complete`/`log_failure` exist and can technically
 flip a row's `status` in place, but the preferred pattern going forward
 is: when a proposal resolves (a guest confirms an offer, staff
-completes a task), log a *new* `ActionEvent` — e.g. `OFFER_ACCEPTED` —
-sharing the original's `correlation_id`, rather than turning the
-existing `OFFER_PROPOSED` row into something else. That produces a
-complete, replayable event stream ("`OFFER_PROPOSED` then
-`OFFER_ACCEPTED`") instead of a single row whose meaning silently
-changed underneath it — the shape Argus actually needs to learn from a
-decision chain.
+completes a task), log a *new* `ActionEvent` — e.g. `OFFER_ACCEPTED`,
+then `TASK_CREATED`, then `TASK_COMPLETED` — sharing the original's
+`correlation_id`, rather than turning the existing `OFFER_PROPOSED` row
+into something else:
+
+```
+Guest: "Late checkout please"
+        ↓
+Intent: SERVICE_REQUEST → RevenueAgent → OFFER_PROPOSED
+        ↓
+Guest: "Yes please"
+        ↓
+ConversationManager resolves the pending state → OFFER_ACCEPTED
+        ↓
+No PMS exists yet, so staff must process it → TASK_CREATED
+        ↓
+Staff processes it → TASK_COMPLETED
+```
+
+All five events share one `correlation_id` — a complete, replayable
+lifecycle instead of a single row whose meaning silently changed
+underneath it, the shape Argus actually needs to learn from a decision
+chain.
