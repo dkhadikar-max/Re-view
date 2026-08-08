@@ -263,6 +263,63 @@ class PropertyUpdate(BaseModel):
     # without a separate one-off admin endpoint.
     whatsapp_phone_number_id: Optional[str] = Field(default=None, max_length=64)
 
+
+# Field list mirrors PropertyKnowledgeBase exactly (entities.py) — no
+# new content architecture, per the Knowledge Base Editor's own scope.
+class PropertyKnowledgeBaseOut(ORMModel):
+    wifi_password: Optional[str] = None
+    breakfast_hours: Optional[str] = None
+    pool_hours: Optional[str] = None
+    gym_hours: Optional[str] = None
+    spa_hours: Optional[str] = None
+    parking_info: Optional[str] = None
+    checkin_time: Optional[str] = None
+    checkout_time: Optional[str] = None
+    late_checkout_policy: Optional[str] = None
+    airport_transfer_info: Optional[str] = None
+    pet_policy: Optional[str] = None
+    house_rules: Optional[str] = None
+    policies: Optional[str] = None
+    restaurants: Optional[str] = None
+    cafes: Optional[str] = None
+    nearby_attractions: Optional[str] = None
+    services: Optional[str] = None
+    room_service_hours: Optional[str] = None
+    emergency_contacts: Optional[str] = None
+    # field_name -> the exact sentence FAQAgent would answer a guest
+    # with today (`faq_agent.preview_answers`) — never includes
+    # wifi_password, a credential rather than a fact meant to be
+    # echoed back anywhere but a guest's own answer.
+    preview: dict[str, str] = {}
+
+
+class PropertyKnowledgeBaseUpdate(BaseModel):
+    """Every field optional and unset-by-default so a partial save only
+    touches what the client actually sent — the route applies
+    `model_dump(exclude_unset=True)`, not a full field-by-field
+    overwrite, so omitting a field leaves its stored value untouched
+    while explicitly sending `null` clears it."""
+
+    wifi_password: Optional[str] = None
+    breakfast_hours: Optional[str] = None
+    pool_hours: Optional[str] = None
+    gym_hours: Optional[str] = None
+    spa_hours: Optional[str] = None
+    parking_info: Optional[str] = None
+    checkin_time: Optional[str] = None
+    checkout_time: Optional[str] = None
+    late_checkout_policy: Optional[str] = None
+    airport_transfer_info: Optional[str] = None
+    pet_policy: Optional[str] = None
+    house_rules: Optional[str] = None
+    policies: Optional[str] = None
+    restaurants: Optional[str] = None
+    cafes: Optional[str] = None
+    nearby_attractions: Optional[str] = None
+    services: Optional[str] = None
+    room_service_hours: Optional[str] = None
+    emergency_contacts: Optional[str] = None
+
     @field_validator("currency")
     @classmethod
     def normalize_currency(cls, v: str) -> str:
