@@ -133,13 +133,20 @@ def test_memory_proposal_creates_one_proposed_action_event(db_session):
     concierge_router.route(db, tenant_id="hotel-c", guest_id=guest.id, message_body="I'm vegetarian")
 
     events = _events(db, "hotel-c")
-    assert len(events) == 1
-    event = events[0]
-    assert event.intent == "memory"
-    assert event.agent == "guest_memory"
-    assert event.action_type == "MEMORY_PROPOSED"
-    assert event.status == ActionEventStatus.proposed
-    assert event.actor == ActorType.ai
+    # Since Memory Manager shipped (MEMORY_MANAGER.md), a proposal this
+    # confident (0.9, >= the 0.85 auto-apply threshold) also produces a
+    # MEMORY_ACCEPTED event in the same turn -- two events, not one.
+    # Memory Manager's own test suite (test_memory_manager.py,
+    # test_memory_manager_router_integration.py) covers that second
+    # event in depth; this file's own concern stays the Router's
+    # MEMORY_PROPOSED record itself.
+    assert len(events) == 2
+    proposed = next(e for e in events if e.action_type == "MEMORY_PROPOSED")
+    assert proposed.intent == "memory"
+    assert proposed.agent == "guest_memory"
+    assert proposed.status == ActionEventStatus.proposed
+    assert proposed.actor == ActorType.ai
+    assert any(e.action_type == "MEMORY_ACCEPTED" for e in events)
 
 
 def test_order_proposal_creates_one_proposed_action_event(db_session):
@@ -277,9 +284,15 @@ def test_reservation_and_conversation_id_are_recorded_on_the_event(db_session):
     )
 
     events = _events(db, "hotel-i")
-    assert len(events) == 1
-    assert events[0].reservation_id == reservation.id
-    assert events[0].conversation_id == "conv-42"
+    # Two events now that Memory Manager applies a >=0.85 proposal in
+    # the same turn (see test_memory_proposal_creates_one_proposed_
+    # action_event's own comment) -- both should carry the same
+    # reservation_id/conversation_id, since Memory Manager threads them
+    # through from the original MEMORY_PROPOSED event it was handed.
+    assert len(events) == 2
+    for event in events:
+        assert event.reservation_id == reservation.id
+        assert event.conversation_id == "conv-42"
 
 
 def test_input_summary_never_contains_the_raw_guest_message(db_session):

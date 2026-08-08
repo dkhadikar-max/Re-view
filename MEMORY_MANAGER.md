@@ -57,6 +57,20 @@ dietary proposal still cannot silently replace an existing dietary
 value — §3's field rules are a second, independent gate, not something
 a high enough confidence can bypass.
 
+**Implementation note (discovered writing the test suite, not a change
+to the policy above): `preferred_room` and `notes` never reach
+auto-apply today.** `GuestMemoryAgent`'s own pattern confidences for
+those two fields (`_ROOM_PREFERENCE_PATTERNS`: 0.75–0.8;
+`_NOTE_WORTHY_PATTERNS`: 0.75) are all below the 0.85 threshold — every
+real room-preference or note-worthy statement lands in the hold band,
+never auto-applies, until the agent's own patterns are recalibrated
+(a `guest_memory_agent.py` change, out of scope here). Only
+`dietary_preferences` (0.85–0.9 across every pattern) reaches
+auto-apply in practice. Memory Manager's own logic is unchanged by
+this — the confidence bands in the table above are correct and
+field-agnostic by design — this is a fact about the *agent's* current
+calibration, not a gap in this contract.
+
 ## 3. Field-specific mutation rules
 
 Every field `GuestMemoryAgent` can propose today is a flat, single-value

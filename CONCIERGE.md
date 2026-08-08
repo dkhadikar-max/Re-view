@@ -255,15 +255,20 @@ produces things like "Welcome back, Mr. Smith — we noticed you enjoyed
 the Suite last time." Template-filling against real data, not
 generation.
 
-**Writes are explicitly gated, not automatic.** If a conversation
-reveals something worth remembering (a stated preference, a dietary
-note), the agent produces a **suggested edit**, not a database write —
-routed through the same "manager approval on every commercial action"
-convention already used elsewhere in this app (the existing Approvals
-queue), so a hotel staff member confirms it before it's saved to
-`Guest`. This prevents profile pollution from a misheard or
-misinterpreted remark, and keeps Guest Memory itself trustworthy data
-other features (Revenue Agent, the dashboard) already depend on.
+**Writes are gated by policy, not automatic — see `MEMORY_MANAGER.md`
+for the full frozen contract.** If a conversation reveals something
+worth remembering (a stated preference, a dietary note), this agent
+only ever produces a **suggested edit** (`AgentResponse.metadata
+["memory_updates"]`) — it never writes to `Guest` itself. Memory
+Manager is the only component allowed to apply one, and does so
+per a confidence-band policy (≥0.85 auto-applies, 0.70–0.84 holds for
+staff review via a `Task`, below that is rejected) plus field-specific
+mutation rules (dietary facts are appended and never silently
+overwritten; a room preference is replaced by the latest explicit
+statement; notes are always appended). This prevents profile pollution
+from a misheard or misinterpreted remark, and keeps Guest Memory itself
+trustworthy data other features (Revenue Agent, the dashboard) already
+depend on.
 
 ### 5.3 Revenue Agent
 
@@ -575,8 +580,9 @@ here, not an ad-hoc string invented at a call site.
 | `ORDER_COMPLETED` | Conversation Manager / staff | reserved |
 | `ORDER_EXPIRED` | Conversation Manager | reserved |
 | `MEMORY_PROPOSED` | Guest Memory Agent (§5.2) | ✅ live |
-| `MEMORY_ACCEPTED` | Memory Manager (not yet built) | reserved |
-| `MEMORY_REJECTED` | Memory Manager | reserved |
+| `MEMORY_ACCEPTED` | Memory Manager (MEMORY_MANAGER.md) | ✅ live |
+| `MEMORY_REJECTED` | Memory Manager | ✅ live |
+| `MEMORY_HELD` | Memory Manager | ✅ live |
 | `MEMORY_EXPIRED` | Memory Manager | reserved |
 | `TASK_CREATED` | Conversation Manager (staff execution path) | ✅ live |
 | `TASK_COMPLETED` | Staff (via Conversation Manager) | reserved |
@@ -590,13 +596,23 @@ that actually asked the guest a yes/no question and is now waiting on a
 reply. As of the Conversation Manager's introduction, only Revenue
 Agent's `OFFER_PROPOSED` does that ("Would you like me to book it?").
 `ORDER_PROPOSED` (Ordering Agent v0) is a pure hand-off ("you can order
-room service anytime") and `MEMORY_PROPOSED` is applied later by the
-not-yet-built Memory Manager, not put to the guest as a question — so
-neither ever creates a `PendingAction` to expire (see §16 and
-`conversation_manager.py`'s own `_CONFIRMABLE_ACTION_TYPES`). Emitting
-`ORDER_EXPIRED`/`MEMORY_EXPIRED` before a real confirmation flow exists
-for those domains would be exactly the "genuinely new value without a
-real lifecycle behind it" this rule exists to prevent.
+room service anytime"), and `MEMORY_PROPOSED` is resolved synchronously
+by Memory Manager in the same turn (§4 below) — neither is a guest-
+facing question awaiting a reply, so neither ever creates a
+`PendingAction` to expire (see §16 and `conversation_manager.py`'s own
+`_CONFIRMABLE_ACTION_TYPES`). Emitting `ORDER_EXPIRED`/`MEMORY_EXPIRED`
+before a real confirmation flow exists for those domains would be
+exactly the "genuinely new value without a real lifecycle behind it"
+this rule exists to prevent.
+
+**`MEMORY_HELD` is kept distinct from `MEMORY_REJECTED`** on purpose
+(`MEMORY_MANAGER.md` §4, its own frozen contract): one means "Memory
+Manager decided this proposal isn't worth keeping" (confidence too low,
+or a duplicate of an existing dietary fact), the other means "Memory
+Manager thinks this might matter but a human has to decide" (confidence
+in the 0.70–0.84 band — a staff `Task` is created, `Guest` is not
+mutated). Collapsing them into one value would blur exactly the signal
+Argus's training data needs.
 
 `ESCALATED` covers every "an agent tried and couldn't help" path (an
 agent returning `handled=False`, an agent's own `should_escalate`, or

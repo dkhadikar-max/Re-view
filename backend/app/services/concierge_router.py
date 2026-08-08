@@ -110,6 +110,7 @@ from app.services.action_logger import action_logger
 from app.services.agent_protocol import AgentResponse
 from app.services.context_builder import ConciergeContext, ContextBuilder
 from app.services.conversation_manager import conversation_manager
+from app.services.memory_manager import memory_manager
 from app.services.escalation_filter import (
     EscalationCategory,
     EscalationDecision,
@@ -470,6 +471,16 @@ class ConciergeRouter:
         # OFFER_PROPOSED does) — the Router doesn't need to know that
         # distinction, it just always offers the freshly-logged event.
         conversation_manager.register_proposal(db, event=event)
+        # Same pattern for memory proposals: only a guest_memory
+        # response ever sets this metadata key, so an empty/missing
+        # list elsewhere is a safe no-op — the Router doesn't need to
+        # know which agent it dispatched to. GuestMemoryAgent remains
+        # structurally incapable of writing Guest itself; this is the
+        # only call that can turn its proposal into a mutation
+        # (MEMORY_MANAGER.md §8).
+        memory_updates = response.metadata.get("memory_updates")
+        if memory_updates:
+            memory_manager.apply_or_hold(db, event=event, memory_updates=memory_updates)
         return response
 
     def _dispatch(
