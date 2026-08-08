@@ -1,16 +1,17 @@
 # AI Concierge — Menu Management, Meal Reservation & Room Service Ordering
 
-Status: **§3 (Menu Manager) is now partially implemented** — `MenuItem`
+Status: **§3 (Menu Manager) is implemented; §6/§7 (Ordering Agent) is a
+frozen design, not yet implemented — this is the design PR.** `MenuItem`
 model + migration, the PDF-only upload/review/confirm pipeline
 (`menu_ai_parser.py`, `menu_parser.py`, `menu_importer.py`), and the
-menu editor endpoint have shipped (§17 steps 1–3). Everything from §4
-onward (Context Builder extension, meal reservation, room service
-ordering, the Order model, the Ordering Agent, and the order-pattern
-Guest Memory track) remains **deliberately deferred** — this section
-of the roadmap doc still documents a future subsystem without expanding
-the current pilot's surface area. Revisit once real pilot conversations
-show ordering itself is worth building next, per CONCIERGE.md §0's own
-principle applied to itself.
+menu editor endpoint have shipped (§17 steps 1–3). §6/§7 below are now
+locked to the same level of detail CONCIERGE.md's own frozen contracts
+(`action_type`, `actor`, `PendingAction`) required before their
+implementation PRs — changing them later should require a design
+review, not just a code change. Implementation is step 2, a separate
+PR, not part of this one. Meal reservation (§5), the order-pattern
+Guest Memory track (§9), and personalized recommendations (§11) remain
+deliberately deferred beyond this design pass.
 
 **Frozen v1 sub-scope decisions for the Menu Importer** (locked before
 implementation, superseding a few specifics below where they differ):
@@ -158,19 +159,30 @@ holds nothing menu-related; it belongs in the same PR that adds
 
 ## 4. Extending the Context Builder
 
-`ConciergeContext` (§4 of CONCIERGE.md) gains two new fields, assembled
-the same way everything else on it is — read-only, tenant-scoped, no
-agent queries the database directly:
+`ConciergeContext` gains two new **read-only** fields, assembled the
+same way everything else on it is — no agent queries the database
+directly:
 
 ```
 ConciergeContext
 ├── ...(unchanged)...
 ├── Menu Items          — this property's available items, grouped by
 │                          menu_name, only where available=True
-├── Order History        — this guest's confirmed orders, most recent
-│                          first (mirrors Conversation History's shape)
-└── Pending Order         — see §7; the one stateful piece
+└── Order History        — this guest's confirmed Order rows, most
+                            recent first (mirrors Conversation History's
+                            shape)
 ```
+
+**No "Pending Order" field here** — that was this document's
+pre-Conversation-Manager draft (a raw `Order` row with
+`status="pending_confirmation"`, read back from `ConciergeContext`).
+Now that Conversation Manager and `PendingAction` actually exist
+(CONCIERGE.md §16, built after this document's original draft), the
+in-progress cart lives in `PendingAction.payload` instead — and the
+Router's own gate (`find_active()` before Intent Classification)
+already hands a message straight to Conversation Manager whenever one
+exists, so Ordering Agent never needs to read it back off
+`ConciergeContext` itself. See §7.
 
 ## 5. Meal Reservation (pre-arrival)
 
@@ -189,28 +201,52 @@ with `order_type="meal_reservation"` and a future `scheduled_for`
 timestamp — see §6, one entity likely covers both cases) is created,
 linked to the guest's `Reservation`.
 
-## 6. Room Service Ordering (in-stay)
+## 6. `Order` / `OrderItem` — the durable, confirmed business object
 
-Same menu-driven, guest-initiated flow. One new entity:
+**An `Order` is created at confirmation, never at proposal.** While a
+cart is being assembled or clarified, it exists only as
+`PendingAction.payload` (§7) — transient, disposable if the guest never
+confirms. This is deliberate, not an implementation detail: an
+abandoned cart must never look like a business transaction in the data
+Argus eventually learns from. "Guest intended to order" and "guest
+actually ordered" have to stay distinguishable, and the only way to
+guarantee that is to never write an `Order` row for the first case.
 
 ```
 Order
-├── tenant_id, guest_id, reservation_id
-├── order_type            "meal_reservation" | "room_service"
-├── status                 pending_confirmation | confirmed | received |
-│                           preparing | delivered | cancelled
-│                           (resolved, §16.3 — the four fulfillment
-│                           states after "confirmed" are exactly the
-│                           ones hotel staff set by hand; no POS in v1)
-├── scheduled_for           nullable — set for meal reservations, null for
-│                           an immediate room-service order
-├── items                   [{menu_item_id, name, price, quantity}]
-│                           (JSON, same convention as Workflow.definition —
-│                           snapshot of name/price at order time, since a
-│                           later menu price change shouldn't retroactively
-│                           change what a guest already ordered)
+├── tenant_id, property_id, guest_id, reservation_id
+├── correlation_id        — shared with the ORDER_PROPOSED event that
+│                           preceded it, minted when the cart itself
+│                           was first started (see §7) — the same id
+│                           threads guest intent -> proposal ->
+│                           confirmation -> Order -> staff execution
+├── source_menu_import_id — nullable, provenance mirroring MenuItem's
+│                           own (which upload the ordered items came
+│                           from, for the same reason MenuItem tracks it)
+├── status                 confirmed | received | preparing | delivered
+│                           | cancelled (resolved, §16.3 — no
+│                           "pending_confirmation" state on Order
+│                           itself; that phase is PendingAction's job,
+│                           not Order's — an Order only ever starts
+│                           existing already-confirmed)
 ├── total_amount, currency
-└── created_at, confirmed_at
+├── created_at, confirmed_at
+```
+
+```
+OrderItem
+├── order_id
+├── menu_item_id  — reference, kept even though the fields below are
+│                   snapshotted, so "show me every order of this dish"
+│                   stays queryable
+├── name, price, currency  — snapshotted at confirmation time; a later
+│                             menu price edit never retroactively
+│                             changes what a guest already agreed to
+│                             (MenuItem's own stable-id guarantee is
+│                             what makes this snapshot meaningful —
+│                             see MENU_ORDERING.md's Menu Importer
+│                             section)
+├── quantity
 ```
 
 Filtering ("show vegetarian options") is a property lookup against the
@@ -218,49 +254,146 @@ already-assembled `context.menu_items` — no new logic beyond what
 `FAQAgent`'s Knowledge Base matching already demonstrates: filter,
 don't infer.
 
-## 7. The one genuinely new architectural piece: multi-turn confirmation
+## 7. The multi-turn mechanism: cart-building, clarification, and confirmation
 
-Every agent shipped so far (`FAQAgent`, `GuestMemoryAgent`) is a pure,
-single-turn function: one message in, one `AgentResponse` out, no
-memory of the previous turn. Ordering cannot work that way — "Confirm
-Order?" followed by "yes" requires the second turn to know what the
-first turn proposed.
+Every agent shipped so far (`FAQAgent`, `GuestMemoryAgent`, Ordering
+Agent v0) is a pure, single-turn function — one message in, one
+`AgentResponse` out, no memory of the previous turn. A cart genuinely
+isn't: "I'd like a burger" (missing quantity) → "two" → "anything
+else?" → "no, that's it" → "confirm?" → "yes" is several turns, each
+depending on what the previous one established.
 
-This is exactly what the **Conversation Manager** (CONCIERGE.md §5.5)
-was scoped to own, and it was never actually built — the shipped
-sequence went Context Builder → Escalation Filter → FAQ Agent → Guest
-Memory Agent, skipping it. Ordering is the first capability that
-structurally requires it, not an optional nice-to-have anymore.
+Conversation Manager and `PendingAction` (CONCIERGE.md §16) already
+solve the *final* step of this — a complete proposal awaiting a plain
+yes/no — for Revenue Agent's offers. Ordering needs the same mechanism
+extended one step earlier, to cover the *cart-building* turns before a
+proposal is even complete enough to ask a yes/no question about.
 
-Proposed mechanism, kept as narrow as the rest of this app's
-"deterministic first" discipline:
+### 7.1 `PendingAction` schema extension (locked)
 
-- A proposed-but-unconfirmed cart is persisted as a real `Order` row
-  with `status="pending_confirmation"` — not agent-internal state
-  (agents still don't hold memory across calls), but a real, queryable
-  fact the Context Builder can read back next turn (`Pending Order` in
-  §4).
-- The **Ordering Agent** (new `Agent` Protocol implementer, introduced in this section) checks
-  `context.pending_order` first: if one exists and the guest's message
-  matches a confirmation phrase ("yes", "confirm", "place the order"),
-  it returns `AgentResponse(handled=True, metadata={"action":
-  "confirm_order", "order_id": ...})` — a proposed action, not a write
-  the agent performs itself, same "propose, don't execute" pattern
-  `GuestMemoryAgent`'s `memory_updates` already established. Whatever
-  wires the agent in (not yet built — the Concierge Router, roadmap
-  step 7) is what actually flips the `Order` row to `confirmed`.
-- If no pending order and the message is a new ordering request, the
-  agent creates the `pending_confirmation` row itself (this is the one
-  place an agent's `answer()` needs to write — a deliberate, narrow
-  exception, scoped to exactly one row, one status value, reversible by
-  simply never confirming it) and returns the cart summary as `response`
-  for confirmation.
+Two new columns, generalized — not order-specific — since any future
+multi-turn workflow can reuse them:
 
-This keeps confirmation state in the database (inspectable, survives a
-process restart, tenant-isolated by construction) rather than inventing
-an in-memory session concept, and keeps every other agent's "never
-writes" rule intact by treating this as the Conversation Manager's
-job, finally built for the reason it was originally scoped for.
+- **`payload: Text, nullable`** — a JSON blob whose *shape* is entirely
+  owned by whichever agent created it; Conversation Manager itself
+  only ever inspects one shared, minimal convention: a top-level
+  `"complete": bool`. Everything else inside is opaque to Conversation
+  Manager. For Ordering, `payload` holds
+  `{"complete": bool, "cart": [{"menu_item_id", "name", "price",
+  "currency", "quantity"}], "unresolved": {...}}` — the unresolved
+  slot's shape is Ordering Agent's own business.
+- **`origin_agent: String, nullable`** — which agent to hand a non-final
+  reply back to (`"ordering"` today; `None` for the existing
+  confirm/cancel-only flows, which never need this).
+
+**`origin_action_type` becomes nullable.** Today it's always a real,
+already-logged `action_type` (`"OFFER_PROPOSED"`, etc.) because a
+`PendingAction` was never created before something was actually
+proposed. A cart under construction hasn't been proposed yet — no
+`ActionEvent` exists for it at all (§7.3) — so `origin_action_type` is
+`None` for as long as `payload.complete == False`, and only gets set
+to `"ORDER_PROPOSED"` the moment the cart is actually complete and an
+`ActionEvent` is finally logged for it.
+
+### 7.2 The `ClarifiableAgent` protocol and Conversation Manager's dispatch
+
+A small addition to `agent_protocol.py`, alongside the existing `Agent`
+protocol:
+
+```python
+class ClarifiableAgent(Protocol):
+    def clarify(
+        self, context: ConciergeContext, message_body: str, payload: dict
+    ) -> AgentResponse: ...
+```
+
+Only Ordering Agent implements this today. `Conversation Manager`
+keeps a small registry (`{"ordering": ordering_agent}`, mirroring
+`_CONFIRMABLE_ACTION_TYPES`'s own "small lookup dict" convention) and
+`resolve()` gains a branch **before** its existing confirm/cancel
+pattern matching:
+
+```
+resolve(pending, message_body):
+    if pending.origin_agent and not pending.payload["complete"]:
+        # Cart still being built -- hand the reply back to whichever
+        # agent started it, not to confirm/cancel matching.
+        response = registry[pending.origin_agent].clarify(
+            context, message_body, json.loads(pending.payload)
+        )
+        new_payload = response.metadata["payload"]
+        if new_payload["complete"]:
+            # First time this cart is a real proposal: mint the
+            # ActionEvent now, not before.
+            event = log(ORDER_PROPOSED, actor=AI, correlation_id=pending.correlation_id)
+            pending.origin_action_type = "ORDER_PROPOSED"
+        pending.payload = json.dumps(new_payload)
+        return response
+    # else: existing confirm/cancel pattern matching, unchanged.
+```
+
+`AgentResponse.metadata["payload"]` is how `clarify()` (and the first
+call to `answer()` that starts a cart) hands its updated cart state
+back — the same "propose via metadata" convention `GuestMemoryAgent`'s
+`memory_updates` already established, just carrying a richer shape.
+
+### 7.3 No `ActionEvent` while a cart is incomplete
+
+**A cart under construction generates no ledger entries at all** —
+consistent with §6's "an `Order` only exists once confirmed": if the
+proposal itself doesn't exist yet, there's nothing honest to log.
+`ORDER_PROPOSED` is logged exactly once, the turn the cart first
+becomes complete (whether that's turn 1, because the guest stated
+everything at once, or turn *N*, after several rounds of
+clarification) — never per clarification turn. This also means
+`expire_stale()` (Conversation Manager, unchanged mechanism) behaves
+differently for the two cases: a `PendingAction` that expires while
+still incomplete (`payload.complete == False`) is simply closed, no
+new `ActionEvent` — nothing was ever proposed, so nothing "expired" in
+the Action Ledger's own sense. Only a *complete*, formally proposed
+cart that times out unconfirmed logs `ORDER_EXPIRED` (§7.4) — the same
+distinction that already exists between "abandoned cart" and
+"unanswered offer."
+
+### 7.4 Confirmation boundary — extends `_CONFIRMABLE_ACTION_TYPES`
+
+```python
+"ORDER_PROPOSED": ("ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED")
+```
+
+- **`ORDER_CONFIRMED`** (`actor=GUEST`) — the guest said yes. This is
+  the one moment the `Order`/`OrderItem` rows are actually created,
+  snapshotting `payload.cart` (§6). Followed immediately by
+  **`TASK_CREATED`** (`actor=SYSTEM`) — no PMS/kitchen integration
+  exists, so a staff `Task` is the only execution path, exactly the
+  pattern `OFFER_ACCEPTED → TASK_CREATED` already established.
+- **`ORDER_REJECTED`** (`actor=GUEST`) — the guest declined a *complete*
+  proposal before ever confirming it. Deliberately not
+  `ORDER_CANCELLED` (already reserved in CONCIERGE.md's frozen
+  `action_type` table) — that value means something different and
+  later: a *confirmed* order the guest or staff subsequently cancels.
+  Collapsing "never confirmed" and "confirmed then cancelled" into one
+  value would blur exactly the signal Argus needs, the same reasoning
+  that kept `MEMORY_HELD` distinct from `MEMORY_REJECTED`.
+- **`ORDER_EXPIRED`** (`actor=SYSTEM`) — graduates from reserved to
+  live here, the same transition `OFFER_EXPIRED` made once Revenue
+  Agent got its first real confirmation flow: `ORDER_PROPOSED` is now,
+  for the first time, a genuine yes/no question, not the pure hand-off
+  v0 was.
+- An unresolvable clarification reply during cart-building (not a
+  final yes/no — `clarify()` can't make sense of the reply at all)
+  escalates (`should_escalate=True`, same Escalation Filter path every
+  other agent uses) and closes the `PendingAction` as cancelled with no
+  `Order` ever created — an abandoned build, not a rejected proposal.
+
+**Known v1 limitation, accepted deliberately**: once a cart is complete
+and awaiting the final yes/no, a reply that doesn't match confirm/cancel
+(e.g. "actually, add a coke too") falls into Conversation Manager's
+existing generic "please confirm with yes or no" clarify path — it
+does *not* reopen cart-building. The guest can decline and start a new
+order. A combined "edit an already-proposed cart" flow is a reasonable
+future enhancement once a pilot shows it's needed, not built
+speculatively now, matching this document's own recurring discipline.
 
 ## 8. Order History
 
@@ -300,11 +433,25 @@ adapting if a guest's preferences genuinely change over time —
 eagerly is exactly the "never invent guest traits" guardrail this whole
 document restates in §12.
 
-## 10. Memory Manager — the "apply" step, finally named
+## 10. Memory Manager — built, see MEMORY_MANAGER.md
 
-CONCIERGE.md §5.2 always said applying a `memory_updates` proposal was
-"a separate concern, not yet built." This spec names it: the **Memory
-Manager**. Its job, and only its job:
+This section's original draft (below the line, kept for history)
+predates the actual Memory Manager build and is now superseded — in
+particular, its "Overwrite" decision rule was explicitly rejected
+during that design pass: `dietary_preferences` is never silently
+overwritten at any confidence, only appended. **`MEMORY_MANAGER.md`
+(repo root) is the authoritative frozen contract** — confidence bands
+(≥0.85 auto-apply / 0.70–0.84 hold for staff / <0.70 reject),
+field-specific mutation rules, and the `MEMORY_ACCEPTED`/`REJECTED`/
+`HELD` Action Ledger taxonomy.
+
+For this document's own purposes: once the order-pattern Guest Memory
+track (§9) ships, it produces the same `{field, value, confidence}`
+shape the explicit-statement track already does, and Memory Manager
+applies it under the exact same rules — no special case for
+order-derived evidence.
+
+<details><summary>Original draft (superseded, kept for history)</summary>
 
 ```
 Memory Proposals (from either Guest Memory track, §9)
@@ -320,11 +467,6 @@ Create Merge Ignore  Overwrite
    Guest Profile (the real Guest row)
 ```
 
-This is the only place in the entire Concierge stack that writes
-guest-facing memory data — every agent proposes, nothing else writes.
-Decision rules (starting point, tune from pilot data per CONCIERGE.md
-§0):
-
 - **Create**: no existing value for that field, confidence above
   threshold.
 - **Merge**: existing value is compatible (e.g. adding "Allergic to
@@ -333,11 +475,9 @@ Decision rules (starting point, tune from pilot data per CONCIERGE.md
 - **Ignore**: confidence below threshold, or the proposal duplicates
   what's already stored.
 - **Overwrite**: existing value present, new proposal contradicts it,
-  and confidence clears a *higher* bar than a fresh create would (same
-  "never overwrite without high confidence" rule CONCIERGE.md's Guest
-  Memory Agent review already established — the Memory Manager is
-  where that rule actually gets enforced, since the agent itself never
-  applies anything).
+  and confidence clears a *higher* bar than a fresh create would.
+
+</details>
 
 ## 11. Personalized recommendations
 
@@ -363,11 +503,21 @@ once §4's Context Builder extension ships.
   statement track (already built) is not "casual," it's a direct
   statement, and stays immediate per the resolved decision at the top
   of this doc's history.
-- Ask for confirmation before placing any order — enforced by §7's
-  `pending_confirmation` status; nothing reaches `confirmed` without an
-  explicit guest message matching a confirmation phrase.
+- Ask for confirmation before placing any order — enforced by §7: an
+  `Order` row only ever comes into existence at `ORDER_CONFIRMED`,
+  never before.
 - Use only the hotel's uploaded menu and Knowledge Base — same
   structural enforcement as the first bullet.
+- **Never claim an item is allergen-safe.** Ordering Agent may *filter*
+  recommendations using `Guest.dietary_preferences` (already populated
+  by Memory Manager), but has no data source that could honestly
+  support an "this is safe for your allergy" assertion — `MenuItem`'s
+  own dietary fields (`vegetarian`/`vegan`/`gluten_free`) are the
+  hotel's own claims about an item, not a guarantee against
+  cross-contamination or an unlisted allergen. A guest stating an
+  allergy mid-order still hits the Escalation Filter's existing medical
+  pattern first (`escalation_filter.py`, unchanged) — this agent never
+  overrides that with its own judgment.
 
 ## 13. Architecture (restated with existing-component references)
 
@@ -418,16 +568,25 @@ Reservation   Ordering
 - Order modification after confirmation (cancel/re-order is a new
   Order, not an edit to a confirmed one — keeps the "snapshot at order
   time" invariant in §6 simple).
+- Editing an already-complete, awaiting-confirmation cart (§7.4's known
+  v1 limitation — a guest wanting to add an item after the cart was
+  proposed declines and starts over, rather than the flow reopening
+  cart-building).
+- Payment, kitchen integration, automatic staff fulfillment, dynamic
+  pricing, LLM-generated menu items, autonomous ingredient
+  substitutions, translation, and the order-pattern Guest Memory track
+  (§9, stays deferred beyond this design pass).
 
 ## 15. Roadmap positioning
 
-This document is intentionally frozen at the design stage. The AI
-Concierge roadmap (CONCIERGE.md) stays on its own track — Revenue Agent
-→ Concierge Router → end-to-end WhatsApp conversation tests → first
-pilot — without this document adding to that surface area. Per
-CONCIERGE.md §0 applied to the roadmap itself: real pilot conversations
-should decide whether ordering is the next thing worth building, not
-this document's own existence. Revisit only after the pilot is running.
+§3 (Menu Manager) and this design (§6/§7, Ordering Agent) are no longer
+speculative — they're the actual next two roadmap steps, per the
+locked sequence: Knowledge Base Editor → Memory Manager → Menu Importer
+→ **Ordering Agent** → Translation → Pilot readiness → strategic stop.
+Meal reservation (§5) and the order-pattern Guest Memory track (§9)
+remain genuinely deferred past that stop, per CONCIERGE.md §0 applied
+to the roadmap itself — real pilot conversations, not this document,
+should decide whether they're worth building next.
 
 ## 16. Decisions (resolved)
 
@@ -447,20 +606,52 @@ this document's own existence. Revisit only after the pilot is running.
    `received` → `preparing` → `delivered` (or `cancelled`), per §6's
    updated `Order.status` enum. POS integration is a fast-follow once
    pilots validate the manual workflow is worth automating.
+4. **`Order` is created only at confirmation, never at proposal**
+   (§6/§7.3) — an abandoned or incomplete cart must never look like a
+   business transaction in the data Argus eventually learns from.
+   "Guest intended to order" and "guest actually ordered" stay
+   distinguishable by construction, not by a status filter.
+5. **`PendingAction.payload`/`origin_agent` schema extension,
+   approved** (§7.1) — generalized, not order-specific: any future
+   multi-turn workflow can reuse them. `origin_action_type` becomes
+   nullable to represent "cart still being built, no `ActionEvent`
+   exists yet."
+6. **Conversation Manager's `resolve()` gains a dispatch-back mode**
+   (§7.2) — for an incomplete cart, a reply is handed to the
+   originating agent's own `clarify()` method (a new, small
+   `ClarifiableAgent` protocol) instead of being pattern-matched as
+   confirm/cancel. This is the one piece of this design that changes
+   Conversation Manager's *behavior*, not just `PendingAction`'s
+   *schema* — called out explicitly since CONCIERGE.md §16 is itself a
+   frozen contract.
+7. **`ORDER_REJECTED` is a new, distinct `action_type`** (§7.4), not a
+   reuse of the already-reserved `ORDER_CANCELLED` — "declined before
+   ever confirming" and "cancelled after confirming" are different
+   events for Argus to learn from. `ORDER_CANCELLED` stays reserved for
+   the second case.
+8. **The three-way state separation is a named principle, not an
+   implementation detail**: `PendingAction` (transient
+   conversation/workflow state, disposable) → `Order` (durable
+   confirmed business transaction) → `ActionEvent` (immutable
+   event/evidence history). Every future multi-turn Concierge
+   capability should be checked against this separation before adding
+   a new stateful mechanism of its own.
 
-## 17. Implementation sequence (for when this is picked back up)
+## 17. Implementation sequence
 
-Proposed, in order: (1) ✅ `MenuItem`
-   model + migration, (2) ✅ menu upload pipeline (PDF path shipped;
-   Excel/CSV deferred per the frozen v1 decision at the top of this
-   doc, not "second" as originally sequenced — build only if a pilot
-   hotel needs it), (3) ✅ menu editor endpoint, (4) Context Builder
-   extension (`menu_items`, `order_history`, `pending_order`) — not yet
-   built, (5) `Order` model + migration, (6) Ordering Agent (room
-   service first — simpler, single-turn-per-item-selection; meal
-   reservation second, since it additionally needs the Automation
-   Engine trigger from §5), (7) ✅ Memory Manager (built ahead of this
-   sequence, per the actual roadmap order: Knowledge Base Editor →
-   Memory Manager → Menu Importer), (8) order-pattern Guest Memory
-   track. Each as its own reviewed PR, same discipline as every
-   Concierge PR so far.
+(1) ✅ `MenuItem` model + migration, (2) ✅ menu upload pipeline (PDF
+   path shipped; Excel/CSV deferred per the frozen v1 decision — build
+   only if a pilot hotel needs it), (3) ✅ menu editor endpoint, (4) ✅
+   Memory Manager (built ahead of this sequence, per the actual roadmap
+   order: Knowledge Base Editor → Memory Manager → Menu Importer), (5)
+   **this design pass** (§6/§7 frozen, this document, its own reviewed
+   PR — no code), then, as a **separate** implementation PR: (6)
+   `PendingAction.payload`/`origin_agent` migration + the
+   `ClarifiableAgent` protocol + Conversation Manager's dispatch-back
+   mode, (7) `Order`/`OrderItem` model + migration, (8) Context Builder
+   extension (`menu_items`, `order_history` — no `pending_order` field,
+   see §4), (9) Ordering Agent (room service only — meal reservation
+   stays deferred per §5, since it additionally needs the Automation
+   Engine trigger), (10) Router integration, tests, CI, hold for
+   review. (11) order-pattern Guest Memory track stays deferred beyond
+   this sequence, per §15.
