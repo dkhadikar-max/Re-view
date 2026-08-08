@@ -3,8 +3,69 @@
 import { FormEvent, useEffect, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { Button, Panel } from "@/components/ui";
-import { api, type Property, type PropertyUpdate } from "@/lib/api";
+import {
+  api,
+  type Property,
+  type PropertyKnowledgeBase,
+  type PropertyKnowledgeBaseUpdate,
+  type PropertyUpdate,
+} from "@/lib/api";
 import { REVISIT } from "@/lib/brand";
+
+const emptyKbForm: PropertyKnowledgeBaseUpdate = {};
+
+function kbFormFromKnowledgeBase(kb: PropertyKnowledgeBase): PropertyKnowledgeBaseUpdate {
+  const { preview: _preview, ...fields } = kb;
+  return fields;
+}
+
+// Grouped the same way PropertyKnowledgeBase's own fields are grouped
+// in entities.py — one editor field per Knowledge Base fact, no new
+// content architecture.
+const KB_FIELD_GROUPS: {
+  title: string;
+  fields: { key: keyof PropertyKnowledgeBaseUpdate; label: string; multiline?: boolean }[];
+}[] = [
+  {
+    title: "Practical info",
+    fields: [
+      { key: "wifi_password", label: "WiFi password" },
+      { key: "breakfast_hours", label: "Breakfast hours" },
+      { key: "pool_hours", label: "Pool hours" },
+      { key: "gym_hours", label: "Gym hours" },
+      { key: "spa_hours", label: "Spa hours" },
+      { key: "checkin_time", label: "Check-in time" },
+      { key: "checkout_time", label: "Check-out time" },
+      { key: "room_service_hours", label: "Room service hours" },
+      { key: "parking_info", label: "Parking", multiline: true },
+      { key: "late_checkout_policy", label: "Late checkout policy", multiline: true },
+      { key: "airport_transfer_info", label: "Airport transfer", multiline: true },
+    ],
+  },
+  {
+    title: "Policies",
+    fields: [
+      { key: "pet_policy", label: "Pet policy", multiline: true },
+      { key: "house_rules", label: "House rules", multiline: true },
+      { key: "policies", label: "Other policies", multiline: true },
+    ],
+  },
+  {
+    title: "Local recommendations",
+    fields: [
+      { key: "restaurants", label: "Restaurants", multiline: true },
+      { key: "cafes", label: "Cafes", multiline: true },
+      { key: "nearby_attractions", label: "Nearby attractions", multiline: true },
+    ],
+  },
+  {
+    title: "Services & emergency",
+    fields: [
+      { key: "services", label: "Services", multiline: true },
+      { key: "emergency_contacts", label: "Emergency contacts", multiline: true },
+    ],
+  },
+];
 
 const emptyForm: PropertyUpdate = {
   name: "",
@@ -54,12 +115,44 @@ export default function SettingsPage() {
   const [propMsg, setPropMsg] = useState("");
   const [propError, setPropError] = useState("");
 
+  const [kb, setKb] = useState<PropertyKnowledgeBase | null>(null);
+  const [kbForm, setKbForm] = useState<PropertyKnowledgeBaseUpdate>(emptyKbForm);
+  const [kbBusy, setKbBusy] = useState(false);
+  const [kbMsg, setKbMsg] = useState("");
+  const [kbError, setKbError] = useState("");
+
   useEffect(() => {
     api
       .properties()
-      .then((props) => setProperty(props[0] || null))
+      .then((props) => {
+        const first = props[0] || null;
+        setProperty(first);
+        if (!first) return;
+        return api.propertyKnowledgeBase(first.id).then((data) => {
+          setKb(data);
+          setKbForm(kbFormFromKnowledgeBase(data));
+        });
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
   }, []);
+
+  async function onSaveKnowledgeBase(e: FormEvent) {
+    e.preventDefault();
+    if (!property) return;
+    setKbError("");
+    setKbMsg("");
+    setKbBusy(true);
+    try {
+      const updated = await api.updatePropertyKnowledgeBase(property.id, kbForm);
+      setKb(updated);
+      setKbForm(kbFormFromKnowledgeBase(updated));
+      setKbMsg("Knowledge Base updated — the concierge will use this immediately.");
+    } catch (err) {
+      setKbError(err instanceof Error ? err.message : "Could not update Knowledge Base");
+    } finally {
+      setKbBusy(false);
+    }
+  }
 
   function startEditing() {
     if (!property) return;
@@ -309,6 +402,79 @@ export default function SettingsPage() {
         <p className="mb-6 text-sm text-sea-700" role="status">
           {propMsg}
         </p>
+      )}
+
+      {property && (
+        <Panel title="Knowledge Base" className="mb-6 [animation-delay:60ms]">
+          <p className="mb-4 text-sm text-ink-600">
+            The facts your AI Concierge answers guest questions from. Change a
+            fact here and the concierge reflects it on the very next message
+            — you own the truth, the AI only reads it.
+          </p>
+          <form onSubmit={onSaveKnowledgeBase} className="space-y-6">
+            {KB_FIELD_GROUPS.map((group) => (
+              <div key={group.title}>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-400">
+                  {group.title}
+                </h3>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {group.fields.map(({ key, label, multiline }) => {
+                    const preview = kb?.preview?.[key as string];
+                    const value = (kbForm[key] as string | null | undefined) ?? "";
+                    return (
+                      <label
+                        key={key}
+                        className={`text-xs text-ink-500 ${multiline ? "sm:col-span-2" : ""}`}
+                      >
+                        {label}
+                        {multiline ? (
+                          <textarea
+                            rows={2}
+                            value={value}
+                            onChange={(e) =>
+                              setKbForm((f) => ({ ...f, [key]: e.target.value }))
+                            }
+                            className="mt-1 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-sea-500"
+                          />
+                        ) : (
+                          <input
+                            value={value}
+                            onChange={(e) =>
+                              setKbForm((f) => ({ ...f, [key]: e.target.value }))
+                            }
+                            className="mt-1 w-full rounded-xl border border-ink-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-sea-500"
+                          />
+                        )}
+                        {/* wifi_password is deliberately never in kb.preview
+                            (a credential, not a fact echoed back anywhere but
+                            a guest's own answer) — this line just never
+                            renders for that field. */}
+                        {preview && (
+                          <span className="mt-1 block text-[11px] italic text-ink-400">
+                            Guest hears: “{preview}”
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {kbError && (
+              <p className="text-sm text-coral-600" role="alert">
+                {kbError}
+              </p>
+            )}
+            {kbMsg && (
+              <p className="text-sm text-sea-700" role="status">
+                {kbMsg}
+              </p>
+            )}
+            <Button type="submit" disabled={kbBusy}>
+              {kbBusy ? "Saving…" : "Save Knowledge Base"}
+            </Button>
+          </form>
+        </Panel>
       )}
 
       <Panel title="Account" className="[animation-delay:80ms]">
