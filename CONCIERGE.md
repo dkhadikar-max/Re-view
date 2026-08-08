@@ -147,11 +147,20 @@ sent.    │ ├── Conversation History    │
               answer imperfectly, never silently dropped).
                           │
                           ▼
-              Conversation Manager (§5.5, not yet built)
+              Conversation Manager (§5.5/§16)
                           │
                           ▼
                       WhatsApp
 ```
+
+**One gate this diagram doesn't show, because it short-circuits
+everything below it**: after the Escalation Filter (and after Context
+Builder assembles this turn's context, same as always), the Router asks
+the Conversation Manager "is there an active `PendingAction` for this
+guest?" (§5.5/§16). A hit skips Intent Classifier and every agent
+entirely — the message is a reply to an already-open question, not a
+fresh request, and goes straight to `ConversationManager.resolve()`
+instead.
 
 ### 4.1 Intent Classifier — deterministic, classify once, dispatch once
 
@@ -285,25 +294,42 @@ conversation until a human has responded.
 
 ### 5.5 Conversation Manager
 
-The one component that isn't an agent — it sits between an agent's
-candidate reply and the actual WhatsApp send, and after only a few
-messages this is where a real conversation stops feeling like four
-independent one-shot replies and starts feeling coherent. Responsible
-for:
+The one component that isn't an agent, and the only *stateful* piece of
+the concierge — every agent and the Router are stateless (§4.1); a
+proposal awaiting a guest's confirmation has to be remembered across
+turns by *something*, and this is that something. See §16 for the full
+design (`PendingAction`, event-sourcing, the Router's own gate).
 
-- Conversation history (storage + retrieval, feeds the Context
-  Builder's `Conversation History` field)
-- Summarizing long conversations before they're fed back into context,
-  so token cost doesn't grow unbounded with conversation length
-- Preventing repeated answers (don't re-explain checkout time if it was
-  just given two messages ago)
-- Tracking what's already been offered (don't pitch the spa twice in
-  one stay if the guest already declined)
-- Maintaining a consistent tone across a conversation, independent of
-  which of the three reply-generating agents produced the last message
-- Throttling AI calls (rate/cost control per conversation, independent
-  of the per-tenant rate limiting Email Import's design already
-  established for a different reason)
+**v1 scope is deliberately narrow.** It:
+
+- Owns all pending conversations (`PendingAction`) — is there something
+  this guest still needs to respond to, right now?
+- Resumes an interrupted flow by remembering what was asked, across
+  any number of turns, not just the next one.
+- Interprets a guest's confirmation, cancellation, or clarification
+  against fixed patterns (no LLM call on this path, same "no AI on
+  this path" discipline the Escalation Filter already uses for a
+  different gate).
+- Emits the next `ActionEvent`, sharing the original proposal's
+  `correlation_id`.
+- Creates a staff `Task` when human execution is required (no PMS
+  integration exists yet to execute a confirmed action automatically).
+
+**It must NOT** — these stay owned by the existing agents and Intent
+Classifier, exactly as before: look up an FAQ answer, decide a revenue
+offer or its price, update guest memory, classify intent, or call an
+LLM for anything beyond the fixed confirm/cancel pattern match above.
+
+**Deferred to a later pass, once the pilot has real conversation
+volume to design against** (the original, broader vision for this
+component, kept here so it isn't lost, not because it's wrong):
+
+- Conversation history storage/retrieval feeding the Context Builder's
+  `Conversation History` field
+- Summarizing long conversations before they're fed back into context
+- Preventing repeated answers or re-pitching a declined offer
+- Maintaining a consistent tone across a conversation
+- Throttling AI calls (rate/cost control per conversation)
 
 ## 6. What "Available Automations" and "Previous AI Actions" mean in the Context Builder
 
@@ -530,29 +556,47 @@ happened. Argus learns more effectively from a consistent action
 taxonomy than from re-deriving it out of free text or a proliferation
 of ad-hoc per-agent strings.
 
-**The v1 `action_type` vocabulary is frozen as of PR #19.** New
-capabilities should reuse an existing value where possible; a
-genuinely new one is a deliberate addition, documented here, not an
-ad-hoc string invented at a call site.
+**The v1 `action_type` vocabulary is frozen as of PR #19, extended once
+(deliberately, per this same rule) when the Conversation Manager
+shipped.** New capabilities should reuse an existing value where
+possible; a genuinely new one is a deliberate addition, documented
+here, not an ad-hoc string invented at a call site.
 
 | `action_type` | Emitted today by | Status |
 |---|---|---|
 | `FAQ_ANSWERED` | FAQ Agent (§5.1) | ✅ live |
 | `OFFER_PROPOSED` | Revenue Agent (§5.3) | ✅ live |
-| `OFFER_ACCEPTED` | Conversation Manager (§5.5, not yet built) | reserved |
-| `OFFER_REJECTED` | Conversation Manager | reserved |
+| `OFFER_ACCEPTED` | Conversation Manager (§5.5/§16) | ✅ live |
+| `OFFER_REJECTED` | Conversation Manager | ✅ live |
+| `OFFER_EXPIRED` | Conversation Manager (`expire_stale`) | ✅ live |
 | `ORDER_PROPOSED` | Ordering Agent | ✅ live |
 | `ORDER_CONFIRMED` | Conversation Manager | reserved |
 | `ORDER_CANCELLED` | Conversation Manager | reserved |
 | `ORDER_COMPLETED` | Conversation Manager / staff | reserved |
+| `ORDER_EXPIRED` | Conversation Manager | reserved |
 | `MEMORY_PROPOSED` | Guest Memory Agent (§5.2) | ✅ live |
 | `MEMORY_ACCEPTED` | Memory Manager (not yet built) | reserved |
 | `MEMORY_REJECTED` | Memory Manager | reserved |
-| `TASK_CREATED` | Conversation Manager (staff execution path) | reserved |
+| `MEMORY_EXPIRED` | Memory Manager | reserved |
+| `TASK_CREATED` | Conversation Manager (staff execution path) | ✅ live |
 | `TASK_COMPLETED` | Staff (via Conversation Manager) | reserved |
 | `ESCALATED` | Escalation Filter, or any agent that couldn't help | ✅ live |
 | `SMALL_TALK` | Intent Classifier (no agent involved) | ✅ live |
 | `UNKNOWN` | Intent Classifier (no agent involved) | ✅ live |
+
+**Why only `OFFER_EXPIRED` is live, and `ORDER_EXPIRED`/`MEMORY_EXPIRED`
+stay reserved**: an `_EXPIRED` event only makes sense for a proposal
+that actually asked the guest a yes/no question and is now waiting on a
+reply. As of the Conversation Manager's introduction, only Revenue
+Agent's `OFFER_PROPOSED` does that ("Would you like me to book it?").
+`ORDER_PROPOSED` (Ordering Agent v0) is a pure hand-off ("you can order
+room service anytime") and `MEMORY_PROPOSED` is applied later by the
+not-yet-built Memory Manager, not put to the guest as a question — so
+neither ever creates a `PendingAction` to expire (see §16 and
+`conversation_manager.py`'s own `_CONFIRMABLE_ACTION_TYPES`). Emitting
+`ORDER_EXPIRED`/`MEMORY_EXPIRED` before a real confirmation flow exists
+for those domains would be exactly the "genuinely new value without a
+real lifecycle behind it" this rule exists to prevent.
 
 `ESCALATED` covers every "an agent tried and couldn't help" path (an
 agent returning `handled=False`, an agent's own `should_escalate`, or
@@ -576,23 +620,23 @@ without knowing who acted, not just what happened.
 |---|---|---|
 | `AI` | An agent (FAQ/Revenue/GuestMemory/Ordering) produced the outcome — including when that outcome is escalating | Every agent success, `should_escalate`, and `handled=False` path |
 | `SYSTEM` | The Router/Intent Classifier/Escalation Filter decided without any agent running | Escalation Filter hard-safety trip, `SMALL_TALK`, `UNKNOWN` |
-| `GUEST` | A guest confirmed, cancelled, or clarified a pending action | Conversation Manager (§5.5, not yet built) |
-| `STAFF` | A staff member completed or overrode a task | Conversation Manager (staff execution path, not yet built) |
+| `GUEST` | A guest confirmed or cancelled a pending action | Conversation Manager (§5.5/§16) — `OFFER_ACCEPTED`/`OFFER_REJECTED` |
+| `STAFF` | A staff member completed or overrode a task | Reserved — no staff-completion flow exists yet (`TASK_COMPLETED` is still reserved too) |
 
 Stored uppercase (`"AI"`, not `"ai"`) to match this table exactly —
 `entities.py`'s `ActorType` enum members are lowercase Python
 identifiers (`ActorType.ai`) but their stored `.value` is the uppercase
 string above, via SQLAlchemy's `values_callable`.
 
-**Future transitions (once the Conversation Manager exists) must be
-new events, not mutated status.** `ActionLogger.log_accept`/
+**Transitions are new events, not mutated status — now implemented by
+the Conversation Manager (§16).** `ActionLogger.log_accept`/
 `log_reject`/`log_complete`/`log_failure` exist and can technically
-flip a row's `status` in place, but the preferred pattern going forward
-is: when a proposal resolves (a guest confirms an offer, staff
-completes a task), log a *new* `ActionEvent` — e.g. `OFFER_ACCEPTED`,
-then `TASK_CREATED`, then `TASK_COMPLETED` — sharing the original's
-`correlation_id`, rather than turning the existing `OFFER_PROPOSED` row
-into something else:
+flip a row's `status` in place, but `ConversationManager` never calls
+them: when a proposal resolves (a guest confirms an offer, staff
+completes a task), it logs a *new* `ActionEvent` — e.g. `OFFER_ACCEPTED`,
+then `TASK_CREATED`, then (once a staff-completion flow exists)
+`TASK_COMPLETED` — sharing the original's `correlation_id`, rather than
+turning the existing `OFFER_PROPOSED` row into something else:
 
 ```
 Guest: "Late checkout please"
@@ -611,4 +655,80 @@ Staff processes it → TASK_COMPLETED                              (actor=STAFF)
 All five events share one `correlation_id` — a complete, replayable
 lifecycle instead of a single row whose meaning silently changed
 underneath it, the shape Argus actually needs to learn from a decision
-chain.
+chain. (v1 implements the first three steps — `TASK_COMPLETED` needs a
+staff-completion flow that doesn't exist yet.)
+
+## 16. Conversation Manager & `PendingAction`
+
+The Conversation Manager (§5.5) is the only stateful AI component in
+the codebase — every agent and the Router are stateless (§4.1). It's
+built around two tables that answer two different questions:
+
+- **`ActionEvent`** (§15, the Action Ledger) — "what happened?" —
+  immutable, append-only, the full history.
+- **`PendingAction`** (`app/models/entities.py`) — "is something still
+  awaiting a reply, right now?" — one active row per `(tenant_id,
+  guest_id)`, a fast-lookup index into open questions, not a second
+  source of truth.
+
+**Event-sourced, not a mutating "conversation state" record.** An
+earlier design considered a single `ConversationState` row mutated
+through a lifecycle; it was dropped in favor of this split specifically
+because mutating a record in place destroys the trajectory Argus needs
+to learn from ("what led to this outcome?", not just "what's the
+outcome?"). `PendingAction.status` does transition once (`pending` →
+`resolved`/`cancelled`/`expired`) and is never reopened, but every
+transition is mirrored by a new `ActionEvent` sharing the row's
+`correlation_id` — the full lifecycle stays fully replayable from the
+Action Ledger alone even though `PendingAction` itself isn't
+append-only.
+
+**Only a proposal with a real guest-facing yes/no question creates a
+`PendingAction`.** See the `_EXPIRED` discussion above (§15) — v1 wires
+up `OFFER_PROPOSED` (Revenue Agent) only, since it's the one agent that
+actually asks "Would you like me to book it?" today.
+`conversation_manager.py`'s own `_CONFIRMABLE_ACTION_TYPES` dict is the
+single place that knows which `action_type`s qualify and what
+`(accepted, rejected, expired)` triple each one resolves to — adding a
+second confirmable flow (once Ordering Agent's full build-out or Memory
+Manager actually ask a guest something) means adding one line there,
+not touching the resolution logic itself.
+
+**One active `PendingAction` per guest — a second proposal is deferred,
+never silently replaces the first.** If Revenue Agent proposed late
+checkout and, before the guest answers, some future capability proposes
+something else, the second proposal's own `ActionEvent` is still logged
+as normal (the Router logs every proposal unconditionally, before the
+Conversation Manager is ever consulted) — it simply never becomes the
+active conversational thread until the first one resolves or expires.
+The alternative — replacing the open question — creates an unresolvable
+ambiguity: guest says "yes" after two different offers were pitched
+back to back, and now nothing can tell which one they meant. The
+Conversation Manager should never have to guess.
+
+**The Router's gate** (§4's diagram, `concierge_router.py`): right
+after the Escalation Filter, before Intent Classification, `route()`
+asks `ConversationManager.find_active()`. A hit hands the message
+straight to `ConversationManager.resolve()` and returns — Intent
+Classifier and every agent are bypassed for that turn. This is what
+makes "resume an interrupted flow" actually work: a guest's "yes" three
+messages later is still resolved against the original offer, not
+re-classified from scratch and misread as `SMALL_TALK` or `UNKNOWN`.
+
+**Resolution is fixed-pattern matching, not an LLM call** — confirm
+(`"yes"`, `"sounds good"`, `"book it"`, ...) or cancel (`"no"`,
+`"cancel"`, `"never mind"`, ...); anything else is treated as unclear,
+never as an implicit cancellation. An unclear reply logs nothing to the
+ledger (nothing has actually happened yet) and leaves the
+`PendingAction` open, asking the guest to clarify.
+
+**Confirming creates a staff `Task`.** No PMS integration exists yet to
+execute a confirmed action automatically, so `OFFER_ACCEPTED` is always
+immediately followed by `TASK_CREATED` (`actor=SYSTEM` — the Router/
+Conversation Manager decided this, no agent and no guest did).
+
+**Expiry** (`ConversationManager.expire_stale`) closes a `PendingAction`
+past its `expires_at` (24h default, matching WhatsApp's own messaging
+window) and logs the domain's `_EXPIRED` event (`actor=SYSTEM`). This
+module doesn't wire up the scheduler itself — a periodic sweep or a
+lazy check before the next lookup are both valid callers.

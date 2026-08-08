@@ -550,6 +550,89 @@ class ActionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class PendingActionStatus(str, enum.Enum):
+    pending = "pending"
+    resolved = "resolved"
+    cancelled = "cancelled"
+    expired = "expired"
+
+
+class PendingAction(Base):
+    """The Conversation Manager's active-workflow tracker — CONCIERGE.md
+    §5.5/§16. Answers a narrower question than the Action Ledger does:
+    not "what happened" (that's `ActionEvent`, immutable, append-only),
+    but "is there something this guest still needs to respond to, right
+    now?" `ConversationManager` (`app/services/conversation_manager.py`)
+    is the only component that creates or transitions a row here.
+
+    Deliberately NOT itself event-sourced — `status` transitions exactly
+    once (`pending` -> `resolved`/`cancelled`/`expired`) and is never
+    reopened or reused for a second proposal. The event-sourcing happens
+    one level up: every transition here is mirrored by a new
+    `ActionEvent` sharing this row's `correlation_id` (e.g.
+    `OFFER_PROPOSED` then `OFFER_ACCEPTED`), so the full lifecycle stays
+    fully replayable from `ActionEvent` alone — this table is a
+    fast-lookup index into "what's still open", not a second source of
+    truth. `origin_action_type` is a copy of the triggering event's
+    `action_type` (e.g. `"OFFER_PROPOSED"`), so `ConversationManager` can
+    look up which domain-specific resolution event to emit later
+    (`OFFER_ACCEPTED`/`OFFER_REJECTED`/`OFFER_EXPIRED`) without needing
+    to re-derive *why* the proposal was made.
+
+    One active (`status=pending`) row per `(tenant_id, guest_id)` at a
+    time, enforced by `ConversationManager`, not a database constraint:
+    a second proposal arriving while one is still open is deferred — its
+    own `ActionEvent` is still logged as normal (the Router logs every
+    proposal unconditionally), it simply never gets a `PendingAction` of
+    its own until the first one resolves or expires. The Conversation
+    Manager should never have to guess which of two open questions a
+    guest's "yes" answers.
+
+    Only proposals with a real guest-facing yes/no question create a row
+    here — as of this table's introduction, that's `OFFER_PROPOSED`
+    (Revenue Agent) only. `ORDER_PROPOSED` (Ordering Agent v0) and
+    `MEMORY_PROPOSED` (Guest Memory Agent) are informational/passive
+    today, not a question awaiting an answer, so they never create one
+    (see `conversation_manager.py`'s own `_CONFIRMABLE_ACTION_TYPES`).
+    """
+
+    __tablename__ = "pending_actions"
+    __table_args__ = (
+        Index("ix_pending_action_tenant_id", "tenant_id"),
+        Index("ix_pending_action_guest_id", "guest_id"),
+        Index("ix_pending_action_correlation_id", "correlation_id"),
+        # The lookup ConversationManager runs on every inbound message:
+        # "is there an active PendingAction for this guest?"
+        Index("ix_pending_action_guest_status", "guest_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"))
+    reservation_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("reservations.id"), nullable=True
+    )
+    conversation_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    correlation_id: Mapped[str] = mapped_column(String(36))
+    origin_action_type: Mapped[str] = mapped_column(String(64))
+    # Copy of the triggering event's own `intent` — so a later
+    # ACCEPTED/REJECTED/EXPIRED event can log the same `intent` as the
+    # original proposal without ConversationManager needing to guess it
+    # from `origin_action_type` (a hardcoded action_type -> intent map
+    # would silently go stale the moment a second confirmable
+    # action_type is added).
+    origin_intent: Mapped[str] = mapped_column(String(32))
+
+    status: Mapped[PendingActionStatus] = mapped_column(
+        Enum(PendingActionStatus), default=PendingActionStatus.pending
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class Review(Base):
     __tablename__ = "reviews"
     __table_args__ = (
