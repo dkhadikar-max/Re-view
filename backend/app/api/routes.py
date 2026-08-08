@@ -45,6 +45,7 @@ from app.models.entities import (
     Message,
     MessageStatus,
     Notification,
+    MenuItem,
     Offer,
     OfferStatus,
     Property,
@@ -77,6 +78,11 @@ from app.schemas import (
     IntelligenceReport,
     IntelligenceTheme,
     LoginRequest,
+    MenuImportRequest,
+    MenuImportResult,
+    MenuItemOut,
+    MenuItemUpdate,
+    MenuValidationReport,
     MessageOut,
     NotificationOut,
     OfferOut,
@@ -129,6 +135,7 @@ from app.services.import_orchestrator import (
     import_reservation,
     start_import_session,
 )
+from app.services.menu_importer import menu_importer
 from app.services.messaging import deliver_message, process_due_messages
 from app.services.pdf_importer import pdf_importer
 from app.services.state_machine import (
@@ -1735,6 +1742,136 @@ def confirm_pdf_import(
             + (f", skipped {len(duplicates)} already imported" if duplicates else "")
         ),
     )
+
+
+@router.post("/connectors/import-menu/extract", response_model=MenuValidationReport)
+async def extract_menu(
+    user: ManagerUser,
+    file: UploadFile = File(...),
+) -> MenuValidationReport:
+    """Read-only: extracts + parses a menu PDF and returns Ready to
+    Import / Needs Review rows for a human to approve or edit. Writes
+    nothing to the database and creates no ImportSession — same
+    "preview before anything happens" contract as PDF reservation
+    import. PDF only for v1 (MENU_ORDERING.md, frozen decision) — Excel/
+    CSV follows only if a pilot hotel actually needs it.
+    """
+    content = await file.read(settings.pdf_max_bytes + 1)
+    if len(content) > settings.pdf_max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"PDF exceeds {settings.pdf_max_bytes} bytes",
+        )
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded file is empty",
+        )
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This file does not appear to be a PDF",
+        )
+    try:
+        report = menu_importer.validate(content, filename=file.filename or "menu.pdf")
+    except (PdfPasswordProtectedError, PdfUnreadableError, PdfTooManyPagesError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    if report.total_items > settings.menu_max_items_per_file:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"PDF contains {report.total_items} items — exceeds the "
+                f"{settings.menu_max_items_per_file}-per-file limit"
+            ),
+        )
+    return report
+
+
+@router.post("/connectors/import-menu/confirm", response_model=MenuImportResult)
+def confirm_menu_import(
+    body: MenuImportRequest,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> MenuImportResult:
+    """The one write endpoint in the menu flow. Only reached after a
+    human has approved (and optionally edited) every row on the Review
+    screen — a menu item never auto-publishes, regardless of extraction
+    confidence (MENU_ORDERING.md's own guardrail, restated here).
+    """
+    property_ = _property_for_tenant(db, user.tenant_id)
+    session = start_import_session(
+        db,
+        tenant_id=user.tenant_id,
+        source="menu",
+        initiated_by=user.email,
+        rows_total=len(body.rows),
+        filename=body.filename,
+    )
+    menu_importer.import_(
+        body.rows,
+        session,
+        db=db,
+        tenant_id=user.tenant_id,
+        property_id=property_.id,
+    )
+    finish_import_session(db, session)
+    imported_count = session.rows_imported
+    db.commit()
+    return MenuImportResult(
+        import_session_id=session.id,
+        imported=imported_count,
+        message=f"Published {imported_count} menu item(s)",
+    )
+
+
+@router.get("/menu-items", response_model=list[MenuItemOut])
+def list_menu_items(
+    user: AuthUser,
+    menu_name: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[MenuItem]:
+    query = db.query(MenuItem).filter(MenuItem.tenant_id == user.tenant_id)
+    if menu_name:
+        query = query.filter(MenuItem.menu_name == menu_name)
+    return query.order_by(MenuItem.menu_name, MenuItem.category, MenuItem.name).all()
+
+
+@router.patch("/menu-items/{item_id}", response_model=MenuItemOut)
+def update_menu_item(
+    item_id: str,
+    payload: MenuItemUpdate,
+    user: ManagerUser,
+    db: Session = Depends(get_db),
+) -> MenuItem:
+    """Staff edit price/availability/description/category/dietary tags
+    after upload (MENU_ORDERING.md §3.3) — the same tenant-scoped PATCH
+    shape `update_property_knowledge_base` already established. Audited
+    via the existing AuditLog mechanism, not a new subsystem: this,
+    together with `source_import_id`, is what later answers "which
+    upload produced this item, and was it subsequently edited by staff"
+    without a dedicated menu-versioning table.
+    """
+    item = get_tenant_entity(db, MenuItem, item_id, user.tenant_id, not_found="Menu item not found")
+
+    changed_fields = payload.model_dump(exclude_unset=True)
+    for field, value in changed_fields.items():
+        setattr(item, field, value)
+    db.flush()
+
+    write_audit(
+        db,
+        tenant_id=user.tenant_id,
+        actor=user.email,
+        action="update_menu_item",
+        entity_type="menu_item",
+        entity_id=item.id,
+        details={"changed_fields": sorted(changed_fields)},
+    )
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @router.get("/import-sessions", response_model=list[ImportSessionListItem])

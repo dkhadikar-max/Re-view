@@ -310,6 +310,67 @@ class PropertyPackage(Base):
     )
 
 
+class MenuItem(Base):
+    """A hotel-uploaded dish/drink — MENU_ORDERING.md §3.1, one row per
+    item. A hotel can have several menus (breakfast, room service, bar)
+    distinguished by `menu_name`, not separate tables.
+
+    Uploaded via `MenuImporter` (`app/services/menu_importer.py`) and
+    always human-reviewed before creation — nothing here was ever
+    written by an AI extraction pass alone (MENU_ORDERING.md's own
+    guardrail, restated in `menu_importer.py`'s docstring). `id` stays
+    stable across every subsequent edit (never delete-and-recreate) —
+    this is the identity a future `Order.items` snapshot
+    (MENU_ORDERING.md §6, not yet built) will reference, and the
+    identity a future menu-version evidence chain for Argus depends on
+    staying meaningful over time.
+
+    Provenance is deliberately NOT a new subsystem: `source_import_id`
+    answers "which upload produced this row" (the existing
+    `ImportSession` primitive, reused, not extended); every edit after
+    that goes through the existing `AuditLog`/`write_audit` mechanism
+    (same as `PropertyKnowledgeBase`'s own editor). Together those two
+    already-existing mechanisms answer "which source produced this item,
+    and was it subsequently edited by staff" without a dedicated
+    versioning table.
+    """
+
+    __tablename__ = "menu_items"
+    __table_args__ = (
+        Index("ix_menu_item_tenant_id", "tenant_id"),
+        Index("ix_menu_item_property_id", "property_id"),
+        Index("ix_menu_item_source_import_id", "source_import_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"))
+
+    menu_name: Mapped[str] = mapped_column(String(128), default="Menu")
+    name: Mapped[str] = mapped_column(String(255))
+    category: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[float] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+    vegetarian: Mapped[bool] = mapped_column(Boolean, default=False)
+    vegan: Mapped[bool] = mapped_column(Boolean, default=False)
+    gluten_free: Mapped[bool] = mapped_column(Boolean, default=False)
+    spicy: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Which upload produced this row — nullable because a future
+    # "add one item by hand" path (not built yet) would have no import
+    # to point to; every row created by MenuImporter always sets it.
+    source_import_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("import_sessions.id"), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class Guest(Base):
     __tablename__ = "guests"
     __table_args__ = (

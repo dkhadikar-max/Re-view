@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     # PDF_IMPORT.md §4). Below this, a row is "Needs Review" regardless of
     # whether every field happened to parse.
     pdf_confidence_threshold: float = 0.75
+    # A menu PDF legitimately has far more line items than a booking
+    # confirmation has reservations — its own cap, not a reuse of
+    # pdf_max_reservations_per_file.
+    menu_max_items_per_file: int = 200
     seed_on_startup: bool = True
     auto_create_tables: bool = True
 

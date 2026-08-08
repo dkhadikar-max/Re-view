@@ -1,12 +1,34 @@
 # AI Concierge — Menu Management, Meal Reservation & Room Service Ordering
 
-Status: **Roadmap document, deliberately not an implementation
-commitment.** The three open questions below are resolved, but
-implementation is explicitly deferred until the AI Concierge core
-(Concierge Router + first pilot) is complete — this doc documents a
-future subsystem without expanding the current pilot's surface area.
-Revisit once real pilot conversations show ordering is worth building
-next, per CONCIERGE.md §0's own principle applied to itself.
+Status: **§3 (Menu Manager) is now partially implemented** — `MenuItem`
+model + migration, the PDF-only upload/review/confirm pipeline
+(`menu_ai_parser.py`, `menu_parser.py`, `menu_importer.py`), and the
+menu editor endpoint have shipped (§17 steps 1–3). Everything from §4
+onward (Context Builder extension, meal reservation, room service
+ordering, the Order model, the Ordering Agent, and the order-pattern
+Guest Memory track) remains **deliberately deferred** — this section
+of the roadmap doc still documents a future subsystem without expanding
+the current pilot's surface area. Revisit once real pilot conversations
+show ordering itself is worth building next, per CONCIERGE.md §0's own
+principle applied to itself.
+
+**Frozen v1 sub-scope decisions for the Menu Importer** (locked before
+implementation, superseding a few specifics below where they differ):
+PDF only, no Excel/CSV yet (Excel/CSV in §2's table stays a real future
+option, not built speculatively); no separate menu-version table — a
+`MenuItem`'s provenance is `source_import_id` (which upload produced
+it) plus the existing `AuditLog` (was it subsequently edited by staff),
+not a new subsystem; `MenuItem.id` stays stable and immutable across
+edits (update in place, never delete-and-recreate) specifically because
+a future `Order.items` snapshot (§6) is the actual evidence boundary
+that answers "which menu version produced this order," not a table on
+`MenuItem` itself; a re-upload of a revised menu creates fresh rows
+rather than attempting to fuzzy-match against existing ones (§3.2's own
+note, added during implementation). `ConciergeContext` is **not**
+extended with `menu_items` yet (§4) — that has no consumer until the
+Ordering Agent exists, and shipping unused surface area preemptively is
+exactly the premature-abstraction risk this codebase's own conventions
+warn against.
 
 ---
 
@@ -104,22 +126,35 @@ natural second/third implementer, following the exact precedent
 unmodified; only the AI Parser's extraction schema (menu items instead
 of reservations) and the target table differ.
 
-### 3.3 Editing
+**Re-uploading a revised menu creates fresh `MenuItem` rows, not a
+merge** — decided during implementation, not originally specified here.
+Fuzzy-matching a re-extracted item against an existing one (by name, the
+only stable-ish signal available) is exactly the kind of guess this
+codebase avoids elsewhere; a hotel re-uploading a changed menu ends up
+with both the old and new rows, and marks the old ones unavailable or
+edits them directly via §3.3's editor. A "supersede this upload's
+items" convenience is a reasonable future addition once a pilot hotel
+actually needs it, not built speculatively.
+
+### 3.3 Editing — implemented
 
 Hotels can edit price, availability, description, category, and
-dietary tags after upload — a straightforward CRUD endpoint on
-`MenuItem`, same shape as `PropertyUpdate`'s pattern (`PATCH` by ID,
-tenant-scoped). This is also where `PropertyKnowledgeBase`'s own
-still-missing editor (task #44's open half) and the menu editor should
-probably share a UI section, since both are "hotel staff manage the
-facts the concierge is allowed to state" — worth building together
-rather than as two unrelated screens.
+dietary tags after upload: `PATCH /api/menu-items/{id}` (tenant-scoped,
+manager-only), same shape as the now-shipped Knowledge Base Editor's
+own `PATCH` endpoint — partial updates only, audited via `AuditLog`
+with changed field names, never values. A shared frontend UI section
+for both editors (this paragraph's original suggestion) is deferred —
+the Menu Importer shipped its editor as an API-only surface for now, a
+review/upload UI and a combined "hotel staff manage the facts" screen
+are natural, separate follow-ups.
 
-**Cache invalidation applies here too**: any menu edit (or import) must
-call `ContextBuilder.invalidate_tenant(tenant_id)` (the primitive added
-in PR #14's review) for the same reason a Knowledge Base edit does — a
-stale cached menu is a guest ordering a dish that was 86'd five minutes
-ago.
+**Cache invalidation does NOT apply yet.** `PR #14`'s
+`ContextBuilder.invalidate_tenant(tenant_id)` matters once something
+actually reads menu data out of a cached `ConciergeContext` — that's
+§4's Context Builder extension, not yet built (see this document's
+status line). Calling it today would be a no-op wired to a cache that
+holds nothing menu-related; it belongs in the same PR that adds
+`menu_items` to `ConciergeContext`, not this one.
 
 ## 4. Extending the Context Builder
 
@@ -415,13 +450,17 @@ this document's own existence. Revisit only after the pilot is running.
 
 ## 17. Implementation sequence (for when this is picked back up)
 
-Proposed, in order: (1) `MenuItem`
-   model + migration, (2) menu upload pipeline (PDF path first, reusing
-   existing infra directly; Excel/CSV path second), (3) menu editor
-   endpoint, (4) Context Builder extension (`menu_items`,
-   `order_history`, `pending_order`), (5) `Order` model + migration,
-   (6) Ordering Agent (room service first — simpler, single-turn-per-
-   item-selection; meal reservation second, since it additionally needs
-   the Automation Engine trigger from §5), (7) Memory Manager, (8)
-   order-pattern Guest Memory track. Each as its own reviewed PR, same
-   discipline as every Concierge PR so far.
+Proposed, in order: (1) ✅ `MenuItem`
+   model + migration, (2) ✅ menu upload pipeline (PDF path shipped;
+   Excel/CSV deferred per the frozen v1 decision at the top of this
+   doc, not "second" as originally sequenced — build only if a pilot
+   hotel needs it), (3) ✅ menu editor endpoint, (4) Context Builder
+   extension (`menu_items`, `order_history`, `pending_order`) — not yet
+   built, (5) `Order` model + migration, (6) Ordering Agent (room
+   service first — simpler, single-turn-per-item-selection; meal
+   reservation second, since it additionally needs the Automation
+   Engine trigger from §5), (7) ✅ Memory Manager (built ahead of this
+   sequence, per the actual roadmap order: Knowledge Base Editor →
+   Memory Manager → Menu Importer), (8) order-pattern Guest Memory
+   track. Each as its own reviewed PR, same discipline as every
+   Concierge PR so far.
