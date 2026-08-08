@@ -24,23 +24,34 @@ Deliberately does not interpret hotel business logic and does not know
 about Concierge concepts like intent categories or agent names beyond
 treating them as opaque strings to store — same "closed vocabulary
 today, extensible tomorrow" convention as `PropertyService.service_type`.
+
+`input_summary`/`decision`/`output_summary` are expected to already be
+short, structured descriptions by the time they reach `log_action` —
+this module doesn't summarize or sanitize them itself, that's the
+caller's job (`concierge_router.py`'s `_summarize_*` helpers build them
+from each agent's own structured metadata, never the guest's raw
+message text or a secret KB value). This module only caps length as a
+safety net against a single pathological value bloating a row — not a
+truncation strategy meant to be clever about what it keeps.
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
 from app.models.entities import ActionEvent, ActionEventStatus
 
-# input_summary/decision/output_summary are captured verbatim, not
-# generated or condensed by any model — "summary" here means "a plain
-# text field", not summarization. Capped only to keep a single
-# pathological message from bloating a row; not a truncation strategy
-# meant to be clever about what it keeps.
 _MAX_TEXT_LENGTH = 2000
+
+# Stamped into every event's metadata unless the caller already set one
+# — one place to bump when agent logic changes meaningfully, so Argus
+# can eventually tell "v1 decided this" apart from "v2 decided this"
+# without every call site needing to remember to say so.
+_AGENT_VERSION = "v1"
 
 
 def _cap(text: Optional[str]) -> Optional[str]:
@@ -65,6 +76,7 @@ class ActionLogger:
         decision: str,
         reservation_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
         agent: Optional[str] = None,
         action_type: str,
         confidence: Optional[float] = None,
@@ -75,12 +87,21 @@ class ActionLogger:
         """Creates one immutable `ActionEvent` row. This is the only
         method in this module (or anywhere else) that should ever
         construct an `ActionEvent` — every other method here only
-        transitions `status` on a row this method already created."""
+        transitions `status` on a row this method already created.
+
+        `correlation_id` groups every event from the same guest
+        interaction, even across separate turns (`ActionEvent`'s own
+        docstring). Defaults to a fresh id — the common case today,
+        since only one event is logged per turn. A caller that already
+        has one to continue (the Conversation Manager, once it exists,
+        resuming a pending state) passes it through explicitly instead.
+        """
         event = ActionEvent(
             tenant_id=tenant_id,
             guest_id=guest_id,
             reservation_id=reservation_id,
             conversation_id=conversation_id,
+            correlation_id=correlation_id or str(uuid.uuid4()),
             intent=intent,
             agent=agent,
             action_type=action_type,
@@ -89,7 +110,7 @@ class ActionLogger:
             decision=_cap(decision) or "",
             output_summary=_cap(output_summary),
             status=status,
-            event_metadata=json.dumps(metadata or {}),
+            event_metadata=json.dumps({"agent_version": _AGENT_VERSION, **(metadata or {})}),
         )
         db.add(event)
         db.flush()

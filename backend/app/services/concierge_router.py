@@ -61,7 +61,12 @@ Responsibilities:
   Argus); it plays no part in what this Router decides. Every exit
   point below logs before returning, so a turn is never silently
   un-recorded, but this Router never reads an `ActionEvent` back — it's
-  a write-only observer of what already happened.
+  a write-only observer of what already happened. `input_summary`/
+  `decision`/`output_summary` are built by this module's own
+  `_summarize_*` helpers from each agent's *structured* metadata (a
+  service name, a KB topic, a memory field) — never the guest's raw
+  message text, and never a secret KB value (a topic like
+  `wifi_password` is referenced by name only, never the fact itself).
 
 FAQAgent predates the shared `Agent` Protocol and returns its own
 `FAQResponse` shape (`agent_protocol.py`'s docstring explains why it
@@ -82,7 +87,7 @@ Deliberately NOT this module's job (still roadmap steps ahead):
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -143,6 +148,96 @@ def _with_agent_tag(response: AgentResponse, agent_name: str) -> AgentResponse:
     return response.model_copy(update={"metadata": {**response.metadata, "agent": agent_name}})
 
 
+def _readable(label: Optional[str]) -> str:
+    return (label or "a topic").replace("_", " ")
+
+
+def _summarize_faq(metadata: dict[str, Any], response_text: Optional[str]) -> tuple[str, str, Optional[str]]:
+    topic = _readable(metadata.get("source"))
+    input_summary = f"Guest asked about {topic}."
+    if response_text:
+        # Never store the actual KB fact (a wifi password, an emergency
+        # contact number) — topic only, the fact itself already lives
+        # in PropertyKnowledgeBase, not duplicated here.
+        return input_summary, f"FAQAgent answered from knowledge base topic '{metadata.get('source')}'.", f"Answered {topic} question."
+    return input_summary, f"FAQAgent had no configured answer for '{metadata.get('source')}'.", None
+
+
+def _summarize_revenue(metadata: dict[str, Any], response_text: Optional[str]) -> tuple[str, str, Optional[str]]:
+    service = metadata.get("service_opportunity")
+    package = metadata.get("package_opportunity")
+    if service:
+        name = service.get("name") or _readable(service.get("service_type"))
+        input_summary = f"Guest requested {name}."
+        if metadata.get("duplicate_suppressed"):
+            decision = f"RevenueAgent noted {name} was already offered."
+        elif service.get("configured") is False:
+            decision = f"RevenueAgent found {name} not configured, escalated."
+        elif service.get("available") is False:
+            decision = f"RevenueAgent found {name} unavailable, escalated."
+        elif service.get("complimentary"):
+            decision = f"RevenueAgent confirmed {name} as complimentary."
+        else:
+            decision = f"RevenueAgent proposed paid {name}."
+        return input_summary, decision, response_text
+    if package:
+        name = package.get("name")
+        occasion = package.get("occasion", "an occasion")
+        if name:
+            input_summary = f"Guest asked about {name} for {occasion}."
+            decision = (
+                f"RevenueAgent noted {name} was already offered."
+                if metadata.get("duplicate_suppressed")
+                else f"RevenueAgent proposed {name}."
+            )
+        else:
+            input_summary = f"Guest asked about a package for {occasion}."
+            decision = "RevenueAgent found no package configured for this occasion, escalated."
+        return input_summary, decision, response_text
+    return "Guest made a service-related request.", "RevenueAgent responded.", response_text
+
+
+def _summarize_guest_memory(metadata: dict[str, Any], response_text: Optional[str]) -> tuple[str, str, Optional[str]]:
+    updates = metadata.get("memory_updates") or []
+    if updates:
+        fields = ", ".join(_readable(u.get("field")) for u in updates)
+        return f"Guest shared a {fields} preference.", f"GuestMemoryAgent proposed updating {fields}.", response_text
+    return "Guest mentioned a previous stay.", "GuestMemoryAgent acknowledged a returning guest.", response_text
+
+
+def _summarize_ordering(metadata: dict[str, Any], response_text: Optional[str]) -> tuple[str, str, Optional[str]]:
+    handoff = metadata.get("handoff")
+    input_summary = "Guest expressed interest in food or room service."
+    if handoff == "room_service":
+        decision = "OrderingAgent handed off to room service."
+    elif handoff == "restaurant":
+        decision = "OrderingAgent recommended the restaurant."
+    else:
+        decision = "OrderingAgent found no food option configured, escalated."
+    return input_summary, decision, response_text
+
+
+_SUMMARIZERS = {
+    "faq": _summarize_faq,
+    "revenue": _summarize_revenue,
+    "guest_memory": _summarize_guest_memory,
+    "ordering": _summarize_ordering,
+}
+
+
+def _summarize_agent_response(
+    agent_name: Optional[str], metadata: dict[str, Any], response_text: Optional[str]
+) -> tuple[str, str, Optional[str]]:
+    summarizer = _SUMMARIZERS.get(agent_name or "")
+    if summarizer:
+        return summarizer(metadata, response_text)
+    return (
+        f"Guest message classified for {agent_name or 'an agent'}.",
+        f"{agent_name or 'Agent'} responded.",
+        response_text,
+    )
+
+
 class ConciergeRouter:
     """Stateless — holds no data between calls, same as every agent it
     orchestrates. One instance is safe to reuse across every tenant,
@@ -168,15 +263,16 @@ class ConciergeRouter:
         decision = evaluate_escalation(message_body, context)
         if decision.escalate:
             escalate_to_staff(db, context=context, message_body=message_body, decision=decision)
+            category = decision.category.value if decision.category else "safety"
             self._log(
                 db,
                 context,
-                message_body,
                 intent="escalation",
                 agent=None,
                 action_type="escalation",
                 status=ActionEventStatus.escalated,
                 confidence=decision.confidence,
+                input_summary=f"Guest message matched a {category} escalation pattern.",
                 decision_text=decision.reason,
                 output_summary=None,
             )
@@ -201,12 +297,12 @@ class ConciergeRouter:
             self._log(
                 db,
                 context,
-                message_body,
                 intent=intent_decision.category.value,
                 agent=None,
                 action_type="small_talk_acknowledged",
                 status=ActionEventStatus.completed,
                 confidence=intent_decision.confidence,
+                input_summary="Guest sent a conversational pleasantry.",
                 decision_text="Acknowledged as small talk, no escalation needed",
                 output_summary=None,
             )
@@ -221,7 +317,12 @@ class ConciergeRouter:
 
         if intent_decision.category == IntentCategory.unknown:
             return self._escalate_unhandled(
-                db, context, message_body, intent_decision, _NO_INTENT_RECOGNIZED_REASON
+                db,
+                context,
+                message_body,
+                intent_decision,
+                _NO_INTENT_RECOGNIZED_REASON,
+                input_summary="Guest message did not match any recognized intent.",
             )
 
         response = self._dispatch(intent_decision.category, context, message_body)
@@ -241,10 +342,14 @@ class ConciergeRouter:
                 _AGENT_COULD_NOT_HELP_REASON.format(
                     agent=response.metadata.get("agent", "the selected agent")
                 ),
+                input_summary=f"Guest message classified as {intent_decision.category.value}.",
                 existing_response=response,
             )
 
         agent_name = response.metadata.get("agent")
+        input_summary, decision_text, output_summary = _summarize_agent_response(
+            agent_name, response.metadata, response.response
+        )
 
         if response.should_escalate:
             reason = _AGENT_COULD_NOT_HELP_REASON.format(agent=agent_name or "agent")
@@ -262,14 +367,14 @@ class ConciergeRouter:
             self._log(
                 db,
                 context,
-                message_body,
                 intent=intent_decision.category.value,
                 agent=agent_name,
                 action_type=f"{agent_name or 'agent'}_escalated",
                 status=ActionEventStatus.escalated,
                 confidence=intent_decision.confidence,
-                decision_text=response.response or reason,
-                output_summary=response.response,
+                input_summary=input_summary,
+                decision_text=decision_text,
+                output_summary=output_summary,
             )
             return response
 
@@ -279,14 +384,14 @@ class ConciergeRouter:
         self._log(
             db,
             context,
-            message_body,
             intent=intent_decision.category.value,
             agent=agent_name,
             action_type=action_type,
             status=status,
             confidence=intent_decision.confidence,
-            decision_text=response.response or "",
-            output_summary=response.response,
+            input_summary=input_summary,
+            decision_text=decision_text,
+            output_summary=output_summary,
             metadata=response.metadata,
         )
         return response
@@ -317,8 +422,13 @@ class ConciergeRouter:
         intent_decision: IntentDecision,
         reason: str,
         *,
+        input_summary: str,
         existing_response: Optional[AgentResponse] = None,
     ) -> AgentResponse:
+        # escalate_to_staff needs the guest's real message — staff have
+        # to act on what was actually said. `input_summary` below is a
+        # different consumer (the Action Ledger) with a different need
+        # (never a raw transcript) — the two must not be conflated.
         escalate_to_staff(
             db,
             context=context,
@@ -339,12 +449,12 @@ class ConciergeRouter:
         self._log(
             db,
             context,
-            message_body,
             intent=intent_decision.category.value,
             agent=agent_name,
             action_type=action_type,
             status=ActionEventStatus.escalated,
             confidence=intent_decision.confidence,
+            input_summary=input_summary,
             decision_text=reason,
             output_summary=None,
         )
@@ -362,22 +472,25 @@ class ConciergeRouter:
         self,
         db: Session,
         context: ConciergeContext,
-        message_body: str,
         *,
         intent: str,
         agent: Optional[str],
         action_type: str,
         status: ActionEventStatus,
         confidence: Optional[float],
+        input_summary: str,
         decision_text: str,
         output_summary: Optional[str],
         metadata: Optional[dict] = None,
     ) -> None:
         """One `ActionEvent` per `route()` call — see this module's own
-        docstring and `action_logger.py`. Failure to log is deliberately
-        not allowed to fail the turn itself; if this ever needs
-        try/except around it, that decision belongs to whoever wires
-        `route()` into a real request path, not silently swallowed here.
+        docstring and `action_logger.py`. `input_summary`/`decision_text`/
+        `output_summary` are always already-built, structured summaries
+        by the time they reach here (`_summarize_*` above) — never the
+        guest's raw message text. Failure to log is deliberately not
+        allowed to fail the turn itself; if this ever needs try/except
+        around it, that decision belongs to whoever wires `route()` into
+        a real request path, not silently swallowed here.
         """
         action_logger.log_action(
             db,
@@ -389,7 +502,7 @@ class ConciergeRouter:
             agent=agent,
             action_type=action_type,
             confidence=confidence,
-            input_summary=message_body or "",
+            input_summary=input_summary,
             decision=decision_text,
             output_summary=output_summary,
             status=status,

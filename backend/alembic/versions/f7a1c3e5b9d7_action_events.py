@@ -32,6 +32,7 @@ def upgrade() -> None:
     op.create_table(
         "action_events",
         sa.Column("id", sa.String(length=36), primary_key=True),
+        sa.Column("correlation_id", sa.String(length=36), nullable=False),
         sa.Column(
             "tenant_id", sa.String(length=64), sa.ForeignKey("tenants.id"), nullable=False
         ),
@@ -60,9 +61,11 @@ def upgrade() -> None:
     op.create_index("ix_action_event_conversation_id", "action_events", ["conversation_id"])
     op.create_index("ix_action_event_created_at", "action_events", ["created_at"])
     op.create_index("ix_action_event_action_type", "action_events", ["action_type"])
+    op.create_index("ix_action_event_correlation_id", "action_events", ["correlation_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_action_event_correlation_id", table_name="action_events")
     op.drop_index("ix_action_event_action_type", table_name="action_events")
     op.drop_index("ix_action_event_created_at", table_name="action_events")
     op.drop_index("ix_action_event_conversation_id", table_name="action_events")

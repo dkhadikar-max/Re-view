@@ -451,12 +451,24 @@ class ActionEvent(Base):
     for events that never reached an agent (e.g. an Escalation Filter
     trip or an UNKNOWN intent).
 
-    `input_summary`/`decision`/`output_summary` are plain, uninterpreted
-    text captured from what actually happened this turn — no
-    summarization model, no analytics, no aggregation. That's
-    deliberately out of scope for this table (see its own module's
-    docstring): it's the raw material a future Argus learning pipeline
-    would work from, not something this codebase processes itself.
+    `input_summary`/`decision`/`output_summary` are short, structured
+    descriptions built from each agent's own already-structured
+    metadata (a service name, a KB topic, a memory field) — never the
+    guest's raw message text, and never a secret value (a KB fact like
+    `wifi_password` is referenced by topic only, not quoted). The full
+    transcript already lives in `Message`/Conversation History; this
+    table isn't a second copy of it, no summarization model or
+    analytics involved, just concise templating (`concierge_router.py`'s
+    own `_summarize_*` helpers).
+
+    `correlation_id` groups every `ActionEvent` that stems from the same
+    guest interaction, even across separate turns — e.g. "Revenue Offer
+    Proposed" now and "Guest Accepted"/"Staff Completed" later, once a
+    reply resolves it. A fresh one is generated per `route()` call by
+    default (`ActionLogger.log_action`); carrying the *same* one across
+    a multi-turn resolution is the Conversation Manager's job once it
+    exists (not yet — see roadmap), by passing the original event's
+    `correlation_id` through when it re-dispatches to the owning agent.
     """
 
     __tablename__ = "action_events"
@@ -467,9 +479,11 @@ class ActionEvent(Base):
         Index("ix_action_event_conversation_id", "conversation_id"),
         Index("ix_action_event_created_at", "created_at"),
         Index("ix_action_event_action_type", "action_type"),
+        Index("ix_action_event_correlation_id", "correlation_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    correlation_id: Mapped[str] = mapped_column(String(36), default=uid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
     guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"))
     reservation_id: Mapped[Optional[str]] = mapped_column(

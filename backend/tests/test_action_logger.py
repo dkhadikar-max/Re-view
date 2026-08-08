@@ -80,8 +80,9 @@ def test_log_action_creates_a_row_with_every_field(db_session):
     assert event.decision == "Answered from knowledge_base.wifi_password"
     assert event.output_summary == "Our WiFi password is: guest123"
     assert event.status == ActionEventStatus.completed
-    assert json.loads(event.event_metadata) == {"source": "wifi_password"}
+    assert json.loads(event.event_metadata) == {"source": "wifi_password", "agent_version": "v1"}
     assert isinstance(event.created_at, datetime)
+    assert event.correlation_id
 
     stored = db.query(ActionEvent).filter(ActionEvent.id == event.id).one()
     assert stored.tenant_id == "hotel-a"
@@ -133,6 +134,7 @@ def test_transitions_change_only_status(db_session, method_name, expected_status
     original_snapshot = {
         "tenant_id": event.tenant_id,
         "guest_id": event.guest_id,
+        "correlation_id": event.correlation_id,
         "intent": event.intent,
         "agent": event.agent,
         "action_type": event.action_type,
@@ -218,7 +220,7 @@ def test_created_at_is_set_and_monotonic_across_events(db_session):
     assert datetime.utcnow() - first.created_at < timedelta(seconds=10)
 
 
-def test_metadata_defaults_to_empty_object(db_session):
+def test_metadata_defaults_to_just_the_agent_version_stamp(db_session):
     db = db_session
     guest = _make_guest(db, tenant_id="hotel-g")
 
@@ -227,4 +229,63 @@ def test_metadata_defaults_to_empty_object(db_session):
         action_type="small_talk_acknowledged", input_summary="thanks!", decision="Acknowledged",
     )
 
-    assert json.loads(event.event_metadata) == {}
+    assert json.loads(event.event_metadata) == {"agent_version": "v1"}
+
+
+def test_metadata_agent_version_stamp_does_not_override_a_caller_supplied_one(db_session):
+    db = db_session
+    guest = _make_guest(db, tenant_id="hotel-g2")
+
+    event = action_logger.log_action(
+        db, tenant_id="hotel-g2", guest_id=guest.id, intent="service_request", agent="revenue",
+        action_type="revenue_offer_proposed", input_summary="Guest requested late checkout.",
+        decision="RevenueAgent proposed paid late checkout.",
+        metadata={"agent_version": "v2", "service_type": "late_checkout"},
+    )
+
+    stored = json.loads(event.event_metadata)
+    assert stored["agent_version"] == "v2"
+    assert stored["service_type"] == "late_checkout"
+
+
+def test_correlation_id_defaults_to_a_fresh_value_per_event(db_session):
+    db = db_session
+    guest = _make_guest(db, tenant_id="hotel-h")
+
+    first = action_logger.log_action(
+        db, tenant_id="hotel-h", guest_id=guest.id, intent="service_request", agent="revenue",
+        action_type="revenue_offer_proposed", input_summary="Guest requested late checkout.",
+        decision="RevenueAgent proposed paid late checkout.",
+    )
+    second = action_logger.log_action(
+        db, tenant_id="hotel-h", guest_id=guest.id, intent="memory", agent="guest_memory",
+        action_type="memory_proposal", input_summary="Guest shared a dietary preference.",
+        decision="GuestMemoryAgent proposed updating dietary preference.",
+    )
+
+    assert first.correlation_id
+    assert second.correlation_id
+    assert first.correlation_id != second.correlation_id
+
+
+def test_correlation_id_can_be_passed_through_explicitly(db_session):
+    """Once the Conversation Manager exists, resuming a pending state
+    reuses the original event's correlation_id — verified here at the
+    ActionLogger level, independent of that not-yet-built component."""
+    db = db_session
+    guest = _make_guest(db, tenant_id="hotel-i")
+    shared_id = "shared-correlation-123"
+
+    first = action_logger.log_action(
+        db, tenant_id="hotel-i", guest_id=guest.id, intent="service_request", agent="revenue",
+        action_type="revenue_offer_proposed", input_summary="Guest requested late checkout.",
+        decision="RevenueAgent proposed paid late checkout.", correlation_id=shared_id,
+    )
+    second = action_logger.log_action(
+        db, tenant_id="hotel-i", guest_id=guest.id, intent="service_request", agent="revenue",
+        action_type="revenue_confirmed", input_summary="Guest confirmed late checkout.",
+        decision="RevenueAgent flagged staff to process late checkout.", correlation_id=shared_id,
+    )
+
+    assert first.correlation_id == shared_id
+    assert second.correlation_id == shared_id

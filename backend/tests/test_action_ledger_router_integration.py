@@ -88,7 +88,13 @@ def test_faq_answered_creates_one_completed_action_event(db_session):
     assert event.agent == "faq"
     assert event.action_type == "faq_answered"
     assert event.status == ActionEventStatus.completed
-    assert "guest123" in event.output_summary
+    # Never the actual secret value — the fact itself already lives in
+    # PropertyKnowledgeBase, the ledger records only that the topic was
+    # answered, not what the answer was.
+    assert "guest123" not in event.output_summary
+    assert "wifi" in event.output_summary.lower()
+    assert "guest123" not in event.input_summary
+    assert "guest123" not in event.decision
 
 
 def test_revenue_offer_proposed_creates_one_proposed_action_event(db_session):
@@ -262,3 +268,43 @@ def test_reservation_and_conversation_id_are_recorded_on_the_event(db_session):
     assert len(events) == 1
     assert events[0].reservation_id == reservation.id
     assert events[0].conversation_id == "conv-42"
+
+
+def test_input_summary_never_contains_the_raw_guest_message(db_session):
+    """Review feedback: don't store raw prompts. A distinctive marker
+    string in the guest's own message must never leak into the ledger's
+    input_summary — it should only ever contain the Router's own
+    structured description of what was recognized."""
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-j")
+    db.add(
+        PropertyService(
+            tenant_id="hotel-j", property_id=property_.id, service_type="late_checkout",
+            name="Late Checkout", price=30.0, currency="EUR", complimentary=False, available=True,
+        )
+    )
+    guest = _make_guest(db, tenant_id="hotel-j", property_id=property_.id)
+    db.flush()
+    marker = "XYZZY-UNIQUE-MARKER"
+
+    concierge_router.route(
+        db, tenant_id="hotel-j", guest_id=guest.id,
+        message_body=f"Can I check out at 4 PM? {marker}",
+    )
+
+    event = _events(db, "hotel-j")[0]
+    assert marker not in event.input_summary
+    assert marker not in event.decision
+
+
+def test_correlation_id_is_set_on_every_event(db_session):
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-k")
+    guest = _make_guest(db, tenant_id="hotel-k", property_id=property_.id)
+    db.flush()
+
+    concierge_router.route(db, tenant_id="hotel-k", guest_id=guest.id, message_body="I'm vegetarian")
+
+    event = _events(db, "hotel-k")[0]
+    assert event.correlation_id
+    assert len(event.correlation_id) > 0
