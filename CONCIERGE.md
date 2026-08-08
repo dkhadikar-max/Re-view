@@ -471,3 +471,54 @@ decides *whether* to answer exists.
 (Escalation list, §8, and the Router's deterministic-first design, §4.1,
 are resolved as of this revision — not carried forward as open
 questions.)
+
+## 15. Action Ledger
+
+Every meaningful AI decision the concierge makes generates an immutable
+`ActionEvent` (`app/models/entities.py`), written by exactly one
+component, `ActionLogger` (`app/services/action_logger.py`):
+
+```
+Conversation History
+        ↓
+Intent Classification
+        ↓
+     Agent
+        ↓
+Action Logger
+        ↓
+Conversation Manager
+        ↓
+     Guest
+```
+
+**The Action Ledger is the operational record for ReVisit and the
+future learning dataset for Argus. It is not used for runtime decision
+making.** No agent, the Router, or the Escalation Filter ever reads an
+`ActionEvent` back to decide what to do next — this table exists purely
+to capture what already happened, as structured data, for later
+analysis once Argus (ReVisit's parent product) builds a learning
+pipeline on top of it. This is explicitly not an analytics feature and
+not an ML feature — see `action_logger.py`'s own docstring.
+
+Three existing/planned tables already cover related but distinct
+concerns, worth being explicit about the boundary:
+- **Conversation History** (`Message`) stores the raw messages
+  themselves.
+- **Guest Memory** (`Guest`'s own fields, proposed via
+  `GuestMemoryAgent`, eventually applied by the Memory Manager) stores
+  durable guest facts.
+- **Action Ledger** (`ActionEvent`) stores AI *decisions* and guest
+  *actions* — what the concierge decided to do or say, and what the
+  guest did in response, not the message text or a guest fact itself.
+
+`ActionLogger` is the only component allowed to create an `ActionEvent`
+row, and the only one allowed to change one after creation — and even
+then, only the `status` field (`proposed` → `accepted`/`rejected`/
+`completed`/`failed`/`escalated`). Every other field is set once, at
+creation, and never rewritten. The Concierge Router
+(`concierge_router.py`) records exactly one `ActionEvent` per message,
+after Intent Classification has run and an `AgentResponse` has been
+produced — covering every outcome a turn can have: an agent's answer or
+proposal, an Escalation Filter trip, an unrecognized (`UNKNOWN`) intent,
+and small talk.
