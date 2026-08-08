@@ -263,6 +263,25 @@ class PropertyUpdate(BaseModel):
     # without a separate one-off admin endpoint.
     whatsapp_phone_number_id: Optional[str] = Field(default=None, max_length=64)
 
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("address", "google_review_url", mode="before")
+    @classmethod
+    def blank_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("google_review_url")
+    @classmethod
+    def validate_review_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("Google Review URL must start with http:// or https://")
+        return v
+
 
 # Field list mirrors PropertyKnowledgeBase exactly (entities.py) — no
 # new content architecture, per the Knowledge Base Editor's own scope.
@@ -319,25 +338,6 @@ class PropertyKnowledgeBaseUpdate(BaseModel):
     services: Optional[str] = None
     room_service_hours: Optional[str] = None
     emergency_contacts: Optional[str] = None
-
-    @field_validator("currency")
-    @classmethod
-    def normalize_currency(cls, v: str) -> str:
-        return v.strip().upper()
-
-    @field_validator("address", "google_review_url", mode="before")
-    @classmethod
-    def blank_to_none(cls, v: object) -> object:
-        if isinstance(v, str) and not v.strip():
-            return None
-        return v
-
-    @field_validator("google_review_url")
-    @classmethod
-    def validate_review_url(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and not (v.startswith("http://") or v.startswith("https://")):
-            raise ValueError("Google Review URL must start with http:// or https://")
-        return v
 
 
 class ConnectorOut(ORMModel):
