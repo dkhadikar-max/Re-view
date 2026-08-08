@@ -86,7 +86,7 @@ def test_faq_answered_creates_one_completed_action_event(db_session):
     event = events[0]
     assert event.intent == "information"
     assert event.agent == "faq"
-    assert event.action_type == "faq_answered"
+    assert event.action_type == "FAQ_ANSWERED"
     assert event.status == ActionEventStatus.completed
     # Never the actual secret value — the fact itself already lives in
     # PropertyKnowledgeBase, the ledger records only that the topic was
@@ -116,7 +116,7 @@ def test_revenue_offer_proposed_creates_one_proposed_action_event(db_session):
     event = events[0]
     assert event.intent == "service_request"
     assert event.agent == "revenue"
-    assert event.action_type == "revenue_offer_proposed"
+    assert event.action_type == "OFFER_PROPOSED"
     assert event.status == ActionEventStatus.proposed
     assert "30.00 EUR" in event.output_summary
 
@@ -134,7 +134,7 @@ def test_memory_proposal_creates_one_proposed_action_event(db_session):
     event = events[0]
     assert event.intent == "memory"
     assert event.agent == "guest_memory"
-    assert event.action_type == "memory_proposal"
+    assert event.action_type == "MEMORY_PROPOSED"
     assert event.status == ActionEventStatus.proposed
 
 
@@ -157,7 +157,7 @@ def test_order_proposal_creates_one_proposed_action_event(db_session):
     event = events[0]
     assert event.intent == "order"
     assert event.agent == "ordering"
-    assert event.action_type == "order_proposal"
+    assert event.action_type == "ORDER_PROPOSED"
     assert event.status == ActionEventStatus.proposed
 
 
@@ -176,7 +176,7 @@ def test_escalation_creates_one_escalated_action_event(db_session):
     event = events[0]
     assert event.intent == "escalation"
     assert event.agent is None
-    assert event.action_type == "escalation"
+    assert event.action_type == "ESCALATED"
     assert event.status == ActionEventStatus.escalated
 
 
@@ -195,7 +195,7 @@ def test_small_talk_creates_one_completed_action_event(db_session):
     event = events[0]
     assert event.intent == "small_talk"
     assert event.agent is None
-    assert event.action_type == "small_talk_acknowledged"
+    assert event.action_type == "SMALL_TALK_ACKNOWLEDGED"
     assert event.status == ActionEventStatus.completed
 
 
@@ -214,7 +214,7 @@ def test_unknown_intent_creates_one_escalated_action_event(db_session):
     event = events[0]
     assert event.intent == "unknown"
     assert event.agent is None
-    assert event.action_type == "unknown_intent_escalated"
+    assert event.action_type == "ESCALATED"
     assert event.status == ActionEventStatus.escalated
 
 
@@ -239,7 +239,7 @@ def test_agent_handled_but_should_escalate_creates_one_escalated_action_event(db
     assert len(events) == 1
     event = events[0]
     assert event.agent == "revenue"
-    assert event.action_type == "revenue_escalated"
+    assert event.action_type == "ESCALATED"
     assert event.status == ActionEventStatus.escalated
 
 

@@ -110,18 +110,38 @@ from app.services.revenue_agent import revenue_agent
 _NO_INTENT_RECOGNIZED_REASON = "No intent was recognized for this message"
 _AGENT_COULD_NOT_HELP_REASON = "{agent} could not fulfill this request"
 
+# action_type answers a different question than intent/agent do: intent
+# is what the guest wanted, agent is who handled it, action_type is
+# what actually happened (PR #18 review). A small, closed, UPPER_SNAKE
+# vocabulary — Argus learns from a consistent action taxonomy, not a
+# proliferation of ad-hoc per-agent/per-branch strings. ESCALATED is
+# deliberately a single canonical value covering every escalation path
+# (Escalation Filter trip, UNKNOWN intent, an agent returning
+# handled=False, an agent's own should_escalate) — the *why* already
+# lives in `decision`/`intent`/`agent`, action_type doesn't need to
+# encode it too.
+_ACTION_TYPE_ESCALATED = "ESCALATED"
+_ACTION_TYPE_SMALL_TALK_ACKNOWLEDGED = "SMALL_TALK_ACKNOWLEDGED"
+_ACTION_TYPE_AGENT_RESPONDED = "AGENT_RESPONDED"
+
 # Per-agent (action_type, terminal status) for a handled, non-escalating
-# response — matches the Action Ledger's own vocabulary (CONCIERGE.md's
-# "Action Ledger" section). FAQ's answer is a complete, self-contained
-# response (nothing further needs to happen), so it's logged completed;
-# the other three are proposals awaiting some later resolution (a
-# booking confirmation, the Memory Manager applying its own threshold,
-# a guest reply to a hand-off) — proposed, not completed.
+# response. FAQ's answer is a complete, self-contained response
+# (nothing further needs to happen), so it's logged completed; the
+# other three are proposals awaiting some later resolution (a booking
+# confirmation, the Memory Manager applying its own threshold, a guest
+# reply to a hand-off) — proposed, not completed. When that resolution
+# happens (once the Conversation Manager exists), it must be logged as
+# a *new* ActionEvent (e.g. action_type=OFFER_ACCEPTED) sharing the
+# original's correlation_id — never by mutating this row's status in
+# place, even though `ActionLogger.log_accept`/etc. exist and could
+# technically do that. A mutated status loses the event stream Argus
+# needs ("OFFER_PROPOSED then OFFER_ACCEPTED", not "OFFER_PROPOSED that
+# quietly became something else").
 _SUCCESS_ACTION_TYPE: dict[str, tuple[str, ActionEventStatus]] = {
-    "faq": ("faq_answered", ActionEventStatus.completed),
-    "revenue": ("revenue_offer_proposed", ActionEventStatus.proposed),
-    "guest_memory": ("memory_proposal", ActionEventStatus.proposed),
-    "ordering": ("order_proposal", ActionEventStatus.proposed),
+    "faq": ("FAQ_ANSWERED", ActionEventStatus.completed),
+    "revenue": ("OFFER_PROPOSED", ActionEventStatus.proposed),
+    "guest_memory": ("MEMORY_PROPOSED", ActionEventStatus.proposed),
+    "ordering": ("ORDER_PROPOSED", ActionEventStatus.proposed),
 }
 
 
@@ -269,7 +289,7 @@ class ConciergeRouter:
                 context,
                 intent="escalation",
                 agent=None,
-                action_type="escalation",
+                action_type=_ACTION_TYPE_ESCALATED,
                 status=ActionEventStatus.escalated,
                 confidence=decision.confidence,
                 input_summary=f"Guest message matched a {category} escalation pattern.",
@@ -299,7 +319,7 @@ class ConciergeRouter:
                 context,
                 intent=intent_decision.category.value,
                 agent=None,
-                action_type="small_talk_acknowledged",
+                action_type=_ACTION_TYPE_SMALL_TALK_ACKNOWLEDGED,
                 status=ActionEventStatus.completed,
                 confidence=intent_decision.confidence,
                 input_summary="Guest sent a conversational pleasantry.",
@@ -369,7 +389,7 @@ class ConciergeRouter:
                 context,
                 intent=intent_decision.category.value,
                 agent=agent_name,
-                action_type=f"{agent_name or 'agent'}_escalated",
+                action_type=_ACTION_TYPE_ESCALATED,
                 status=ActionEventStatus.escalated,
                 confidence=intent_decision.confidence,
                 input_summary=input_summary,
@@ -379,7 +399,7 @@ class ConciergeRouter:
             return response
 
         action_type, status = _SUCCESS_ACTION_TYPE.get(
-            agent_name or "", (f"{agent_name or 'agent'}_response", ActionEventStatus.proposed)
+            agent_name or "", (_ACTION_TYPE_AGENT_RESPONDED, ActionEventStatus.proposed)
         )
         self._log(
             db,
@@ -441,17 +461,12 @@ class ConciergeRouter:
             ),
         )
         agent_name = existing_response.metadata.get("agent") if existing_response else None
-        action_type = (
-            "unknown_intent_escalated"
-            if intent_decision.category == IntentCategory.unknown
-            else f"{intent_decision.category.value}_agent_could_not_handle"
-        )
         self._log(
             db,
             context,
             intent=intent_decision.category.value,
             agent=agent_name,
-            action_type=action_type,
+            action_type=_ACTION_TYPE_ESCALATED,
             status=ActionEventStatus.escalated,
             confidence=intent_decision.confidence,
             input_summary=input_summary,
