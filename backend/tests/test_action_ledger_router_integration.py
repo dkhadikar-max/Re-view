@@ -22,6 +22,7 @@ from app.db.session import Base
 from app.models.entities import (
     ActionEvent,
     ActionEventStatus,
+    ActorType,
     Guest,
     Property,
     PropertyKnowledgeBase,
@@ -88,6 +89,7 @@ def test_faq_answered_creates_one_completed_action_event(db_session):
     assert event.agent == "faq"
     assert event.action_type == "FAQ_ANSWERED"
     assert event.status == ActionEventStatus.completed
+    assert event.actor == ActorType.ai
     # Never the actual secret value — the fact itself already lives in
     # PropertyKnowledgeBase, the ledger records only that the topic was
     # answered, not what the answer was.
@@ -118,6 +120,7 @@ def test_revenue_offer_proposed_creates_one_proposed_action_event(db_session):
     assert event.agent == "revenue"
     assert event.action_type == "OFFER_PROPOSED"
     assert event.status == ActionEventStatus.proposed
+    assert event.actor == ActorType.ai
     assert "30.00 EUR" in event.output_summary
 
 
@@ -136,6 +139,7 @@ def test_memory_proposal_creates_one_proposed_action_event(db_session):
     assert event.agent == "guest_memory"
     assert event.action_type == "MEMORY_PROPOSED"
     assert event.status == ActionEventStatus.proposed
+    assert event.actor == ActorType.ai
 
 
 def test_order_proposal_creates_one_proposed_action_event(db_session):
@@ -159,6 +163,7 @@ def test_order_proposal_creates_one_proposed_action_event(db_session):
     assert event.agent == "ordering"
     assert event.action_type == "ORDER_PROPOSED"
     assert event.status == ActionEventStatus.proposed
+    assert event.actor == ActorType.ai
 
 
 def test_escalation_creates_one_escalated_action_event(db_session):
@@ -178,6 +183,8 @@ def test_escalation_creates_one_escalated_action_event(db_session):
     assert event.agent is None
     assert event.action_type == "ESCALATED"
     assert event.status == ActionEventStatus.escalated
+    # No agent ran — the Escalation Filter's own hard-safety trip decided.
+    assert event.actor == ActorType.system
 
 
 def test_small_talk_creates_one_completed_action_event(db_session):
@@ -197,6 +204,7 @@ def test_small_talk_creates_one_completed_action_event(db_session):
     assert event.agent is None
     assert event.action_type == "SMALL_TALK"
     assert event.status == ActionEventStatus.completed
+    assert event.actor == ActorType.system
 
 
 def test_unknown_intent_creates_one_escalated_action_event(db_session):
@@ -216,6 +224,8 @@ def test_unknown_intent_creates_one_escalated_action_event(db_session):
     assert event.agent is None
     assert event.action_type == "UNKNOWN"
     assert event.status == ActionEventStatus.escalated
+    # No agent ran — the Intent Classifier itself had no opinion.
+    assert event.actor == ActorType.system
 
 
 def test_agent_handled_but_should_escalate_creates_one_escalated_action_event(db_session):
@@ -241,6 +251,8 @@ def test_agent_handled_but_should_escalate_creates_one_escalated_action_event(db
     assert event.agent == "revenue"
     assert event.action_type == "ESCALATED"
     assert event.status == ActionEventStatus.escalated
+    # RevenueAgent ran and made the call to escalate itself.
+    assert event.actor == ActorType.ai
 
 
 def test_reservation_and_conversation_id_are_recorded_on_the_event(db_session):

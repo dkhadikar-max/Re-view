@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.session import Base
-from app.models.entities import ActionEvent, ActionEventStatus, Guest, Property, Tenant
+from app.models.entities import ActionEvent, ActionEventStatus, ActorType, Guest, Property, Tenant
 from app.services.action_logger import action_logger
 
 
@@ -59,6 +59,7 @@ def test_log_action_creates_a_row_with_every_field(db_session):
         intent="information",
         agent="faq",
         action_type="faq_answered",
+        actor=ActorType.ai,
         confidence=0.85,
         input_summary="What's the wifi password?",
         decision="Answered from knowledge_base.wifi_password",
@@ -75,6 +76,7 @@ def test_log_action_creates_a_row_with_every_field(db_session):
     assert event.intent == "information"
     assert event.agent == "faq"
     assert event.action_type == "faq_answered"
+    assert event.actor == ActorType.ai
     assert event.confidence == 0.85
     assert event.input_summary == "What's the wifi password?"
     assert event.decision == "Answered from knowledge_base.wifi_password"
@@ -99,6 +101,7 @@ def test_log_action_defaults_to_proposed_status(db_session):
         intent="service_request",
         agent="revenue",
         action_type="revenue_offer_proposed",
+        actor=ActorType.ai,
         input_summary="Can I check out at 4 PM?",
         decision="Offered late checkout at 30.00 EUR",
     )
@@ -126,6 +129,7 @@ def test_transitions_change_only_status(db_session, method_name, expected_status
         intent="service_request",
         agent="revenue",
         action_type="revenue_offer_proposed",
+        actor=ActorType.ai,
         input_summary="Can I check out at 4 PM?",
         decision="Offered late checkout",
         output_summary="Would you like to book it?",
@@ -138,6 +142,7 @@ def test_transitions_change_only_status(db_session, method_name, expected_status
         "intent": event.intent,
         "agent": event.agent,
         "action_type": event.action_type,
+        "actor": event.actor,
         "input_summary": event.input_summary,
         "decision": event.decision,
         "output_summary": event.output_summary,
@@ -166,6 +171,7 @@ def test_immutable_fields_survive_multiple_transitions(db_session):
         intent="order",
         agent="ordering",
         action_type="order_proposal",
+        actor=ActorType.ai,
         input_summary="I'm hungry",
         decision="Handed off to room service",
     )
@@ -187,11 +193,13 @@ def test_tenant_isolation(db_session):
 
     action_logger.log_action(
         db, tenant_id="hotel-e1", guest_id=guest_1.id, intent="memory", agent="guest_memory",
-        action_type="memory_proposal", input_summary="I'm vegetarian", decision="Proposed dietary_preferences",
+        action_type="memory_proposal", actor=ActorType.ai,
+        input_summary="I'm vegetarian", decision="Proposed dietary_preferences",
     )
     action_logger.log_action(
         db, tenant_id="hotel-e2", guest_id=guest_2.id, intent="memory", agent="guest_memory",
-        action_type="memory_proposal", input_summary="I'm vegan", decision="Proposed dietary_preferences",
+        action_type="memory_proposal", actor=ActorType.ai,
+        input_summary="I'm vegan", decision="Proposed dietary_preferences",
     )
 
     events_1 = db.query(ActionEvent).filter(ActionEvent.tenant_id == "hotel-e1").all()
@@ -207,12 +215,14 @@ def test_created_at_is_set_and_monotonic_across_events(db_session):
 
     first = action_logger.log_action(
         db, tenant_id="hotel-f", guest_id=guest.id, intent="unknown", agent=None,
-        action_type="unknown_intent_escalated", input_summary="asdf", decision="No intent recognized",
+        action_type="unknown_intent_escalated", actor=ActorType.system,
+        input_summary="asdf", decision="No intent recognized",
         status=ActionEventStatus.escalated,
     )
     second = action_logger.log_action(
         db, tenant_id="hotel-f", guest_id=guest.id, intent="small_talk", agent=None,
-        action_type="small_talk_acknowledged", input_summary="thanks!", decision="Acknowledged",
+        action_type="small_talk_acknowledged", actor=ActorType.system,
+        input_summary="thanks!", decision="Acknowledged",
         status=ActionEventStatus.completed,
     )
 
@@ -226,7 +236,8 @@ def test_metadata_defaults_to_just_the_agent_version_stamp(db_session):
 
     event = action_logger.log_action(
         db, tenant_id="hotel-g", guest_id=guest.id, intent="small_talk", agent=None,
-        action_type="small_talk_acknowledged", input_summary="thanks!", decision="Acknowledged",
+        action_type="small_talk_acknowledged", actor=ActorType.system,
+        input_summary="thanks!", decision="Acknowledged",
     )
 
     assert json.loads(event.event_metadata) == {"agent_version": "v1"}
@@ -238,7 +249,8 @@ def test_metadata_agent_version_stamp_does_not_override_a_caller_supplied_one(db
 
     event = action_logger.log_action(
         db, tenant_id="hotel-g2", guest_id=guest.id, intent="service_request", agent="revenue",
-        action_type="revenue_offer_proposed", input_summary="Guest requested late checkout.",
+        action_type="revenue_offer_proposed", actor=ActorType.ai,
+        input_summary="Guest requested late checkout.",
         decision="RevenueAgent proposed paid late checkout.",
         metadata={"agent_version": "v2", "service_type": "late_checkout"},
     )
@@ -254,12 +266,14 @@ def test_correlation_id_defaults_to_a_fresh_value_per_event(db_session):
 
     first = action_logger.log_action(
         db, tenant_id="hotel-h", guest_id=guest.id, intent="service_request", agent="revenue",
-        action_type="revenue_offer_proposed", input_summary="Guest requested late checkout.",
+        action_type="revenue_offer_proposed", actor=ActorType.ai,
+        input_summary="Guest requested late checkout.",
         decision="RevenueAgent proposed paid late checkout.",
     )
     second = action_logger.log_action(
         db, tenant_id="hotel-h", guest_id=guest.id, intent="memory", agent="guest_memory",
-        action_type="memory_proposal", input_summary="Guest shared a dietary preference.",
+        action_type="memory_proposal", actor=ActorType.ai,
+        input_summary="Guest shared a dietary preference.",
         decision="GuestMemoryAgent proposed updating dietary preference.",
     )
 
@@ -278,12 +292,14 @@ def test_correlation_id_can_be_passed_through_explicitly(db_session):
 
     first = action_logger.log_action(
         db, tenant_id="hotel-i", guest_id=guest.id, intent="service_request", agent="revenue",
-        action_type="revenue_offer_proposed", input_summary="Guest requested late checkout.",
+        action_type="revenue_offer_proposed", actor=ActorType.ai,
+        input_summary="Guest requested late checkout.",
         decision="RevenueAgent proposed paid late checkout.", correlation_id=shared_id,
     )
     second = action_logger.log_action(
         db, tenant_id="hotel-i", guest_id=guest.id, intent="service_request", agent="revenue",
-        action_type="revenue_confirmed", input_summary="Guest confirmed late checkout.",
+        action_type="revenue_confirmed", actor=ActorType.guest,
+        input_summary="Guest confirmed late checkout.",
         decision="RevenueAgent flagged staff to process late checkout.", correlation_id=shared_id,
     )
 

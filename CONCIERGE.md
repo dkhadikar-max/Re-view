@@ -564,6 +564,26 @@ still couldn't help." Both still result in a staff `Task` today
 (`status=escalated` either way) — that's an infrastructure fact, not
 what `action_type` encodes.
 
+**`actor` — who performed the action — is frozen alongside
+`action_type` as of the same review.** `action_type` says *what*
+happened; `actor` says *who* made it happen. The distinction matters
+for Argus's learning pipeline: "which AI offers convert?", "which staff
+actions override the AI?", and "which guest behaviors lead to
+complaints?" are three different questions that collapse into noise
+without knowing who acted, not just what happened.
+
+| `actor` | Meaning | Emitted today by |
+|---|---|---|
+| `AI` | An agent (FAQ/Revenue/GuestMemory/Ordering) produced the outcome — including when that outcome is escalating | Every agent success, `should_escalate`, and `handled=False` path |
+| `SYSTEM` | The Router/Intent Classifier/Escalation Filter decided without any agent running | Escalation Filter hard-safety trip, `SMALL_TALK`, `UNKNOWN` |
+| `GUEST` | A guest confirmed, cancelled, or clarified a pending action | Conversation Manager (§5.5, not yet built) |
+| `STAFF` | A staff member completed or overrode a task | Conversation Manager (staff execution path, not yet built) |
+
+Stored uppercase (`"AI"`, not `"ai"`) to match this table exactly —
+`entities.py`'s `ActorType` enum members are lowercase Python
+identifiers (`ActorType.ai`) but their stored `.value` is the uppercase
+string above, via SQLAlchemy's `values_callable`.
+
 **Future transitions (once the Conversation Manager exists) must be
 new events, not mutated status.** `ActionLogger.log_accept`/
 `log_reject`/`log_complete`/`log_failure` exist and can technically
@@ -577,15 +597,15 @@ into something else:
 ```
 Guest: "Late checkout please"
         ↓
-Intent: SERVICE_REQUEST → RevenueAgent → OFFER_PROPOSED
+Intent: SERVICE_REQUEST → RevenueAgent → OFFER_PROPOSED        (actor=AI)
         ↓
 Guest: "Yes please"
         ↓
-ConversationManager resolves the pending state → OFFER_ACCEPTED
+ConversationManager resolves the pending state → OFFER_ACCEPTED (actor=GUEST)
         ↓
-No PMS exists yet, so staff must process it → TASK_CREATED
+No PMS exists yet, so staff must process it → TASK_CREATED      (actor=SYSTEM)
         ↓
-Staff processes it → TASK_COMPLETED
+Staff processes it → TASK_COMPLETED                              (actor=STAFF)
 ```
 
 All five events share one `correlation_id` — a complete, replayable

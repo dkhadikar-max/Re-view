@@ -91,7 +91,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import ActionEventStatus
+from app.models.entities import ActionEventStatus, ActorType
 from app.services.action_logger import action_logger
 from app.services.agent_protocol import AgentResponse
 from app.services.context_builder import ConciergeContext, ContextBuilder
@@ -299,6 +299,7 @@ class ConciergeRouter:
                 agent=None,
                 action_type=_ACTION_TYPE_ESCALATED,
                 status=ActionEventStatus.escalated,
+                actor=ActorType.system,
                 confidence=decision.confidence,
                 input_summary=f"Guest message matched a {category} escalation pattern.",
                 decision_text=decision.reason,
@@ -329,6 +330,7 @@ class ConciergeRouter:
                 agent=None,
                 action_type=_ACTION_TYPE_SMALL_TALK,
                 status=ActionEventStatus.completed,
+                actor=ActorType.system,
                 confidence=intent_decision.confidence,
                 input_summary="Guest sent a conversational pleasantry.",
                 decision_text="Acknowledged as small talk, no escalation needed",
@@ -352,6 +354,10 @@ class ConciergeRouter:
                 _NO_INTENT_RECOGNIZED_REASON,
                 input_summary="Guest message did not match any recognized intent.",
                 action_type=_ACTION_TYPE_UNKNOWN,
+                # No agent ever ran — the Intent Classifier itself had no
+                # opinion, so this is the Router/Classifier deciding, not
+                # an AI agent.
+                actor=ActorType.system,
             )
 
         response = self._dispatch(intent_decision.category, context, message_body)
@@ -373,6 +379,10 @@ class ConciergeRouter:
                 ),
                 input_summary=f"Guest message classified as {intent_decision.category.value}.",
                 existing_response=response,
+                # An agent DID run here, and its own handled=False is why
+                # this is escalating — the AI made the call, even though
+                # the call was "I can't help."
+                actor=ActorType.ai,
             )
 
         agent_name = response.metadata.get("agent")
@@ -400,6 +410,8 @@ class ConciergeRouter:
                 agent=agent_name,
                 action_type=_ACTION_TYPE_ESCALATED,
                 status=ActionEventStatus.escalated,
+                # The agent ran and made the call to escalate itself.
+                actor=ActorType.ai,
                 confidence=intent_decision.confidence,
                 input_summary=input_summary,
                 decision_text=decision_text,
@@ -417,6 +429,10 @@ class ConciergeRouter:
             agent=agent_name,
             action_type=action_type,
             status=status,
+            # An agent produced this outcome — every success path today
+            # is the AI acting, never a guest or staff member (those are
+            # reserved for the Conversation Manager, not yet built).
+            actor=ActorType.ai,
             confidence=intent_decision.confidence,
             input_summary=input_summary,
             decision_text=decision_text,
@@ -452,6 +468,7 @@ class ConciergeRouter:
         reason: str,
         *,
         input_summary: str,
+        actor: ActorType,
         action_type: str = _ACTION_TYPE_ESCALATED,
         existing_response: Optional[AgentResponse] = None,
     ) -> AgentResponse:
@@ -478,6 +495,7 @@ class ConciergeRouter:
             agent=agent_name,
             action_type=action_type,
             status=ActionEventStatus.escalated,
+            actor=actor,
             confidence=intent_decision.confidence,
             input_summary=input_summary,
             decision_text=reason,
@@ -502,6 +520,7 @@ class ConciergeRouter:
         agent: Optional[str],
         action_type: str,
         status: ActionEventStatus,
+        actor: ActorType,
         confidence: Optional[float],
         input_summary: str,
         decision_text: str,
@@ -516,6 +535,12 @@ class ConciergeRouter:
         allowed to fail the turn itself; if this ever needs try/except
         around it, that decision belongs to whoever wires `route()` into
         a real request path, not silently swallowed here.
+
+        `actor` is required at every call site, not defaulted here —
+        each one is a deliberate choice (an agent ran and decided, vs.
+        the Router/Classifier/Escalation Filter decided without one),
+        and a shared default would hide that distinction instead of
+        forcing every new call site to state it.
         """
         action_logger.log_action(
             db,
@@ -526,6 +551,7 @@ class ConciergeRouter:
             intent=intent,
             agent=agent,
             action_type=action_type,
+            actor=actor,
             confidence=confidence,
             input_summary=input_summary,
             decision=decision_text,
