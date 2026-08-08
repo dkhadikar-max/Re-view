@@ -576,6 +576,7 @@ here, not an ad-hoc string invented at a call site.
 | `OFFER_EXPIRED` | Conversation Manager (`expire_stale`) | ✅ live |
 | `ORDER_PROPOSED` | Ordering Agent | ✅ live |
 | `ORDER_CONFIRMED` | Conversation Manager | reserved |
+| `ORDER_REJECTED` | Conversation Manager | reserved |
 | `ORDER_CANCELLED` | Conversation Manager | reserved |
 | `ORDER_COMPLETED` | Conversation Manager / staff | reserved |
 | `ORDER_EXPIRED` | Conversation Manager | reserved |
@@ -604,6 +605,17 @@ facing question awaiting a reply, so neither ever creates a
 before a real confirmation flow exists for those domains would be
 exactly the "genuinely new value without a real lifecycle behind it"
 this rule exists to prevent.
+
+**`ORDER_REJECTED` is kept distinct from `ORDER_CANCELLED`** on purpose
+(`MENU_ORDERING.md` §7.4, its own frozen contract): one means "the
+guest declined a complete cart before ever confirming it", the other
+means "a *confirmed* order was subsequently cancelled" — a later,
+different event. Both stay reserved until Conversation Manager's
+dispatch-back mode and the full Ordering Agent ship (`MENU_ORDERING.md`
+§17 step 6–10); this row exists now, alongside the schema that will
+eventually emit it, for the same reason `ORDER_CONFIRMED`/
+`ORDER_CANCELLED`/`ORDER_EXPIRED` were reserved ahead of their own
+implementation when Conversation Manager first shipped.
 
 **`MEMORY_HELD` is kept distinct from `MEMORY_REJECTED`** on purpose
 (`MEMORY_MANAGER.md` §4, its own frozen contract): one means "Memory
