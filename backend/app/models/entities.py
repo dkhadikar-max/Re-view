@@ -655,6 +655,23 @@ class PendingAction(Base):
     `MEMORY_PROPOSED` (Guest Memory Agent) are informational/passive
     today, not a question awaiting an answer, so they never create one
     (see `conversation_manager.py`'s own `_CONFIRMABLE_ACTION_TYPES`).
+
+    `payload`/`origin_agent` (MENU_ORDERING.md §7.1) generalize this
+    table to a second, earlier use: tracking a multi-turn proposal
+    that's still being *assembled*, not just one already complete and
+    awaiting yes/no. `payload` is a JSON blob whose shape is owned
+    entirely by whichever agent created it — this table only ever
+    inspects one shared convention, a top-level `"complete": bool` —
+    and `origin_agent` names which agent's `clarify()` (the
+    `ClarifiableAgent` protocol, `agent_protocol.py`) a non-final reply
+    gets dispatched back to. Both are `None` for the existing
+    confirm/cancel-only flows (Revenue Agent's offers), which never
+    need them. `origin_action_type` is nullable for the same reason: a
+    cart under construction hasn't been proposed yet, so no
+    `ActionEvent` exists for it at all — `origin_action_type` stays
+    `None` for as long as `payload["complete"] is False`, and is only
+    set once the cart is complete and its `ActionEvent` is finally
+    logged.
     """
 
     __tablename__ = "pending_actions"
@@ -676,7 +693,11 @@ class PendingAction(Base):
     conversation_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     correlation_id: Mapped[str] = mapped_column(String(36))
-    origin_action_type: Mapped[str] = mapped_column(String(64))
+    # Nullable (MENU_ORDERING.md §7.1): `None` while a cart is still
+    # being assembled and no `ActionEvent` has been logged for it yet;
+    # set to the real action_type (e.g. "ORDER_PROPOSED") the turn the
+    # proposal first becomes complete.
+    origin_action_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     # Copy of the triggering event's own `intent` — so a later
     # ACCEPTED/REJECTED/EXPIRED event can log the same `intent` as the
     # original proposal without ConversationManager needing to guess it
@@ -685,6 +706,15 @@ class PendingAction(Base):
     # action_type is added).
     origin_intent: Mapped[str] = mapped_column(String(32))
 
+    # Which agent's `clarify()` a non-final reply gets dispatched back
+    # to (MENU_ORDERING.md §7.2) — `None` for the existing
+    # confirm/cancel-only flows, which never need dispatch-back.
+    origin_agent: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # Opaque JSON, shape owned by `origin_agent` — the one convention
+    # every caller may rely on is a top-level `"complete": bool`
+    # (MENU_ORDERING.md §7.1).
+    payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     status: Mapped[PendingActionStatus] = mapped_column(
         Enum(PendingActionStatus), default=PendingActionStatus.pending
     )
@@ -692,6 +722,99 @@ class PendingAction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class OrderStatus(str, enum.Enum):
+    confirmed = "confirmed"
+    received = "received"
+    preparing = "preparing"
+    delivered = "delivered"
+    cancelled = "cancelled"
+
+
+class Order(Base):
+    """A guest's confirmed room-service order — MENU_ORDERING.md §6, the
+    durable, confirmed business object. Created ONLY at
+    `ORDER_CONFIRMED` (`conversation_manager.py`'s resolve(), not yet
+    built), never at `ORDER_PROPOSED` — a cart being assembled or
+    awaiting confirmation exists only as `PendingAction.payload` (§7),
+    disposable if the guest never confirms. An abandoned cart must
+    never look like a business transaction in the data Argus eventually
+    learns from, so no row here ever starts out as anything but already
+    confirmed — there is deliberately no `pending_confirmation` status;
+    that phase belongs to `PendingAction`, not `Order`.
+
+    `correlation_id` is shared with the `ORDER_PROPOSED` `ActionEvent`
+    that preceded it, minted when the cart itself was first started
+    (`PendingAction.correlation_id`, §7) — the same id threads guest
+    intent -> proposal -> confirmation -> this row -> staff execution,
+    so the whole lifecycle stays reconstructable from `ActionEvent`
+    alone even though this table is a second, durable copy of the
+    outcome.
+    """
+
+    __tablename__ = "orders"
+    __table_args__ = (
+        Index("ix_order_tenant_id", "tenant_id"),
+        Index("ix_order_guest_id", "guest_id"),
+        Index("ix_order_correlation_id", "correlation_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
+    property_id: Mapped[str] = mapped_column(ForeignKey("properties.id"))
+    guest_id: Mapped[str] = mapped_column(ForeignKey("guests.id"))
+    reservation_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("reservations.id"), nullable=True
+    )
+
+    correlation_id: Mapped[str] = mapped_column(String(36))
+
+    # Provenance mirroring MenuItem's own `source_import_id` — which
+    # upload the ordered items originally came from. Nullable for the
+    # same reason MenuItem's is: a future "add one item by hand" path
+    # would have no import to point to.
+    source_menu_import_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("import_sessions.id"), nullable=True
+    )
+
+    status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.confirmed)
+
+    total_amount: Mapped[float] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    items: Mapped[list["OrderItem"]] = relationship(
+        "OrderItem", back_populates="order", cascade="all, delete-orphan"
+    )
+
+
+class OrderItem(Base):
+    """One line of a confirmed `Order` — MENU_ORDERING.md §6.
+    `name`/`price`/`currency` are snapshotted at confirmation time so a
+    later `MenuItem` price edit never retroactively changes what a
+    guest already agreed to; `menu_item_id` is kept alongside the
+    snapshot (not instead of it) so "show me every order of this dish"
+    stays queryable. This snapshot is only meaningful because
+    `MenuItem.id` itself is guaranteed stable across edits (Menu
+    Importer's own contract, `menu_importer.py`).
+    """
+
+    __tablename__ = "order_items"
+    __table_args__ = (Index("ix_order_item_order_id", "order_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"))
+    menu_item_id: Mapped[str] = mapped_column(ForeignKey("menu_items.id"))
+
+    name: Mapped[str] = mapped_column(String(255))
+    price: Mapped[float] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(8), default="EUR")
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+
+    order: Mapped["Order"] = relationship("Order", back_populates="items")
 
 
 class Review(Base):

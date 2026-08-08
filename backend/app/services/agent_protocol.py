@@ -49,3 +49,28 @@ class AgentResponse(BaseModel):
 @runtime_checkable
 class Agent(Protocol):
     def answer(self, context: ConciergeContext, guest_message: str) -> AgentResponse: ...
+
+
+@runtime_checkable
+class ClarifiableAgent(Protocol):
+    """A second, narrower interface for agents whose proposal can take
+    more than one turn to assemble — MENU_ORDERING.md §7.2. Only an
+    agent that owns a multi-turn workflow (Ordering Agent, so far)
+    implements this alongside `Agent`; `Conversation Manager`
+    (`conversation_manager.py`) is the only caller, and only when a
+    `PendingAction.payload` marks itself incomplete
+    (`payload["complete"] is False`).
+
+    `clarify()` takes the guest's single latest reply plus the
+    in-progress `payload` `Conversation Manager` already has on file —
+    never the full conversation history — so the agent's own state
+    machine stays deterministic and reproducible from `payload` alone.
+    It returns an `AgentResponse` whose `metadata["payload"]` is the
+    updated cart state, using the same "propose state via metadata"
+    convention `GuestMemoryAgent.answer()`'s `memory_updates` already
+    established for a single-turn proposal.
+    """
+
+    def clarify(
+        self, context: ConciergeContext, message_body: str, payload: dict[str, Any]
+    ) -> AgentResponse: ...
