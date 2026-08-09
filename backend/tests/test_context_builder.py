@@ -8,6 +8,7 @@ this layer is responsible for: assembling a correct, tenant-isolated
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -319,3 +320,122 @@ def test_invalidate_tenant_does_not_affect_other_tenants(db_session):
     assert builder.build(tenant_id="hotel-inv-a", guest_id=guest_a.id) is not cached_a
     # Tenant B was untouched — still served from cache.
     assert builder.build(tenant_id="hotel-inv-b", guest_id=guest_b.id) is cached_b
+
+
+# ---------------------------------------------------------------------------
+# menu_items / order_history — MENU_ORDERING.md §4
+# ---------------------------------------------------------------------------
+
+
+def test_menu_items_only_includes_available_items(db_session):
+    from app.models.entities import MenuItem
+
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-menu")
+    guest = _make_guest(db, tenant_id="hotel-menu", property_id=property_.id)
+    db.add(
+        MenuItem(
+            tenant_id="hotel-menu", property_id=property_.id, menu_name="Room Service",
+            name="Club Sandwich", category="Mains", price=18.0, currency="EUR",
+            vegetarian=False, vegan=False, gluten_free=False, spicy=False,
+        )
+    )
+    db.add(
+        MenuItem(
+            tenant_id="hotel-menu", property_id=property_.id, menu_name="Room Service",
+            name="Sold Out Soup", price=9.0, currency="EUR", available=False,
+        )
+    )
+    db.flush()
+
+    context = ContextBuilder(db).build(tenant_id="hotel-menu", guest_id=guest.id)
+
+    names = [item.name for item in context.menu_items]
+    assert names == ["Club Sandwich"]
+    assert context.menu_items[0].menu_name == "Room Service"
+    assert context.menu_items[0].price == 18.0
+
+
+def test_menu_items_are_tenant_scoped(db_session):
+    from app.models.entities import MenuItem
+
+    db = db_session
+    property_a = _make_property(db, tenant_id="hotel-menu-a")
+    guest_a = _make_guest(db, tenant_id="hotel-menu-a", property_id=property_a.id)
+    property_b = _make_property(db, tenant_id="hotel-menu-b", phone_number_id="PHONE_MENU_B")
+    _make_guest(db, tenant_id="hotel-menu-b", property_id=property_b.id)
+    db.add(
+        MenuItem(
+            tenant_id="hotel-menu-b", property_id=property_b.id,
+            name="Other Hotel's Dish", price=10.0, currency="EUR",
+        )
+    )
+    db.flush()
+
+    context = ContextBuilder(db).build(tenant_id="hotel-menu-a", guest_id=guest_a.id)
+
+    assert context.menu_items == []
+
+
+def test_order_history_lists_confirmed_orders_most_recent_first(db_session):
+    from app.models.entities import MenuItem, Order, OrderItem, OrderStatus
+
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-orders")
+    guest = _make_guest(db, tenant_id="hotel-orders", property_id=property_.id)
+    menu_item = MenuItem(
+        tenant_id="hotel-orders", property_id=property_.id,
+        name="Club Sandwich", price=18.0, currency="EUR",
+    )
+    db.add(menu_item)
+    db.flush()
+
+    older = Order(
+        tenant_id="hotel-orders", property_id=property_.id, guest_id=guest.id,
+        correlation_id="corr-older", total_amount=18.0, currency="EUR",
+        status=OrderStatus.delivered,
+        created_at=datetime.utcnow() - timedelta(hours=2),
+    )
+    older.items.append(
+        OrderItem(menu_item_id=menu_item.id, name="Club Sandwich", price=18.0, currency="EUR", quantity=1)
+    )
+    db.add(older)
+    db.flush()
+
+    newer = Order(
+        tenant_id="hotel-orders", property_id=property_.id, guest_id=guest.id,
+        correlation_id="corr-newer", total_amount=36.0, currency="EUR",
+        status=OrderStatus.confirmed,
+        created_at=datetime.utcnow(),
+    )
+    newer.items.append(
+        OrderItem(menu_item_id=menu_item.id, name="Club Sandwich", price=18.0, currency="EUR", quantity=2)
+    )
+    db.add(newer)
+    db.flush()
+
+    context = ContextBuilder(db).build(tenant_id="hotel-orders", guest_id=guest.id)
+
+    assert [o.id for o in context.order_history] == [newer.id, older.id]
+    assert context.order_history[0].items[0].quantity == 2
+    assert context.order_history[0].status == "confirmed"
+
+
+def test_order_history_is_guest_scoped(db_session):
+    from app.models.entities import Order, OrderStatus
+
+    db = db_session
+    property_ = _make_property(db, tenant_id="hotel-orders-scope")
+    guest_a = _make_guest(db, tenant_id="hotel-orders-scope", property_id=property_.id, name="A")
+    guest_b = _make_guest(db, tenant_id="hotel-orders-scope", property_id=property_.id, name="B")
+    db.add(
+        Order(
+            tenant_id="hotel-orders-scope", property_id=property_.id, guest_id=guest_b.id,
+            correlation_id="corr-b", total_amount=10.0, currency="EUR", status=OrderStatus.confirmed,
+        )
+    )
+    db.flush()
+
+    context = ContextBuilder(db).build(tenant_id="hotel-orders-scope", guest_id=guest_a.id)
+
+    assert context.order_history == []

@@ -26,9 +26,11 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import (
     Guest,
+    MenuItem,
     Message,
     MessageChannel,
     Offer,
+    Order,
     Property,
     PropertyKnowledgeBase,
     PropertyPackage,
@@ -200,6 +202,60 @@ class PackageContext(BaseModel):
     available: bool
 
 
+class MenuItemContext(BaseModel):
+    """The Ordering Agent's source of truth (MENU_ORDERING.md §4),
+    mirroring `ServiceContext`'s own role for the Revenue Agent: an item
+    with no matching row here simply doesn't exist for this property —
+    Ordering Agent must never invent one. Only `available=True` items
+    are ever included here (unlike `ServiceContext`, which deliberately
+    keeps unavailable rows so Revenue Agent can escalate on them) —
+    Ordering Agent has no equivalent "configured but currently
+    unavailable" reasoning to do; an unavailable dish is simply not
+    offerable.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    menu_name: str
+    name: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+    price: float
+    currency: str
+    vegetarian: bool
+    vegan: bool
+    gluten_free: bool
+    spicy: bool
+
+
+class OrderHistoryItemContext(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    price: float
+    currency: str
+    quantity: int
+
+
+class OrderHistoryContext(BaseModel):
+    """One of this guest's confirmed orders — mirrors
+    `PreviousOfferContext`'s own shape (most recent first, read-only).
+    `Order` rows only ever exist once confirmed (MENU_ORDERING.md §6),
+    so there is no "pending" order to filter out here — an in-progress
+    cart lives in `PendingAction.payload` instead (§4/§7), never here.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    status: str
+    total_amount: float
+    currency: str
+    created_at: datetime
+    items: list[OrderHistoryItemContext] = []
+
+
 class ChannelMetadata(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -226,6 +282,8 @@ class ConciergeContext(BaseModel):
     available_automations: list[AutomationContext] = []
     services: list[ServiceContext] = []
     packages: list[PackageContext] = []
+    menu_items: list[MenuItemContext] = []
+    order_history: list[OrderHistoryContext] = []
     channel: ChannelMetadata
 
 
@@ -357,6 +415,8 @@ class ContextBuilder:
         automations = self._load_available_automations(tenant_id)
         services = self._load_services(property_.id, tenant_id)
         packages = self._load_packages(property_.id, tenant_id)
+        menu_items = self._load_menu_items(property_.id, tenant_id)
+        order_history = self._load_order_history(tenant_id=tenant_id, guest_id=guest_id)
 
         return ConciergeContext(
             tenant_id=tenant_id,
@@ -394,6 +454,8 @@ class ContextBuilder:
             available_automations=automations,
             services=services,
             packages=packages,
+            menu_items=menu_items,
+            order_history=order_history,
             channel=ChannelMetadata(
                 channel="whatsapp",
                 phone_number_id=property_.whatsapp_phone_number_id,
@@ -610,4 +672,74 @@ class ContextBuilder:
                 available=p.available,
             )
             for p in packages
+        ]
+
+    def _load_menu_items(self, property_id: str, tenant_id: str) -> list[MenuItemContext]:
+        """The Ordering Agent's source of truth (MENU_ORDERING.md §4) —
+        only `available=True` items. Unlike `_load_services`, unavailable
+        rows are excluded rather than included-but-flagged: Ordering
+        Agent has no "configured but currently unavailable" escalation
+        path the way Revenue Agent's upsell flow does — an unavailable
+        dish is simply not offerable, nothing to reason about.
+        """
+        items = (
+            self.db.query(MenuItem)
+            .filter(
+                MenuItem.property_id == property_id,
+                MenuItem.tenant_id == tenant_id,
+                MenuItem.available.is_(True),
+            )
+            .order_by(MenuItem.menu_name, MenuItem.category, MenuItem.name)
+            .all()
+        )
+        return [
+            MenuItemContext(
+                id=i.id,
+                menu_name=i.menu_name,
+                name=i.name,
+                category=i.category,
+                description=i.description,
+                price=float(i.price),
+                currency=i.currency,
+                vegetarian=i.vegetarian,
+                vegan=i.vegan,
+                gluten_free=i.gluten_free,
+                spicy=i.spicy,
+            )
+            for i in items
+        ]
+
+    def _load_order_history(
+        self, *, tenant_id: str, guest_id: str
+    ) -> list[OrderHistoryContext]:
+        """This guest's confirmed orders — mirrors `_load_previous_offers`'
+        own shape (most recent first, capped at the same limit). `Order`
+        rows only ever exist once confirmed (MENU_ORDERING.md §6), so
+        there is no "pending" state to filter out here.
+        """
+        orders = (
+            self.db.query(Order)
+            .filter(Order.tenant_id == tenant_id, Order.guest_id == guest_id)
+            .order_by(Order.created_at.desc())
+            .limit(CONVERSATION_HISTORY_LIMIT)
+            .all()
+        )
+        return [
+            OrderHistoryContext(
+                id=o.id,
+                status=o.status.value,
+                total_amount=float(o.total_amount),
+                currency=o.currency,
+                created_at=o.created_at,
+                items=[
+                    OrderHistoryItemContext(
+                        name=item.name,
+                        price=float(item.price),
+                        currency=item.currency,
+                        quantity=item.quantity,
+                    )
+                    for item in o.items
+                ],
+            )
+            for o in orders
         ]
