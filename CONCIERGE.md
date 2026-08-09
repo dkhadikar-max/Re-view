@@ -575,11 +575,11 @@ here, not an ad-hoc string invented at a call site.
 | `OFFER_REJECTED` | Conversation Manager | ✅ live |
 | `OFFER_EXPIRED` | Conversation Manager (`expire_stale`) | ✅ live |
 | `ORDER_PROPOSED` | Ordering Agent | ✅ live |
-| `ORDER_CONFIRMED` | Conversation Manager | reserved |
-| `ORDER_REJECTED` | Conversation Manager | reserved |
+| `ORDER_CONFIRMED` | Conversation Manager | ✅ live |
+| `ORDER_REJECTED` | Conversation Manager | ✅ live |
 | `ORDER_CANCELLED` | Conversation Manager | reserved |
 | `ORDER_COMPLETED` | Conversation Manager / staff | reserved |
-| `ORDER_EXPIRED` | Conversation Manager | reserved |
+| `ORDER_EXPIRED` | Conversation Manager | ✅ live |
 | `MEMORY_PROPOSED` | Guest Memory Agent (§5.2) | ✅ live |
 | `MEMORY_ACCEPTED` | Memory Manager (MEMORY_MANAGER.md) | ✅ live |
 | `MEMORY_REJECTED` | Memory Manager | ✅ live |
@@ -591,31 +591,27 @@ here, not an ad-hoc string invented at a call site.
 | `SMALL_TALK` | Intent Classifier (no agent involved) | ✅ live |
 | `UNKNOWN` | Intent Classifier (no agent involved) | ✅ live |
 
-**Why only `OFFER_EXPIRED` is live, and `ORDER_EXPIRED`/`MEMORY_EXPIRED`
-stay reserved**: an `_EXPIRED` event only makes sense for a proposal
-that actually asked the guest a yes/no question and is now waiting on a
-reply. As of the Conversation Manager's introduction, only Revenue
-Agent's `OFFER_PROPOSED` does that ("Would you like me to book it?").
-`ORDER_PROPOSED` (Ordering Agent v0) is a pure hand-off ("you can order
-room service anytime"), and `MEMORY_PROPOSED` is resolved synchronously
-by Memory Manager in the same turn (§4 below) — neither is a guest-
-facing question awaiting a reply, so neither ever creates a
+**Why `MEMORY_EXPIRED` stays reserved while `ORDER_EXPIRED` is now
+live**: an `_EXPIRED` event only makes sense for a proposal that
+actually asked the guest a yes/no question and is now waiting on a
+reply. Revenue Agent's `OFFER_PROPOSED` ("Would you like me to book
+it?") and, as of Ordering Agent v1, a complete `ORDER_PROPOSED` cart
+("Shall I confirm this order?") both do. `MEMORY_PROPOSED` is still
+resolved synchronously by Memory Manager in the same turn (§4 below) —
+never a guest-facing question awaiting a reply, so it never creates a
 `PendingAction` to expire (see §16 and `conversation_manager.py`'s own
-`_CONFIRMABLE_ACTION_TYPES`). Emitting `ORDER_EXPIRED`/`MEMORY_EXPIRED`
-before a real confirmation flow exists for those domains would be
-exactly the "genuinely new value without a real lifecycle behind it"
-this rule exists to prevent.
+`_CONFIRMABLE_ACTION_TYPES`). Emitting `MEMORY_EXPIRED` before a real
+confirmation flow exists for that domain would be exactly the
+"genuinely new value without a real lifecycle behind it" this rule
+exists to prevent.
 
 **`ORDER_REJECTED` is kept distinct from `ORDER_CANCELLED`** on purpose
 (`MENU_ORDERING.md` §7.4, its own frozen contract): one means "the
 guest declined a complete cart before ever confirming it", the other
 means "a *confirmed* order was subsequently cancelled" — a later,
-different event. Both stay reserved until Conversation Manager's
-dispatch-back mode and the full Ordering Agent ship (`MENU_ORDERING.md`
-§17 step 6–10); this row exists now, alongside the schema that will
-eventually emit it, for the same reason `ORDER_CONFIRMED`/
-`ORDER_CANCELLED`/`ORDER_EXPIRED` were reserved ahead of their own
-implementation when Conversation Manager first shipped.
+different event, and no cancellation-after-confirmation path exists
+yet (no PMS/kitchen integration to cancel anything against), so
+`ORDER_CANCELLED` stays reserved even though its sibling is now live.
 
 **`MEMORY_HELD` is kept distinct from `MEMORY_REJECTED`** on purpose
 (`MEMORY_MANAGER.md` §4, its own frozen contract): one means "Memory

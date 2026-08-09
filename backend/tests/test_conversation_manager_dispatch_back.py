@@ -46,11 +46,21 @@ def _clear_context_cache():
 
 @pytest.fixture(autouse=True)
 def _clear_clarifiable_agent_registry():
-    """The registry lives on the module-level singleton — reset it
-    around every test so one test's stub never leaks into another's."""
+    """The registry lives on the module-level singleton — save and
+    restore it around every test, rather than clearing it outright, so
+    a test's own stub registration never leaks into another test, but a
+    *real* registration made elsewhere at import time (`concierge_
+    router.py` registering the real `ordering_agent`) survives running
+    in the same process as this file. Clearing unconditionally here
+    used to permanently wipe that real registration for the rest of the
+    test session the moment this file's tests ran first — a latent bug
+    only surfaced once a second real caller (Ordering Agent v1) started
+    depending on the registry outliving a single test file."""
+    original = dict(conversation_manager._clarifiable_agents)
     conversation_manager._clarifiable_agents.clear()
     yield
     conversation_manager._clarifiable_agents.clear()
+    conversation_manager._clarifiable_agents.update(original)
 
 
 @pytest.fixture()
