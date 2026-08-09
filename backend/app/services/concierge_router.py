@@ -120,8 +120,18 @@ from app.services.escalation_filter import (
 from app.services.faq_agent import FAQResponse, faq_agent
 from app.services.guest_memory_agent import guest_memory_agent
 from app.services.intent_classifier import IntentCategory, IntentDecision, classify_intent
-from app.services.ordering_agent import ordering_agent
+from app.services.ordering_agent import on_order_confirmed, ordering_agent
 from app.services.revenue_agent import revenue_agent
+
+# Wiring, not logic: this is the one place that already imports both
+# `conversation_manager` and every agent, so it's the natural place to
+# register which `ClarifiableAgent`s exist (MENU_ORDERING.md §7.2) and
+# which confirmation handlers run on a guest's "yes" (§7.4/§6). Neither
+# registry call is itself a decision this Router makes at request
+# time — both just make an already-built extension point aware of an
+# already-built agent.
+conversation_manager.register_clarifiable_agent("ordering", ordering_agent)
+conversation_manager.register_confirmation_handler("ORDER_CONFIRMED", on_order_confirmed)
 
 _NO_INTENT_RECOGNIZED_REASON = "No intent was recognized for this message"
 _AGENT_COULD_NOT_HELP_REASON = "{agent} could not fulfill this request"
@@ -250,6 +260,19 @@ def _summarize_guest_memory(metadata: dict[str, Any], response_text: Optional[st
 
 
 def _summarize_ordering(metadata: dict[str, Any], response_text: Optional[str]) -> tuple[str, str, Optional[str]]:
+    payload = metadata.get("payload")
+    if payload is not None:
+        # This branch is only reached once a cart is complete on its
+        # very first turn (an incomplete one exits the Router before
+        # this summarizer ever runs — see route()'s own dispatch-back
+        # branch) — never log the cart's actual line items here, only
+        # a count, the same "structured summary, never guest-message-
+        # shaped detail" discipline every other summarizer follows.
+        item_count = len(payload.get("cart") or [])
+        input_summary = f"Guest ordered {item_count} menu item(s)."
+        decision = "OrderingAgent proposed a complete cart."
+        return input_summary, decision, response_text
+
     handoff = metadata.get("handoff")
     input_summary = "Guest expressed interest in food or room service."
     if handoff == "room_service":
@@ -443,6 +466,28 @@ class ConciergeRouter:
                 input_summary=input_summary,
                 decision_text=decision_text,
                 output_summary=output_summary,
+            )
+            return response
+
+        # A multi-turn proposal still being assembled (MENU_ORDERING.md
+        # §7.1/§7.3) — the one shared convention any agent's metadata
+        # may use to signal this, a top-level `"complete": bool` inside
+        # `"payload"`. Nothing was proposed yet, so no ActionEvent is
+        # logged; `start_clarification` (not `register_proposal`) opens
+        # the workflow instead. The Router doesn't need to know this is
+        # Ordering Agent specifically — any future `ClarifiableAgent`
+        # reaches this same branch the same way.
+        payload = response.metadata.get("payload")
+        if payload is not None and not payload.get("complete", True):
+            conversation_manager.start_clarification(
+                db,
+                tenant_id=context.tenant_id,
+                guest_id=context.guest.id,
+                reservation_id=context.reservation.id if context.reservation else None,
+                conversation_id=context.channel.conversation_id,
+                origin_agent=agent_name,
+                intent=intent_decision.category.value,
+                payload=payload,
             )
             return response
 

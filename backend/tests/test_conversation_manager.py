@@ -102,11 +102,15 @@ def test_register_proposal_creates_pending_action_for_offer_proposed(db_session)
     assert pending.expires_at > datetime.utcnow()
 
 
-@pytest.mark.parametrize("action_type,agent", [("ORDER_PROPOSED", "ordering"), ("MEMORY_PROPOSED", "guest_memory"), ("FAQ_ANSWERED", "faq")])
+@pytest.mark.parametrize("action_type,agent", [("MEMORY_PROPOSED", "guest_memory"), ("FAQ_ANSWERED", "faq")])
 def test_register_proposal_returns_none_for_non_confirmable_action_types(db_session, action_type, agent):
-    """ORDER_PROPOSED and MEMORY_PROPOSED are informational today (no
-    agent asks the guest a real yes/no question yet) — no PendingAction
-    should be created for them, even though their ActionEvent exists."""
+    """MEMORY_PROPOSED is informational today (Memory Manager resolves
+    it synchronously, never puts it to the guest as a question) and
+    FAQ_ANSWERED is a complete, self-contained answer — no PendingAction
+    should be created for either, even though their ActionEvent exists.
+    (ORDER_PROPOSED moved out of this list once Ordering Agent v1 gave
+    it a real confirmation flow — see test_conversation_manager_router_
+    integration.py's own ordering-specific coverage instead.)"""
     db = db_session
     guest = _make_guest(db, tenant_id="hotel-b")
     event = action_logger.log_action(

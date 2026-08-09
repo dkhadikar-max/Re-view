@@ -9,6 +9,7 @@ component in the codebase.
     ConversationManager.register_proposal(db, event=action_event) -> Optional[PendingAction]
     ConversationManager.start_clarification(db, tenant_id, guest_id, origin_agent, intent, payload, ...) -> Optional[PendingAction]
     ConversationManager.register_clarifiable_agent(name, agent) -> None
+    ConversationManager.register_confirmation_handler(accepted_type, handler) -> None
     ConversationManager.resolve(db, context, pending, message_body) -> AgentResponse
     ConversationManager.expire_stale(db, tenant_id=None) -> list[PendingAction]
 
@@ -56,7 +57,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy.orm import Session
 
@@ -75,20 +76,19 @@ from app.services.agent_protocol import AgentResponse, ClarifiableAgent
 from app.services.context_builder import ConciergeContext
 
 # Only a `*_PROPOSED` action_type backed by a real guest-facing yes/no
-# question creates a `PendingAction`. As of this module's introduction
-# that's `OFFER_PROPOSED` (Revenue Agent — "Would you like me to book
-# it?") only: `ORDER_PROPOSED` (Ordering Agent v0 — pure hand-off, e.g.
-# "You can order room service anytime") and `MEMORY_PROPOSED` (applied
-# later by the not-yet-built Memory Manager, never put to the guest as
-# a question) are informational, not something awaiting an answer.
+# question creates a `PendingAction`. `OFFER_PROPOSED` (Revenue Agent —
+# "Would you like me to book it?") and `ORDER_PROPOSED` (Ordering Agent
+# v1 — a complete, unambiguous cart, MENU_ORDERING.md §7.4) both are;
+# `MEMORY_PROPOSED` (Memory Manager resolves it synchronously, never put
+# to the guest as a question) stays informational.
 # Maps a confirmable origin `action_type` to the (accepted, rejected,
 # expired) `action_type`s CONCIERGE.md's frozen v1 taxonomy reserves for
 # that domain — this dict is the ONLY place that knows the mapping, so
-# wiring up a second confirmable flow (once Ordering Agent's full
-# build-out or Memory Manager actually ask a guest to confirm) means
-# adding one line here, not touching any of the logic below it.
+# wiring up a second confirmable flow means adding one line here, not
+# touching any of the logic below it.
 _CONFIRMABLE_ACTION_TYPES: dict[str, tuple[str, str, str]] = {
     "OFFER_PROPOSED": ("OFFER_ACCEPTED", "OFFER_REJECTED", "OFFER_EXPIRED"),
+    "ORDER_PROPOSED": ("ORDER_CONFIRMED", "ORDER_REJECTED", "ORDER_EXPIRED"),
 }
 
 _DEFAULT_TTL = timedelta(hours=24)  # matches WhatsApp's own 24h messaging window
@@ -113,14 +113,26 @@ class ConversationManager:
     actual state; one instance of this class is safe to reuse across
     every tenant, guest, and turn.
 
-    `_clarifiable_agents` is the one exception, and it isn't per-request
-    state — it's static configuration, registered once at startup (or
-    once per test), mirroring `_CONFIRMABLE_ACTION_TYPES`'s own "small
-    lookup dict" shape. It never varies by tenant, guest, or turn.
+    `_clarifiable_agents`/`_confirmation_handlers` are the one exception,
+    and neither is per-request state — both are static configuration,
+    registered once at startup (or once per test), mirroring
+    `_CONFIRMABLE_ACTION_TYPES`'s own "small lookup dict" shape. Neither
+    ever varies by tenant, guest, or turn.
     """
 
     def __init__(self) -> None:
         self._clarifiable_agents: dict[str, ClarifiableAgent] = {}
+        # accepted_type -> callable(db, context, pending, payload) -> extra
+        # metadata dict | None. Lets a confirmed proposal trigger domain-
+        # specific side effects (e.g. creating an Order/OrderItem snapshot)
+        # without this module ever having to know what that means — the
+        # same reasoning `_clarifiable_agents` already established. Most
+        # accepted_types (e.g. OFFER_ACCEPTED) have no handler at all;
+        # the generic staff Task still gets created for those exactly as
+        # before.
+        self._confirmation_handlers: dict[
+            str, Callable[[Session, ConciergeContext, PendingAction, dict], Optional[dict]]
+        ] = {}
 
     def register_clarifiable_agent(self, name: str, agent: ClarifiableAgent) -> None:
         """Registers which agent's `clarify()` a `PendingAction.origin_agent`
@@ -128,6 +140,23 @@ class ConversationManager:
         startup for each real `ClarifiableAgent` that exists; tests
         register a stub directly instead of importing a real agent."""
         self._clarifiable_agents[name] = agent
+
+    def register_confirmation_handler(
+        self,
+        accepted_type: str,
+        handler: Callable[[Session, ConciergeContext, PendingAction, dict], Optional[dict]],
+    ) -> None:
+        """Registers a side effect to run when `accepted_type` is
+        confirmed (`_accept()`, below), after its `ActionEvent` is
+        logged and before the generic staff `Task` is created. `payload`
+        is `{}` when `pending.payload` was never set (most confirmable
+        flows today — e.g. Revenue Agent's offers never build one); a
+        handler that doesn't need it can simply ignore it. This module
+        never decides what a handler does or interprets its return
+        value beyond merging it into the response metadata — deciding
+        domain logic (e.g. "what does confirming an order mean") stays
+        the originating agent's job, not this one's."""
+        self._confirmation_handlers[accepted_type] = handler
 
     def find_active(self, db: Session, *, tenant_id: str, guest_id: str) -> Optional[PendingAction]:
         """The Router's own gate: called before Intent Classification
@@ -155,11 +184,22 @@ class ConversationManager:
         simply never becomes the active conversational thread. This
         component should never have to guess which of two open
         questions a guest's "yes" answers.
+
+        If the triggering event's own metadata included a `"payload"`
+        key (a cart that happened to be complete on its very first
+        turn — MENU_ORDERING.md §7.1 — rather than one built up via
+        `start_clarification`/dispatch-back), it's carried onto this
+        row unchanged, so a later confirmation handler still has it to
+        work with (`_accept()`, below). This module still never
+        inspects what's inside it.
         """
         if event.action_type not in _CONFIRMABLE_ACTION_TYPES:
             return None
         if self.find_active(db, tenant_id=event.tenant_id, guest_id=event.guest_id):
             return None
+
+        event_metadata = json.loads(event.event_metadata) if event.event_metadata else {}
+        payload = event_metadata.get("payload")
 
         pending = PendingAction(
             tenant_id=event.tenant_id,
@@ -169,6 +209,7 @@ class ConversationManager:
             correlation_id=event.correlation_id,
             origin_action_type=event.action_type,
             origin_intent=event.intent,
+            payload=json.dumps(payload) if payload is not None else None,
             expires_at=datetime.utcnow() + _DEFAULT_TTL,
         )
         db.add(pending)
@@ -296,6 +337,17 @@ class ConversationManager:
             status=ActionEventStatus.accepted,
         )
 
+        # A registered handler (e.g. Ordering Agent creating an
+        # Order/OrderItem snapshot) runs before the generic Task below,
+        # so the Task's own description can reference whatever it
+        # produced. Most accepted_types have no handler — nothing here
+        # changes for them.
+        handler = self._confirmation_handlers.get(accepted_type)
+        handler_metadata: dict = {}
+        if handler is not None:
+            payload = json.loads(pending.payload) if pending.payload else {}
+            handler_metadata = handler(db, context, pending, payload) or {}
+
         # No PMS integration exists yet to execute the confirmed action
         # automatically — a staff Task is the only execution path today
         # (CONCIERGE.md §5.5's own scope: "create staff Tasks when
@@ -341,6 +393,7 @@ class ConversationManager:
                 "pending_action_id": pending.id,
                 "conversation_manager": "accepted",
                 "task_id": task.id,
+                **handler_metadata,
             },
         )
 

@@ -1,17 +1,21 @@
 # AI Concierge — Menu Management, Meal Reservation & Room Service Ordering
 
-Status: **§3 (Menu Manager) is implemented; §6/§7 (Ordering Agent) is a
-frozen design, not yet implemented — this is the design PR.** `MenuItem`
-model + migration, the PDF-only upload/review/confirm pipeline
-(`menu_ai_parser.py`, `menu_parser.py`, `menu_importer.py`), and the
-menu editor endpoint have shipped (§17 steps 1–3). §6/§7 below are now
-locked to the same level of detail CONCIERGE.md's own frozen contracts
-(`action_type`, `actor`, `PendingAction`) required before their
-implementation PRs — changing them later should require a design
-review, not just a code change. Implementation is step 2, a separate
-PR, not part of this one. Meal reservation (§5), the order-pattern
-Guest Memory track (§9), and personalized recommendations (§11) remain
-deliberately deferred beyond this design pass.
+Status: **§3 (Menu Manager) and §6/§7 (Ordering Agent) are both fully
+implemented (§17 steps 1–10).** `MenuItem` model + migration, the
+PDF-only upload/review/confirm pipeline (`menu_ai_parser.py`,
+`menu_parser.py`, `menu_importer.py`), and the menu editor endpoint
+shipped first; the Ordering Agent build-out followed in four sequenced
+PRs against the frozen §6/§7 design: the `PendingAction.payload`/
+`origin_agent` schema extension + `ClarifiableAgent` protocol +
+`Order`/`OrderItem` models, Conversation Manager's generic dispatch-back
+mechanism, the `menu_items`/`order_history` `ConciergeContext`
+extension, and finally `ordering_agent.py` itself (deterministic
+item/quantity/variant matching against `context.menu_items`, the
+`on_order_confirmed` snapshot handler, and Router wiring). Meal
+reservation (§5), the order-pattern Guest Memory track (§9), and
+personalized recommendations (§11) remain deliberately deferred, per
+this document's own explicit out-of-scope list (§14) and the roadmap's
+"pilot before more agents" discipline (§15).
 
 **Frozen v1 sub-scope decisions for the Menu Importer** (locked before
 implementation, superseding a few specifics below where they differ):
@@ -25,11 +29,9 @@ a future `Order.items` snapshot (§6) is the actual evidence boundary
 that answers "which menu version produced this order," not a table on
 `MenuItem` itself; a re-upload of a revised menu creates fresh rows
 rather than attempting to fuzzy-match against existing ones (§3.2's own
-note, added during implementation). `ConciergeContext` is **not**
-extended with `menu_items` yet (§4) — that has no consumer until the
-Ordering Agent exists, and shipping unused surface area preemptively is
-exactly the premature-abstraction risk this codebase's own conventions
-warn against.
+note, added during implementation). `ConciergeContext` was later
+extended with `menu_items`/`order_history` (§4) once the Ordering Agent
+became a real consumer — not preemptively, per this same discipline.
 
 ---
 
@@ -636,6 +638,25 @@ should decide whether they're worth building next.
    event/evidence history). Every future multi-turn Concierge
    capability should be checked against this separation before adding
    a new stateful mechanism of its own.
+9. **`ConversationManager.register_confirmation_handler`, added during
+   Ordering Agent implementation** — a concrete contradiction the
+   frozen design didn't resolve: something has to turn a confirmed
+   `payload.cart` into real `Order`/`OrderItem` rows on `ORDER_CONFIRMED`,
+   but Conversation Manager's own frozen scope (CONCIERGE.md §5.5/§16)
+   explicitly forbids it from deciding domain logic. Resolved the same
+   way `_clarifiable_agents` already was: a small `{accepted_type:
+   handler}` registry, called after the `ActionEvent` is logged and
+   before the generic staff `Task` is created. Conversation Manager
+   still never inspects what a handler does — `ordering_agent.py`'s own
+   `on_order_confirmed` is the one registered today.
+10. **`is_food_order` extended to also recognize a named menu item, not
+    just v0's hunger phrasing** — exposed by implementation: "Two
+    chicken biryani" contains no hunger word at all, so the Intent
+    Classifier would never have routed it to Ordering Agent without
+    this. Reuses the exact same word-bounded matching `answer()` itself
+    uses (`_find_direct_matches`/`_find_ambiguous_group`), so intent
+    classification and actual recognition can never drift apart from
+    each other — not a second, parallel pattern set.
 
 ## 17. Implementation sequence
 
@@ -643,15 +664,22 @@ should decide whether they're worth building next.
    path shipped; Excel/CSV deferred per the frozen v1 decision — build
    only if a pilot hotel needs it), (3) ✅ menu editor endpoint, (4) ✅
    Memory Manager (built ahead of this sequence, per the actual roadmap
-   order: Knowledge Base Editor → Memory Manager → Menu Importer), (5)
-   **this design pass** (§6/§7 frozen, this document, its own reviewed
-   PR — no code), then, as a **separate** implementation PR: (6)
+   order: Knowledge Base Editor → Memory Manager → Menu Importer), (5) ✅
+   the design pass (§6/§7 frozen, PR #27) — then, as separate
+   implementation PRs, sequenced by persistence-contract-first: (6) ✅
    `PendingAction.payload`/`origin_agent` migration + the
-   `ClarifiableAgent` protocol + Conversation Manager's dispatch-back
-   mode, (7) `Order`/`OrderItem` model + migration, (8) Context Builder
-   extension (`menu_items`, `order_history` — no `pending_order` field,
-   see §4), (9) Ordering Agent (room service only — meal reservation
+   `ClarifiableAgent` protocol + `Order`/`OrderItem` model (PR #28), (7)
+   ✅ Conversation Manager's generic dispatch-back mode, tested against a
+   stub `ClarifiableAgent` (PR #29), (8) ✅ Context Builder extension
+   (`menu_items`, `order_history` — no `pending_order` field, see §4)
+   (PR #30), (9) ✅ Ordering Agent (room service only — meal reservation
    stays deferred per §5, since it additionally needs the Automation
-   Engine trigger), (10) Router integration, tests, CI, hold for
-   review. (11) order-pattern Guest Memory track stays deferred beyond
-   this sequence, per §15.
+   Engine trigger) — deterministic item/quantity/variant matching
+   against `context.menu_items`, never a fuzzy or semantic match, (10)
+   ✅ Router integration (the shared `payload["complete"]` convention
+   routes an incomplete cart to `start_clarification` instead of the
+   normal single-turn proposal path), the `on_order_confirmed`
+   snapshot handler registered as a `ConversationManager` confirmation
+   handler, tests, CI. (11) order-pattern Guest Memory track stays
+   deferred beyond this sequence, per §15 — the roadmap's next step is
+   Translation → Pilot readiness, not another agent.

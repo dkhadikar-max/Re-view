@@ -133,7 +133,7 @@ def classify_intent(message_body: str, context: ConciergeContext) -> IntentDecis
     if is_memory_signal(text):
         return IntentDecision(category=IntentCategory.memory, confidence=_MEMORY_CONFIDENCE)
 
-    if is_food_order(text):
+    if is_food_order(text, context.menu_items):
         return IntentDecision(category=IntentCategory.order, confidence=_ORDER_CONFIDENCE)
 
     if is_service_request(text, context):
