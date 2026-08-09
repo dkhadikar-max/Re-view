@@ -1,9 +1,13 @@
 # Translation Layer — Design Document (frozen contract, no implementation yet)
 
 Status: **Design only.** No code has been written against this document.
-This doc exists to freeze the I/O-boundary contract and the six
+This doc exists to freeze the I/O-boundary contract and the seven
 constraints agreed on before any implementation PR is opened, per the
 same plan-first discipline as `CONCIERGE.md` and `MENU_ORDERING.md`.
+(Originally frozen with six constraints in the initial design PR; a
+seventh — the outbound translation-failure guarantee — was added as a
+follow-up before implementation began, since it was recognized as an
+architectural invariant rather than an implementation detail.)
 
 Roadmap position: this is priority #8, the final new capability before
 Pilot Readiness (#9) and the strategic stop (#10). After this design is
@@ -65,7 +69,7 @@ Two translation calls per guest turn, both at the edges: one in, one
 out. Nothing in the middle is touched, extended, or made
 language-aware.
 
-## 2. The six frozen constraints
+## 2. The seven frozen constraints
 
 These were agreed on explicitly before this document was written and
 are non-negotiable for the implementation PR:
@@ -116,6 +120,32 @@ are non-negotiable for the implementation PR:
    pending" and escalation paths (already built, §7.4 of
    `MENU_ORDERING.md`) handle it exactly as they handle any unclear
    English message today.
+7. **Translation failure must never cause the system to invent,
+   partially execute, or silently alter a guest action.** This is
+   deliberately as strong a guarantee as constraint 6, and covers the
+   opposite direction of the pipeline: outbound translation failing
+   after an action has already been decided and logged in English.
+   Concretely, when the final response translation call fails:
+   - The `ActionEvent` already written by Action Logger (§5) is
+     unchanged — no retraction, no edit, no re-logging.
+   - Any `Order`, `PendingAction`, or confirmation state already
+     created or updated by that turn is unchanged — a translation
+     failure on the way *out* never rolls back a decision that was
+     already correctly made on the way *in* and through the pipeline.
+   - There is no reinterpretation or retry with looser semantics —
+     the system does not fall back to a "best guess" translation, a
+     partial translation, or an untranslated-but-silently-sent English
+     message dressed up as a fix. The action's canonical state is
+     already correct and auditable; only its *delivery* to the guest
+     failed.
+   - Delivery failure is handled the same way any other outbound
+     WhatsApp send failure already is — the existing operational
+     retry/alerting path, not a translation-specific escape hatch.
+   In short: translation sits strictly downstream of every decision
+   the pipeline makes. A failure in that downstream step can only ever
+   cause a guest to not receive a (translated) message — it can never
+   cause the system to have decided, recorded, or executed something
+   different than what the English pipeline already decided.
 
 ## 3. What "detect/normalize" means concretely
 
@@ -180,9 +210,7 @@ regardless of guest language.
 
 ## 7. Open questions for the implementation PR (not resolved here)
 
-- Which translation provider/API, and what happens on a translation
-  API failure (escalate immediately, same as any other unhandled
-  case, is the likely default per §0's "when in doubt, escalate").
+- Which translation provider/API to use.
 - Exact field names and migration shape for `detected_language` /
   `original_text` / `normalized_text`.
 - Whether detection runs synchronously inline or is itself a small
@@ -190,8 +218,16 @@ regardless of guest language.
   with this contract as long as Escalation Filter still receives
   normalized English.
 
+Inbound normalization failure (translation-to-English fails before the
+guest's message reaches the pipeline at all) and outbound delivery
+mechanics both resolve to existing behavior: an inbound failure means
+the pipeline never runs for that message, which is exactly the "when
+in doubt, escalate" default per §0 — not a new decision this document
+needs to make. Outbound failure is fully resolved by constraint 7
+above, not left open.
+
 These are implementation details deliberately left open here — this
-document's job is only to freeze the boundary and the six constraints
+document's job is only to freeze the boundary and the seven constraints
 above, not to pre-decide every line of code.
 
 ## 8. Implementation sequence (not started — do not build ahead of this)
@@ -202,11 +238,14 @@ above, not to pre-decide every line of code.
    zero changes inside the pipeline itself.
 3. Outbound translation: translate the final English response back,
    after Action Logger has already run.
-4. Tests proving the six constraints hold: an agent given a translated
-   message never sees anything but English; Action Ledger fields stay
-   English/canonical regardless of guest language; original text
-   survives round-trip; an unclear confirmation in a non-English
-   message hits the same "stays pending" / escalation path as an
-   unclear English one.
+4. Tests proving the seven constraints hold: an agent given a
+   translated message never sees anything but English; Action Ledger
+   fields stay English/canonical regardless of guest language;
+   original text survives round-trip; an unclear confirmation in a
+   non-English message hits the same "stays pending" / escalation path
+   as an unclear English one; and a simulated outbound translation
+   failure leaves the already-logged `ActionEvent`/`Order`/confirmation
+   state completely unchanged, triggering only the existing delivery
+   retry/alert path.
 
 No implementation begins until this document is explicitly approved.
