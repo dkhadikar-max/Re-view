@@ -7,6 +7,8 @@ component in the codebase.
 
     ConversationManager.find_active(db, tenant_id, guest_id) -> Optional[PendingAction]
     ConversationManager.register_proposal(db, event=action_event) -> Optional[PendingAction]
+    ConversationManager.start_clarification(db, tenant_id, guest_id, origin_agent, intent, payload, ...) -> Optional[PendingAction]
+    ConversationManager.register_clarifiable_agent(name, agent) -> None
     ConversationManager.resolve(db, context, pending, message_body) -> AgentResponse
     ConversationManager.expire_stale(db, tenant_id=None) -> list[PendingAction]
 
@@ -35,11 +37,24 @@ transition here (accept/reject/expire) is always paired with a new
 `ActionEvent` sharing the `PendingAction`'s own `correlation_id` — the
 full lifecycle is replayable from the ledger alone even though this
 table's own `status` only ever moves forward once.
+
+`start_clarification`/`resolve`'s dispatch-back branch (MENU_ORDERING.md
+§7.2) extend this to a second, earlier case: a multi-turn proposal that
+isn't complete enough to have been proposed yet at all. This module
+still never reasons about *what* a cart or any other payload contains —
+`payload`'s shape is opaque, owned entirely by whichever
+`ClarifiableAgent` created it (`agent_protocol.py`); the one thing this
+module ever inspects is a shared `"complete": bool` convention, and
+dispatch itself is a plain `{name: agent}` registry lookup, the same
+"small lookup dict" shape `_CONFIRMABLE_ACTION_TYPES` already uses.
+Nothing here is order-specific.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -56,7 +71,7 @@ from app.models.entities import (
     TaskStatus,
 )
 from app.services.action_logger import action_logger
-from app.services.agent_protocol import AgentResponse
+from app.services.agent_protocol import AgentResponse, ClarifiableAgent
 from app.services.context_builder import ConciergeContext
 
 # Only a `*_PROPOSED` action_type backed by a real guest-facing yes/no
@@ -96,7 +111,23 @@ class ConversationManager:
     """Stateless itself — holds no data between calls, same as every
     agent and the Router. `PendingAction` rows in the database are the
     actual state; one instance of this class is safe to reuse across
-    every tenant, guest, and turn."""
+    every tenant, guest, and turn.
+
+    `_clarifiable_agents` is the one exception, and it isn't per-request
+    state — it's static configuration, registered once at startup (or
+    once per test), mirroring `_CONFIRMABLE_ACTION_TYPES`'s own "small
+    lookup dict" shape. It never varies by tenant, guest, or turn.
+    """
+
+    def __init__(self) -> None:
+        self._clarifiable_agents: dict[str, ClarifiableAgent] = {}
+
+    def register_clarifiable_agent(self, name: str, agent: ClarifiableAgent) -> None:
+        """Registers which agent's `clarify()` a `PendingAction.origin_agent`
+        value dispatches back to (MENU_ORDERING.md §7.2). Called once at
+        startup for each real `ClarifiableAgent` that exists; tests
+        register a stub directly instead of importing a real agent."""
+        self._clarifiable_agents[name] = agent
 
     def find_active(self, db: Session, *, tenant_id: str, guest_id: str) -> Optional[PendingAction]:
         """The Router's own gate: called before Intent Classification
@@ -144,6 +175,57 @@ class ConversationManager:
         db.flush()
         return pending
 
+    def start_clarification(
+        self,
+        db: Session,
+        *,
+        tenant_id: str,
+        guest_id: str,
+        origin_agent: str,
+        intent: str,
+        payload: dict,
+        reservation_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+    ) -> Optional[PendingAction]:
+        """Starts a multi-turn proposal that isn't complete enough to
+        have been proposed yet at all (MENU_ORDERING.md §7.1/§7.3) — the
+        earlier counterpart to `register_proposal`, for a cart still
+        being assembled rather than one already logged as a `*_PROPOSED`
+        `ActionEvent`. Deliberately takes no `event`: there is nothing to
+        log yet, and logging one prematurely (before the proposal is
+        actually complete) would be exactly the "abandoned cart looks
+        like a business transaction" problem §6/§7.3 exist to prevent.
+
+        Same "defer, don't replace" policy as `register_proposal`: a
+        second workflow starting while one is already active for this
+        guest returns `None` rather than creating a competing row —
+        this component should never have to guess which of two open
+        threads a guest's reply continues.
+
+        Generic across any future `ClarifiableAgent`, not order-specific
+        — `origin_agent` and `payload`'s shape are entirely the caller's
+        business; this method only ever stores `payload` verbatim.
+        """
+        if self.find_active(db, tenant_id=tenant_id, guest_id=guest_id):
+            return None
+
+        pending = PendingAction(
+            tenant_id=tenant_id,
+            guest_id=guest_id,
+            reservation_id=reservation_id,
+            conversation_id=conversation_id,
+            correlation_id=correlation_id or str(uuid.uuid4()),
+            origin_action_type=None,
+            origin_intent=intent,
+            origin_agent=origin_agent,
+            payload=json.dumps(payload),
+            expires_at=datetime.utcnow() + _DEFAULT_TTL,
+        )
+        db.add(pending)
+        db.flush()
+        return pending
+
     def resolve(
         self,
         db: Session,
@@ -155,7 +237,16 @@ class ConversationManager:
         Never calls an LLM, never touches FAQ/revenue/memory logic —
         confirm/cancel/unclear only, via `_CONFIRM_PATTERN`/
         `_CANCEL_PATTERN` above.
+
+        One exception, checked first: a `pending.origin_agent` with an
+        incomplete `payload` (MENU_ORDERING.md §7.2) means this isn't a
+        yes/no question yet at all — dispatch to `_dispatch_back`
+        instead of pattern-matching. Everything below this check is
+        unchanged from before that mechanism existed.
         """
+        if pending.origin_agent and not self._payload_complete(pending):
+            return self._dispatch_back(db, context, pending, message_body)
+
         accepted_type, rejected_type, _ = _CONFIRMABLE_ACTION_TYPES[pending.origin_action_type]
 
         if _CONFIRM_PATTERN.search(message_body):
@@ -288,6 +379,100 @@ class ConversationManager:
             metadata={"pending_action_id": pending.id, "conversation_manager": "rejected"},
         )
 
+    @staticmethod
+    def _payload_complete(pending: PendingAction) -> bool:
+        """A `PendingAction` with no `payload` at all predates this
+        mechanism (Revenue Agent's offers) or never went through
+        `start_clarification` — treated as complete so `resolve()`
+        falls through to its original confirm/cancel matching, exactly
+        as it always has."""
+        if not pending.payload:
+            return True
+        return bool(json.loads(pending.payload).get("complete", True))
+
+    def _dispatch_back(
+        self,
+        db: Session,
+        context: ConciergeContext,
+        pending: PendingAction,
+        message_body: str,
+    ) -> AgentResponse:
+        """Hands an incomplete cart's reply to whichever agent started
+        it (MENU_ORDERING.md §7.2), instead of confirm/cancel pattern
+        matching. This method still never reasons about *what* the
+        payload contains — only whether the agent says it's now
+        complete, and if so, what `action_type` to log for it.
+        """
+        agent = self._clarifiable_agents.get(pending.origin_agent)
+        payload = json.loads(pending.payload) if pending.payload else {}
+
+        if agent is None:
+            # Misconfigured — an origin_agent with no registered
+            # implementer. Not a guest-facing failure to hide silently;
+            # escalate the same way an agent's own should_escalate does.
+            return AgentResponse(
+                handled=False,
+                should_escalate=True,
+                metadata={
+                    "pending_action_id": pending.id,
+                    "conversation_manager": "dispatch_back_unregistered",
+                },
+            )
+
+        response = agent.clarify(context, message_body, payload)
+        new_payload = response.metadata.get("payload")
+
+        if response.should_escalate or new_payload is None:
+            # Unresolvable clarification (§7.4): clarify() couldn't
+            # make sense of the reply at all. Abandon the build — no
+            # Order was ever created, and nothing was ever proposed, so
+            # there's nothing to log; the PendingAction simply closes.
+            pending.status = PendingActionStatus.cancelled
+            pending.resolved_at = datetime.utcnow()
+            db.flush()
+            return AgentResponse(
+                handled=response.handled,
+                response=response.response,
+                should_escalate=True,
+                metadata={
+                    **response.metadata,
+                    "pending_action_id": pending.id,
+                    "conversation_manager": "dispatch_back_abandoned",
+                },
+            )
+
+        pending.payload = json.dumps(new_payload)
+
+        if new_payload.get("complete"):
+            # First time this proposal is complete enough to be a real
+            # proposal — mint its ActionEvent now, not before (§7.3).
+            # The action_type to log is the agent's own business, not
+            # something this module hardcodes; it only requires that
+            # value already be a recognized confirmable type so the
+            # existing confirm/cancel matching can take over next turn.
+            action_type = response.metadata.get("action_type")
+            if action_type in _CONFIRMABLE_ACTION_TYPES:
+                action_logger.log_action(
+                    db,
+                    tenant_id=pending.tenant_id,
+                    guest_id=pending.guest_id,
+                    reservation_id=pending.reservation_id,
+                    conversation_id=pending.conversation_id,
+                    correlation_id=pending.correlation_id,
+                    intent=pending.origin_intent,
+                    agent=pending.origin_agent,
+                    action_type=action_type,
+                    actor=ActorType.ai,
+                    confidence=response.confidence,
+                    input_summary="Guest's reply completed a multi-turn proposal.",
+                    decision=f"Cart became complete; logged {action_type}.",
+                    status=ActionEventStatus.proposed,
+                )
+                pending.origin_action_type = action_type
+
+        db.flush()
+        return response
+
     def expire_stale(self, db: Session, *, tenant_id: Optional[str] = None) -> list[PendingAction]:
         """Closes every `PendingAction` past its `expires_at`. Meant to
         run on a schedule (or be checked lazily before the next
@@ -295,6 +480,11 @@ class ConversationManager:
         Logs one `<DOMAIN>_EXPIRED` event per row, sharing its
         `correlation_id`, so the ledger's lifecycle stays complete even
         for a proposal the guest never answered.
+
+        A row still incomplete when it expires (`origin_action_type` is
+        `None` — a cart that was still being assembled, never
+        completed) is simply closed instead (MENU_ORDERING.md §7.3):
+        nothing was ever proposed, so there's nothing to log as expired.
         """
         query = db.query(PendingAction).filter(
             PendingAction.status == PendingActionStatus.pending,
@@ -305,9 +495,11 @@ class ConversationManager:
 
         expired = query.all()
         for pending in expired:
-            _, _, expired_type = _CONFIRMABLE_ACTION_TYPES[pending.origin_action_type]
             pending.status = PendingActionStatus.expired
             pending.resolved_at = datetime.utcnow()
+            if pending.origin_action_type is None:
+                continue
+            _, _, expired_type = _CONFIRMABLE_ACTION_TYPES[pending.origin_action_type]
             action_logger.log_action(
                 db,
                 tenant_id=pending.tenant_id,
