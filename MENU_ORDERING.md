@@ -521,6 +521,25 @@ once §4's Context Builder extension ships.
   pattern first (`escalation_filter.py`, unchanged) — this agent never
   overrides that with its own judgment.
 
+  **Clarification (v1, recorded at Ordering Agent build-out review):**
+  this guardrail is currently satisfied by *architectural absence*, not
+  by an active allergen-safety control. `OrderingAgent` v1 does not read
+  `Guest.dietary_preferences` at all, does not filter menu matches by
+  dietary tag, and does not substitute or suggest alternative items —
+  its matching in §6/§7 works purely off literal menu text. There is
+  therefore no dietary-aware code path that could assert or imply
+  safety, because there is no dietary-aware code path. That is
+  acceptable for v1: the agent never claims safety, never substitutes
+  items, and never overrides the Escalation Filter's medical pattern.
+  But it means the guarantee lives in what the agent *doesn't* do yet,
+  not in a control that actively checks and blocks unsafe orders. If
+  dietary filtering is added later (e.g. surfacing `vegan`/
+  `gluten_free` items as recommendations), this section must be
+  revisited and the distinction re-verified — it should never be
+  described, in this doc or elsewhere, as "allergen safety is enforced
+  by Ordering Agent." It isn't; it is currently unimplemented, and the
+  absence itself is what's safe.
+
 ## 13. Architecture (restated with existing-component references)
 
 ```
