@@ -16,6 +16,12 @@ from app.services.state_machine import MESSAGE_TRANSITIONS, transition
 
 logger = logging.getLogger(__name__)
 
+# PILOT_READINESS.md §2 — a bounded, minimal retry appropriate to pilot
+# scale (1-2 hotels), not a general message-queue redesign. A `failed`
+# message that exhausts this stops being retried and stays `failed` —
+# queryable/visible for §4's monitoring, not silently dropped.
+MAX_OUTBOUND_RETRIES = 3
+
 
 def _property_for_message(db: Session, message: Message) -> Property | None:
     return db.query(Property).filter(Property.tenant_id == message.tenant_id).first()
@@ -349,4 +355,33 @@ def process_due_messages(db: Session, limit: int = 50) -> int:
             count += 1
         except Exception:  # noqa: BLE001
             logger.exception("Failed delivering message %s", message.id)
+
+    # PILOT_READINESS.md §2 — retry `failed` messages that haven't
+    # exhausted MAX_OUTBOUND_RETRIES yet. A message already at the cap
+    # is deliberately excluded by this same filter, so it's never
+    # retried forever — it just stays `failed`, queryable for §4.
+    retryable = (
+        db.query(Message)
+        .filter(
+            Message.status == MessageStatus.failed,
+            Message.retry_count < MAX_OUTBOUND_RETRIES,
+        )
+        .limit(max(0, limit - count))
+        .all()
+    )
+    for message in retryable:
+        message.retry_count += 1
+        transition(message.status, MessageStatus.queued, MESSAGE_TRANSITIONS, "message")
+        message.status = MessageStatus.queued
+        db.flush()
+        try:
+            deliver_message(db, message)
+            count += 1
+        except Exception:  # noqa: BLE001 — deliver_message already logs/transitions internally
+            logger.exception(
+                "Retry %s/%s failed for message %s",
+                message.retry_count,
+                MAX_OUTBOUND_RETRIES,
+                message.id,
+            )
     return count

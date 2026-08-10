@@ -518,6 +518,13 @@ class Message(Base):
     message_type: Mapped[str] = mapped_column(String(64), default="general")
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     provider_message_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # PILOT_READINESS.md §2 — how many delivery retries this message has
+    # already had. Only ever incremented on a `failed` message picked up
+    # again by `process_due_messages`; the original attempt doesn't
+    # count. Once >= MAX_OUTBOUND_RETRIES (messaging.py), a failed
+    # message is left alone — queryable as an exhausted, needs-attention
+    # delivery, not silently retried forever.
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
