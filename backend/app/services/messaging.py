@@ -140,7 +140,40 @@ def ingest_inbound_whatsapp(
     provider_message_id: str | None = None,
     contact_name: str | None = None,
 ) -> Message | None:
-    """Reply webhook → store inbound message → update guest memory."""
+    """Reply webhook → store inbound message → update guest memory.
+
+    PILOT_READINESS.md §1 — webhook idempotency. Meta retries webhook
+    delivery on timeout or a non-2xx response; without a dedup check, a
+    retried webhook re-runs this entire function a second time (a
+    second `Message`, a second `ActionEvent`, potentially a second
+    `Order`/`Task`, a second guest-memory note). Dedup key is the
+    `(tenant_id, provider_message_id)` pair, not `provider_message_id`
+    alone — ReVisit's platform-level WABA (`CONCIERGE.md` §3) means a
+    dedup bug must never be able to cross a tenant boundary even in
+    theory, even though Meta's own IDs are already globally unique.
+    Conditional on `provider_message_id` being present: some inbound
+    event shapes may lack it, and two such events must never be treated
+    as duplicates of each other.
+    """
+    if provider_message_id:
+        existing = (
+            db.query(Message)
+            .filter(
+                Message.tenant_id == tenant_id,
+                Message.provider_message_id == provider_message_id,
+            )
+            .first()
+        )
+        if existing:
+            logger.info(
+                "Duplicate inbound webhook for tenant=%s provider_message_id=%s "
+                "— returning existing message %s, not re-processing",
+                tenant_id,
+                provider_message_id,
+                existing.id,
+            )
+            return existing
+
     phone_digits = "".join(ch for ch in from_phone if ch.isdigit())
     guests = db.query(Guest).filter(Guest.tenant_id == tenant_id).all()
     guest = None

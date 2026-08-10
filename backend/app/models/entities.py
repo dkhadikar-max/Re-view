@@ -478,7 +478,14 @@ class Reservation(Base):
 
 class Message(Base):
     __tablename__ = "messages"
-    __table_args__ = (Index("ix_msg_tenant_status", "tenant_id", "status"),)
+    __table_args__ = (
+        Index("ix_msg_tenant_status", "tenant_id", "status"),
+        # PILOT_READINESS.md §1 — supports the (tenant_id,
+        # provider_message_id) webhook-dedup lookup in
+        # `ingest_inbound_whatsapp`. Not unique: most rows legitimately
+        # have a NULL provider_message_id.
+        Index("ix_msg_tenant_provider_message_id", "tenant_id", "provider_message_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
