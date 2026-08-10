@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.base import SendResult
 from app.integrations.email_providers import get_email_client
+from app.integrations.translation import ENGLISH, TranslationError, translation_client
 from app.integrations.whatsapp import whatsapp_client
 from app.models.entities import Guest, Message, MessageChannel, MessageStatus, Property
 from app.services.concierge_router import concierge_router
@@ -178,29 +179,45 @@ def ingest_inbound_whatsapp(
         guest.upsell_acceptance = min(1.0, float(guest.upsell_acceptance or 0) + 0.1)
     db.flush()
 
+    # Translation Layer (TRANSLATION_LAYER.md) — inbound normalization,
+    # strictly before the Concierge pipeline ever runs. `message.body`
+    # above is never touched (constraint 4); this only ever produces a
+    # *new* value the Router is handed instead of `body`.
+    try:
+        detected_language = translation_client.detect_language(body)
+        message.detected_language = detected_language
+        if detected_language == ENGLISH:
+            normalized_body = body
+        else:
+            normalized_body = translation_client.translate(
+                body, source_language=detected_language, target_language=ENGLISH
+            )
+            message.normalized_text = normalized_body
+        db.flush()
+    except TranslationError:
+        # Constraint 7: a failure here must never reach the Router with a
+        # fabricated English interpretation. The guest's original message
+        # is already safely stored above (untouched) — only the pipeline
+        # run for *this turn* is skipped, same "log and move on" shape
+        # this function already uses for ContextBuilderError below.
+        logger.exception(
+            "Inbound translation failed for guest %s — Concierge Router not "
+            "invoked for this message (TRANSLATION_LAYER.md constraint 7)",
+            guest.id,
+        )
+        return message
+
     # Concierge Router (CONCIERGE.md §4/§4.1, roadmap step 7) — runs the
     # Escalation Filter first, then dispatches to exactly one of the four
-    # agents. Its `AgentResponse` isn't sent to the guest yet: that
-    # hand-off is the Conversation Manager's job (§5.5, not yet built —
-    # the very next roadmap step), which owns history/dedup/tone/
-    # throttling before anything goes out over WhatsApp. For now this
-    # call's only *visible* effect is the same one the Escalation Filter
-    # already had on its own before the Router existed: staff get
-    # notified when a human is needed (whether that's the Escalation
-    # Filter's own check, an agent's own should_escalate, or no agent
-    # recognizing the message at all — see concierge_router.py). A
-    # candidate reply an agent *could* give is logged, not sent, until
-    # the Conversation Manager exists to own that hand-off.
+    # agents, or hands off to the Conversation Manager if a PendingAction
+    # is already open. Always receives `normalized_body` (English), never
+    # the guest's original-language `body` — TRANSLATION_LAYER.md §0: the
+    # pipeline stays entirely language-agnostic and unaware translation
+    # exists at all.
     try:
-        response = concierge_router.route(db, tenant_id=tenant_id, guest_id=guest.id, message_body=body)
-        if response.handled and response.response:
-            logger.info(
-                "Concierge Router produced a candidate reply for guest %s via %s "
-                "(not yet sent — awaiting Conversation Manager): %s",
-                guest.id,
-                response.metadata.get("agent"),
-                response.response,
-            )
+        response = concierge_router.route(
+            db, tenant_id=tenant_id, guest_id=guest.id, message_body=normalized_body
+        )
     except ContextBuilderError:
         # A guest with a phone match but no resolvable Property (data
         # inconsistency) shouldn't block the inbound message itself from
@@ -208,6 +225,67 @@ def ingest_inbound_whatsapp(
         logger.exception(
             "Concierge Router could not build context for guest %s", guest.id
         )
+        return message
+
+    # Outbound delivery hookup (TRANSLATION_LAYER.md, CTO decision:
+    # "minimal and independently testable"). This is a mechanical check
+    # on `response.response` alone — it does not inspect `handled` or
+    # `should_escalate` to decide whether to send, matching every existing
+    # path through `concierge_router.route()` that already decides for
+    # itself whether there is guest-facing text at all (an escalation-
+    # only turn already returns `response=None`).
+    if response.response:
+        # `message.detected_language` is always set by this point — any
+        # inbound translation failure already returned above before the
+        # Router ever ran, so there's no "detection failed but we got
+        # this far" case to fall back from. `guest.language` (the
+        # guest's separately-declared preference) is deliberately NOT
+        # consulted here — TRANSLATION_LAYER.md §2 constraint 3 keeps
+        # the two concepts distinct, and per-property translation policy
+        # (which might one day prefer `guest.language`) is explicitly
+        # deferred (CTO decision, v1 scope).
+        target_language = message.detected_language or ENGLISH
+        outbound = Message(
+            tenant_id=tenant_id,
+            guest_id=guest.id,
+            channel=MessageChannel.whatsapp,
+            direction="outbound",
+            language=target_language,
+            subject="Concierge reply",
+            body=response.response,
+            status=MessageStatus.queued,
+            message_type="concierge_reply",
+        )
+        db.add(outbound)
+        db.flush()
+        if target_language != ENGLISH:
+            try:
+                outbound.body = translation_client.translate(
+                    response.response, source_language=ENGLISH, target_language=target_language
+                )
+                db.flush()
+            except TranslationError:
+                # Constraint 7: never send an untranslated English
+                # fallback dressed up as a fix, and never roll back the
+                # decision the pipeline already made and logged above —
+                # only delivery to the guest is affected. The existing
+                # failed-message state is the same operational signal any
+                # other delivery failure already produces.
+                logger.exception(
+                    "Outbound translation failed for guest %s — leaving the "
+                    "message undelivered rather than sending an "
+                    "untranslated fallback (TRANSLATION_LAYER.md "
+                    "constraint 7)",
+                    guest.id,
+                )
+                transition(outbound.status, MessageStatus.failed, MESSAGE_TRANSITIONS, "message")
+                outbound.status = MessageStatus.failed
+                db.flush()
+                return message
+        try:
+            deliver_message(db, outbound)
+        except Exception:  # noqa: BLE001 — deliver_message already logs/transitions internally
+            logger.exception("Failed delivering concierge reply to guest %s", guest.id)
 
     return message
 

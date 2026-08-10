@@ -488,9 +488,23 @@ class Message(Base):
     )
     channel: Mapped[MessageChannel] = mapped_column(Enum(MessageChannel))
     direction: Mapped[str] = mapped_column(String(16), default="outbound")
+    # Declared/preferred language (Guest.language, copied at creation) —
+    # NOT the same concept as `detected_language` below. TRANSLATION_LAYER.md
+    # §2 constraint 3 / the CTO's own distinction: this field predates the
+    # Translation Layer and must not be reused for it.
     language: Mapped[str] = mapped_column(String(32), default="en")
+    # Translation Layer (TRANSLATION_LAYER.md) — the language actually
+    # detected for THIS inbound message, independent of the guest's
+    # declared `language` above. Null for outbound messages and for any
+    # inbound message ingested before detection existed.
+    detected_language: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     subject: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     body: Mapped[str] = mapped_column(Text)
+    # Translation Layer — the internal English representation of `body`,
+    # populated only when `detected_language` is non-English (TRANSLATION_
+    # LAYER.md §3's no-op rule: an English message never gets a redundant
+    # copy here). `body` itself is NEVER overwritten — constraint 4.
+    normalized_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[MessageStatus] = mapped_column(
         Enum(MessageStatus), default=MessageStatus.draft
     )
