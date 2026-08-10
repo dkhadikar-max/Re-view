@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     allow_ephemeral_sqlite: bool = False
     # Set REQUIRE_DURABLE_STORAGE=true after Postgres is attached to refuse boot on SQLite
     require_durable_storage: bool = False
+    # PILOT_READINESS.md §3 — escape hatch for a deliberate non-guest-
+    # facing "production" deployment (e.g. internal staging under the
+    # production DB). Same convention as ALLOW_EPHEMERAL_SQLITE: an
+    # explicit, named opt-out, never a silent default.
+    allow_mock_mode_in_production: bool = False
     redis_url: str = "redis://127.0.0.1:6379/0"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
@@ -156,6 +161,39 @@ class Settings(BaseSettings):
                 "set DATABASE_URL to the Postgres URL, and redeploy. Temporary "
                 "escape hatch: ALLOW_EPHEMERAL_SQLITE=true (data will still be lost)."
             )
+        return self
+
+    @model_validator(mode="after")
+    def reject_mock_mode_in_production(self) -> "Settings":
+        """PILOT_READINESS.md §3 — mock mode must be impossible to
+        mistake for production readiness. A pilot/production deployment
+        silently running with AI/translation and WhatsApp still in mock
+        mode produces identical-looking success logs to a correctly
+        configured one: a non-English guest gets their own message
+        echoed back untranslated, and no WhatsApp send ever reaches a
+        real phone. This turns that into a loud startup failure instead
+        of a silent failure discovered only when a real guest messages
+        in. Deliberately does not check `whatsapp_app_secret` — its own
+        absence already fails closed today (`verify_signature` rejects
+        unsigned webhooks in production), a loud failure already, not a
+        silent one, so it isn't part of this specific guard.
+        """
+        if self.environment == "production" and not self.allow_mock_mode_in_production:
+            problems = []
+            if self.use_mock_ai:
+                problems.append("USE_MOCK_AI=true")
+            if not self.openai_api_key:
+                problems.append("OPENAI_API_KEY is not set")
+            if not self.whatsapp_access_token:
+                problems.append("WHATSAPP_ACCESS_TOKEN is not set")
+            if problems:
+                raise ValueError(
+                    "Refusing to start in production with mock mode still "
+                    "active (" + "; ".join(problems) + "). Set real "
+                    "credentials, or set ALLOW_MOCK_MODE_IN_PRODUCTION=true "
+                    "for a deliberate non-guest-facing production "
+                    "deployment. (PILOT_READINESS.md §3)"
+                )
         return self
 
     @property
