@@ -177,6 +177,18 @@ class Settings(BaseSettings):
         absence already fails closed today (`verify_signature` rejects
         unsigned webhooks in production), a loud failure already, not a
         silent one, so it isn't part of this specific guard.
+
+        WHATSAPP_PLATFORM_ARCHITECTURE.md §2 — the WhatsApp check below
+        is, and must remain, a PLATFORM-level check only:
+        `whatsapp_access_token` is one credential shared by every
+        tenant's number (ReVisit is the WhatsApp BSP layer, not a
+        pass-through for hotel-owned Meta Apps — see that doc for why).
+        It never inspects any `Property` row and must never be changed
+        to require one — a production deployment with zero properties
+        connected yet is a legitimate, boot-able state (a hotel just
+        hasn't onboarded a WhatsApp number yet); a production
+        deployment with no real platform-level WhatsApp integration at
+        all is not.
         """
         if self.environment == "production" and not self.allow_mock_mode_in_production:
             problems = []
@@ -192,7 +204,10 @@ class Settings(BaseSettings):
                     "active (" + "; ".join(problems) + "). Set real "
                     "credentials, or set ALLOW_MOCK_MODE_IN_PRODUCTION=true "
                     "for a deliberate non-guest-facing production "
-                    "deployment. (PILOT_READINESS.md §3)"
+                    "deployment. This checks the platform-level WhatsApp "
+                    "integration only — it does not require any Property "
+                    "to have connected a number yet. "
+                    "(PILOT_READINESS.md §3, WHATSAPP_PLATFORM_ARCHITECTURE.md §2)"
                 )
         return self
 

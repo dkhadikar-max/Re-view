@@ -52,6 +52,7 @@ from app.models.entities import (
     OfferStatus,
     Property,
     PropertyKnowledgeBase,
+    WhatsAppConnectionStatus,
     Reservation,
     ReservationStatus,
     Review,
@@ -553,6 +554,13 @@ def update_property(
     # Normalize "" to None — the unique index treats every NULL as
     # distinct but would reject two properties both stored as "".
     property_.whatsapp_phone_number_id = payload.whatsapp_phone_number_id or None
+    # WHATSAPP_PLATFORM_ARCHITECTURE.md §3 — connection status is kept
+    # in sync here, the only place whatsapp_phone_number_id is written.
+    property_.whatsapp_connection_status = (
+        WhatsAppConnectionStatus.connected
+        if property_.whatsapp_phone_number_id
+        else WhatsAppConnectionStatus.not_connected
+    )
     write_audit(
         db,
         tenant_id=user.tenant_id,

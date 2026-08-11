@@ -150,6 +150,18 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class WhatsAppConnectionStatus(str, enum.Enum):
+    """WHATSAPP_PLATFORM_ARCHITECTURE.md §3 — a property's connection
+    state is a first-class concept, not an implicit
+    `whatsapp_phone_number_id IS NOT NULL` inference. Deliberately just
+    two states for v1 (not a richer health-check state — token
+    validity, Meta-side disablement, etc. — that's "individual property
+    readiness", explicitly out of scope in the design doc)."""
+
+    not_connected = "not_connected"
+    connected = "connected"
+
+
 class Property(Base):
     __tablename__ = "properties"
 
@@ -173,6 +185,16 @@ class Property(Base):
     # of guessing from the guest's own phone number.
     whatsapp_phone_number_id: Mapped[Optional[str]] = mapped_column(
         String(64), nullable=True, unique=True
+    )
+    # WHATSAPP_PLATFORM_ARCHITECTURE.md §3 — kept in sync with
+    # `whatsapp_phone_number_id` (routes.py's property-settings
+    # endpoint): `connected` when a phone_number_id is set,
+    # `not_connected` otherwise. Never read by the go-live guard, which
+    # stays a platform-only check (Settings.whatsapp_access_token) —
+    # this field is for onboarding/operational visibility, not boot
+    # gating.
+    whatsapp_connection_status: Mapped[WhatsAppConnectionStatus] = mapped_column(
+        Enum(WhatsAppConnectionStatus), default=WhatsAppConnectionStatus.not_connected
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

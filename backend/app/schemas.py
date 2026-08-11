@@ -245,6 +245,10 @@ class PropertyOut(ORMModel):
     address: Optional[str] = None
     google_review_url: Optional[str] = None
     whatsapp_phone_number_id: Optional[str] = None
+    # WHATSAPP_PLATFORM_ARCHITECTURE.md §3 — kept in sync with
+    # whatsapp_phone_number_id by the update_property endpoint, not
+    # settable directly here.
+    whatsapp_connection_status: str = "not_connected"
 
 
 class PropertyUpdate(BaseModel):
