@@ -363,6 +363,10 @@ class ConversationManager:
             priority=TaskPriority.high,
             related_type="guest",
             related_id=context.guest.id,
+            # PILOT_READINESS.md §5 — same id as the OFFER_ACCEPTED/
+            # ORDER_CONFIRMED/TASK_CREATED events below, so staff
+            # completion (TASK_COMPLETED) can rejoin the same chain.
+            correlation_id=pending.correlation_id,
         )
         db.add(task)
         db.flush()

@@ -33,6 +33,8 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.entities import (
     AIDecision,
+    ActionEventStatus,
+    ActorType,
     Approval,
     ApprovalStatus,
     AuditLog,
@@ -137,6 +139,7 @@ from app.services.import_orchestrator import (
 )
 from app.services.menu_importer import menu_importer
 from app.services.messaging import deliver_message, process_due_messages
+from app.services.action_logger import action_logger
 from app.services.pdf_importer import pdf_importer
 from app.services.pilot_health import PilotHealthOut, pilot_health
 from app.services.state_machine import (
@@ -1281,7 +1284,40 @@ def complete_task(
     task = get_tenant_entity(
         db, Task, task_id, user.tenant_id, not_found="Task not found"
     )
+    # PILOT_READINESS.md §5 — `transition()` raises 409 for any task
+    # already `done` (TASK_TRANSITIONS[done] = set()), *before* anything
+    # below ever runs. That's what makes this idempotent: a repeated
+    # completion attempt never reaches the ActionEvent logging code, so
+    # it can never produce a second TASK_COMPLETED for the same Task.
     task.status = transition(task.status, TaskStatus.done, TASK_TRANSITIONS, "task")
+
+    # The evidence chain's last step — closes the gap PILOT_READINESS.md
+    # §5 found: completion used to update Task.status and stop there,
+    # leaving no ActionEvent record that a human ever did the work.
+    # Only emitted when this Task actually has a guest to attribute it
+    # to (ActionEvent.guest_id is required, non-nullable) — Tasks with
+    # no guest origin (negative-review follow-ups, onboarding Tasks)
+    # were never part of an ActionEvent chain to begin with and stay
+    # outside the Ledger, same as today. `action_logger.log_action`
+    # always INSERTs a new row; the ORDER_CONFIRMED/MEMORY_*/ESCALATED
+    # events this Task descended from are never read or touched.
+    if task.related_type == "guest" and task.related_id:
+        action_logger.log_action(
+            db,
+            tenant_id=user.tenant_id,
+            guest_id=task.related_id,
+            correlation_id=task.correlation_id,
+            intent="task_completion",
+            agent=None,
+            action_type="TASK_COMPLETED",
+            actor=ActorType.staff,
+            confidence=None,
+            input_summary=f"Staff completed task: {task.title}",
+            decision=f"Task {task.id} marked done by {user.email}.",
+            status=ActionEventStatus.completed,
+            metadata={"task_id": task.id, "completed_by": user.email},
+        )
+
     db.commit()
     return {"ok": True}
 

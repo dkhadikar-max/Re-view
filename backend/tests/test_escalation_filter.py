@@ -170,13 +170,20 @@ def test_escalate_to_staff_creates_critical_priority_task_and_audit_entry(db_ses
     decision = evaluate_escalation("I need an ambulance", context)
 
     task = escalate_to_staff(
-        db, context=context, message_body="I need an ambulance", decision=decision
+        db,
+        context=context,
+        message_body="I need an ambulance",
+        decision=decision,
+        correlation_id="corr-escalation-test",
     )
 
     assert task.priority.value == "critical"
     assert task.related_type == "guest"
     assert task.related_id == "guest-9"
     assert "emergency" in task.title.lower()
+    # PILOT_READINESS.md §5 — the caller-generated correlation_id is
+    # stored on the Task verbatim, ready for TASK_COMPLETED to reuse.
+    assert task.correlation_id == "corr-escalation-test"
 
     audit_entries = db.query(AuditLog).filter(AuditLog.tenant_id == "hotel-y").all()
     assert len(audit_entries) == 1

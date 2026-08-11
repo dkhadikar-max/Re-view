@@ -105,7 +105,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import ActionEvent, ActionEventStatus, ActorType
+from app.models.entities import ActionEvent, ActionEventStatus, ActorType, uid
 from app.services.action_logger import action_logger
 from app.services.agent_protocol import AgentResponse
 from app.services.context_builder import ConciergeContext, ContextBuilder
@@ -329,7 +329,18 @@ class ConciergeRouter:
 
         decision = evaluate_escalation(message_body, context)
         if decision.escalate:
-            escalate_to_staff(db, context=context, message_body=message_body, decision=decision)
+            # PILOT_READINESS.md §5 — generated before the Task exists so
+            # the same id can be reused for both the Task and the
+            # ESCALATED ActionEvent below (escalate_to_staff needs it
+            # first; the event never mutates the Task, only shares its id).
+            correlation_id = uid()
+            escalate_to_staff(
+                db,
+                context=context,
+                message_body=message_body,
+                decision=decision,
+                correlation_id=correlation_id,
+            )
             category = decision.category.value if decision.category else "safety"
             self._log(
                 db,
@@ -343,6 +354,7 @@ class ConciergeRouter:
                 input_summary=f"Guest message matched a {category} escalation pattern.",
                 decision_text=decision.reason,
                 output_summary=None,
+                correlation_id=correlation_id,
             )
             return AgentResponse(
                 handled=True,
@@ -442,6 +454,7 @@ class ConciergeRouter:
 
         if response.should_escalate:
             reason = _AGENT_COULD_NOT_HELP_REASON.format(agent=agent_name or "agent")
+            correlation_id = uid()
             escalate_to_staff(
                 db,
                 context=context,
@@ -452,6 +465,7 @@ class ConciergeRouter:
                     reason=reason,
                     confidence=intent_decision.confidence,
                 ),
+                correlation_id=correlation_id,
             )
             self._log(
                 db,
@@ -466,6 +480,7 @@ class ConciergeRouter:
                 input_summary=input_summary,
                 decision_text=decision_text,
                 output_summary=output_summary,
+                correlation_id=correlation_id,
             )
             return response
 
@@ -563,6 +578,7 @@ class ConciergeRouter:
         # to act on what was actually said. `input_summary` below is a
         # different consumer (the Action Ledger) with a different need
         # (never a raw transcript) — the two must not be conflated.
+        correlation_id = uid()
         escalate_to_staff(
             db,
             context=context,
@@ -573,6 +589,7 @@ class ConciergeRouter:
                 reason=reason,
                 confidence=intent_decision.confidence,
             ),
+            correlation_id=correlation_id,
         )
         agent_name = existing_response.metadata.get("agent") if existing_response else None
         self._log(
@@ -587,6 +604,7 @@ class ConciergeRouter:
             input_summary=input_summary,
             decision_text=reason,
             output_summary=None,
+            correlation_id=correlation_id,
         )
         base = existing_response or AgentResponse(handled=False, response=None)
         return base.model_copy(
@@ -613,6 +631,7 @@ class ConciergeRouter:
         decision_text: str,
         output_summary: Optional[str],
         metadata: Optional[dict] = None,
+        correlation_id: Optional[str] = None,
     ) -> ActionEvent:
         """One `ActionEvent` per `route()` call — see this module's own
         docstring and `action_logger.py`. `input_summary`/`decision_text`/
@@ -629,6 +648,12 @@ class ConciergeRouter:
         and a shared default would hide that distinction instead of
         forcing every new call site to state it.
 
+        `correlation_id` is left to `action_logger.log_action`'s own
+        default (a fresh id) unless a caller passes one through —
+        PILOT_READINESS.md §5's escalation call sites do, so the
+        ESCALATED event shares an id with the Task `escalate_to_staff`
+        already created with that same id.
+
         Returns the created event so a caller (today, just the agent
         success branch below) can hand it to `ConversationManager` —
         the Router itself never reads it back.
@@ -639,6 +664,7 @@ class ConciergeRouter:
             guest_id=context.guest.id,
             reservation_id=context.reservation.id if context.reservation else None,
             conversation_id=context.channel.conversation_id,
+            correlation_id=correlation_id,
             intent=intent,
             agent=agent,
             action_type=action_type,
