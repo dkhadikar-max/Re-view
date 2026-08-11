@@ -138,6 +138,7 @@ from app.services.import_orchestrator import (
 from app.services.menu_importer import menu_importer
 from app.services.messaging import deliver_message, process_due_messages
 from app.services.pdf_importer import pdf_importer
+from app.services.pilot_health import PilotHealthOut, pilot_health
 from app.services.state_machine import (
     APPROVAL_TRANSITIONS,
     MESSAGE_TRANSITIONS,
@@ -1283,6 +1284,20 @@ def complete_task(
     task.status = transition(task.status, TaskStatus.done, TASK_TRANSITIONS, "task")
     db.commit()
     return {"ok": True}
+
+
+@router.get("/pilot-health", response_model=PilotHealthOut)
+def get_pilot_health(
+    user: AuthUser,
+    hours: Annotated[int, Query(ge=1, le=168)] = 24,
+    db: Session = Depends(get_db),
+) -> PilotHealthOut:
+    """PILOT_READINESS.md §4 — operational visibility for a hotel operator:
+    inbound processing failures, translation failures, outbound delivery
+    failures (active/exhausted), duplicate webhooks, and stale open Tasks
+    over the trailing `hours` window (default 24, capped at a week).
+    """
+    return pilot_health(db, tenant_id=user.tenant_id, hours=hours)
 
 
 @router.get("/events", response_model=list[EventOut])

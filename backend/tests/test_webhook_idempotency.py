@@ -175,3 +175,38 @@ def test_dedup_is_tenant_scoped(db_session):
 
     assert msg_a.id != msg_b.id
     assert db.query(Message).filter(Message.provider_message_id == "wamid.SHARED").count() == 2
+
+
+def test_replayed_webhook_increments_duplicate_webhook_count(db_session):
+    """PILOT_READINESS.md §4 — a duplicate delivery is handled correctly
+    (no reprocessing), but it must still be visible to an operator via
+    Message.duplicate_webhook_count, recorded on the original row."""
+    db = db_session
+    guest = _make_guest(db, tenant_id="hotel-dupcount", phone="+15557770000")
+
+    first = ingest_inbound_whatsapp(
+        db,
+        tenant_id="hotel-dupcount",
+        from_phone=guest.phone,
+        body="What time is breakfast?",
+        provider_message_id="wamid.COUNT1",
+    )
+    assert first.duplicate_webhook_count == 0
+
+    second = ingest_inbound_whatsapp(
+        db,
+        tenant_id="hotel-dupcount",
+        from_phone=guest.phone,
+        body="What time is breakfast?",
+        provider_message_id="wamid.COUNT1",
+    )
+    assert second.duplicate_webhook_count == 1
+
+    third = ingest_inbound_whatsapp(
+        db,
+        tenant_id="hotel-dupcount",
+        from_phone=guest.phone,
+        body="What time is breakfast?",
+        provider_message_id="wamid.COUNT1",
+    )
+    assert third.duplicate_webhook_count == 2

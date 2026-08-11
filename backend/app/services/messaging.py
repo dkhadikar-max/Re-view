@@ -178,6 +178,13 @@ def ingest_inbound_whatsapp(
                 provider_message_id,
                 existing.id,
             )
+            # PILOT_READINESS.md §4 — recorded on the pre-existing row,
+            # never on a new one (there is no new one; that's the point
+            # of this short-circuit). The system already handles this
+            # correctly; a spike is still worth an operator knowing
+            # about (usually a Meta-side delivery problem).
+            existing.duplicate_webhook_count += 1
+            db.flush()
             return existing
 
     phone_digits = "".join(ch for ch in from_phone if ch.isdigit())
@@ -244,6 +251,12 @@ def ingest_inbound_whatsapp(
             "invoked for this message (TRANSLATION_LAYER.md constraint 7)",
             guest.id,
         )
+        # PILOT_READINESS.md §4 — an operator needs to be able to discover
+        # this without reading logs; the guest's message itself is still
+        # safely stored (see above), only the pipeline run is skipped.
+        message.processing_failed = True
+        message.failure_reason = "translation_error"
+        db.flush()
         return message
 
     # Concierge Router (CONCIERGE.md §4/§4.1, roadmap step 7) — runs the
@@ -264,6 +277,11 @@ def ingest_inbound_whatsapp(
         logger.exception(
             "Concierge Router could not build context for guest %s", guest.id
         )
+        # PILOT_READINESS.md §4 — same operator-visibility reasoning as the
+        # TranslationError branch above.
+        message.processing_failed = True
+        message.failure_reason = "context_builder_error"
+        db.flush()
         return message
 
     # Outbound delivery hookup (TRANSLATION_LAYER.md, CTO decision:
@@ -319,6 +337,11 @@ def ingest_inbound_whatsapp(
                 )
                 transition(outbound.status, MessageStatus.failed, MESSAGE_TRANSITIONS, "message")
                 outbound.status = MessageStatus.failed
+                # PILOT_READINESS.md §4 — distinguishes this from a generic
+                # WhatsApp/API delivery failure so an operator (and
+                # pilot_health's translation_failures count) can tell the
+                # two apart.
+                outbound.failure_reason = "outbound_translation_error"
                 db.flush()
                 return message
         try:

@@ -375,6 +375,9 @@ def test_inbound_translation_failure_skips_router_and_preserves_original_message
     # failure must never be silently reinterpreted as "nothing urgent."
     assert db.query(ActionEvent).filter(ActionEvent.tenant_id == "hotel-failin").count() == 0
     assert db.query(Task).filter(Task.tenant_id == "hotel-failin").count() == 0
+    # PILOT_READINESS.md §4 — must be discoverable without reading logs.
+    assert message.processing_failed is True
+    assert message.failure_reason == "translation_error"
 
 
 def test_inbound_normalization_failure_when_detection_succeeds_but_translate_fails(
@@ -403,6 +406,8 @@ def test_inbound_normalization_failure_when_detection_succeeds_but_translate_fai
     assert message.normalized_text is None
     assert db.query(ActionEvent).filter(ActionEvent.tenant_id == "hotel-failin2").count() == 0
     assert db.query(Task).filter(Task.tenant_id == "hotel-failin2").count() == 0
+    assert message.processing_failed is True
+    assert message.failure_reason == "translation_error"
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +455,49 @@ def test_outbound_translation_failure_never_sends_untranslated_fallback(
     # Never silently sent the untranslated English text as a "fix".
     assert sent.status == MessageStatus.failed
     assert "7-10am" in sent.body
+    # PILOT_READINESS.md §4 — distinguishable from a generic delivery
+    # failure so pilot_health's translation_failures count is accurate.
+    assert sent.failure_reason == "outbound_translation_error"
+    # The inbound message itself processed fine — only outbound delivery
+    # failed, so the inbound row must not be flagged.
+    assert reply.processing_failed is False
+
+
+# ---------------------------------------------------------------------------
+# Context Builder failure — PILOT_READINESS.md §4
+# ---------------------------------------------------------------------------
+
+
+def test_context_builder_failure_marks_message_processing_failed(db_session, stub_translation):
+    """A guest whose Property reference is inconsistent (data integrity
+    gap, not a translation problem) trips ContextBuilderError inside the
+    Router dispatch — the message must still be marked processing_failed
+    with a distinct reason so it's not confused with a translation
+    failure."""
+    db = db_session
+    tenant_id = "hotel-ctxfail"
+    db.add(Tenant(id=tenant_id, name=tenant_id))
+    db.flush()
+    # No Property row created for this tenant at all — guest.property_id
+    # points at nothing, the exact data-inconsistency case ContextBuilder
+    # guards against (context_builder.py line ~402).
+    guest = Guest(
+        tenant_id=tenant_id,
+        property_id="no-such-property",
+        name="Guest",
+        phone="+15550009900",
+        language="en",
+    )
+    db.add(guest)
+    db.flush()
+
+    message = ingest_inbound_whatsapp(
+        db, tenant_id=tenant_id, from_phone=guest.phone, body="What time is breakfast?"
+    )
+
+    assert message is not None
+    assert message.processing_failed is True
+    assert message.failure_reason == "context_builder_error"
 
 
 # ---------------------------------------------------------------------------
