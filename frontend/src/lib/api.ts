@@ -578,6 +578,9 @@ export type Property = {
   address?: string | null;
   google_review_url?: string | null;
   whatsapp_phone_number_id?: string | null;
+  // WHATSAPP_PLATFORM_ARCHITECTURE.md §3 — server-derived, kept in sync
+  // with whatsapp_phone_number_id; not settable directly.
+  whatsapp_connection_status?: "not_connected" | "connected";
 };
 
 export type PropertyUpdate = {
