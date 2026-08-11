@@ -525,6 +525,26 @@ class Message(Base):
     # message is left alone — queryable as an exhausted, needs-attention
     # delivery, not silently retried forever.
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    # PILOT_READINESS.md §4 — operational visibility fields, queried by
+    # pilot_health.py. Never read by the Concierge pipeline itself; this
+    # is purely a monitoring surface, same "write-only observer" role
+    # the Action Ledger already has (concierge_router.py's own docstring).
+    #
+    # Set on an INBOUND message when a TranslationError/ContextBuilderError
+    # caused the Concierge Router to be skipped for that turn (messaging.py).
+    processing_failed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # A short, closed-vocabulary reason string -- "translation_error",
+    # "context_builder_error" (inbound), or "outbound_translation_error"
+    # (outbound leg) -- distinguishing a translation-specific failure
+    # from an ordinary WhatsApp delivery/API failure (which leaves this
+    # None; deliver_message's own generic exception handling already
+    # covers that case without needing a reason).
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Incremented (never on the new row -- on the pre-existing one
+    # returned instead) each time PILOT_READINESS.md §1's dedup check
+    # short-circuits a replayed webhook. The system already handles
+    # these correctly; a spike is still worth an operator knowing about.
+    duplicate_webhook_count: Mapped[int] = mapped_column(Integer, default=0)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
