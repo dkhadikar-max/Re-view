@@ -935,7 +935,13 @@ class Campaign(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
-    __table_args__ = (Index("ix_task_tenant_status", "tenant_id", "status"),)
+    __table_args__ = (
+        Index("ix_task_tenant_status", "tenant_id", "status"),
+        # PILOT_READINESS.md §5 — supports the correlation_id lookup
+        # `complete_task` needs to tie a staff completion back to the
+        # ActionEvent chain that created this Task.
+        Index("ix_task_correlation_id", "correlation_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
@@ -948,6 +954,16 @@ class Task(Base):
     related_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     related_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     assignee: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # PILOT_READINESS.md §5 — the `ActionEvent.correlation_id` shared by
+    # the chain that created this Task (e.g. OFFER_PROPOSED ->
+    # OFFER_ACCEPTED -> TASK_CREATED, or MEMORY_PROPOSED -> MEMORY_HELD,
+    # or the ESCALATED event itself). `complete_task` reuses it verbatim
+    # for TASK_COMPLETED so the whole lifecycle stays one traceable
+    # chain. Nullable only for Tasks with no ActionEvent origin at all
+    # (negative-review follow-ups from `ai_orchestrator.py`, onboarding
+    # Tasks from `hotel_signup.py`/seed data) — those never had a chain
+    # to correlate with in the first place.
+    correlation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 

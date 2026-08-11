@@ -225,6 +225,10 @@ class MemoryManager:
             priority=TaskPriority.medium,
             related_type="guest",
             related_id=guest.id,
+            # PILOT_READINESS.md §5 — same id as the MEMORY_PROPOSED/
+            # MEMORY_HELD events, so staff completion (TASK_COMPLETED)
+            # rejoins the same chain.
+            correlation_id=event.correlation_id,
         )
         db.add(task)
         db.flush()

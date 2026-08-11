@@ -31,7 +31,15 @@ from app.models.entities import User  # noqa: E402
 
 
 @pytest.fixture()
-def client():
+def db_engine():
+    """The engine+sessionmaker backing `client` — factored out so `db`
+    (below) can hand tests a session against the exact same database
+    `client`'s HTTP requests read/write, rather than an isolated
+    in-memory sqlite of its own. Needed for tests that set up state via
+    a service function directly (matching every other test in this
+    suite) and then exercise an endpoint through the real API boundary
+    (PILOT_READINESS.md §5 check 8) against that same state.
+    """
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -43,6 +51,13 @@ def client():
     db = TestingSessionLocal()
     seed_database(db)
     db.close()
+    yield engine, TestingSessionLocal
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture()
+def client(db_engine):
+    engine, TestingSessionLocal = db_engine
 
     def _get_db():
         session = TestingSessionLocal()
@@ -55,7 +70,23 @@ def client():
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture()
+def db(db_engine):
+    """A session against `client`'s own database — same `engine`
+    (StaticPool: one shared connection), so a commit made here is
+    immediately visible to `client`'s next HTTP request and vice versa.
+    Requesting both `client` and `db` in the same test reuses one
+    `db_engine` instance (function-scoped fixture caching), not two
+    separate databases.
+    """
+    _, TestingSessionLocal = db_engine
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture()
