@@ -50,7 +50,7 @@ export default function ImportHistoryPage() {
         title="Import History"
         subtitle="Every import, where it came from, and what happened."
         action={
-          <Link href="/import">
+          <Link href="/app/import">
             <Button variant="secondary">New import</Button>
           </Link>
         }

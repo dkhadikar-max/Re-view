@@ -26,18 +26,18 @@ import { setToken, type User } from "@/lib/api";
 import { ARGUS, REVISIT } from "@/lib/brand";
 
 const nav = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/guests", label: "Guests", icon: Users },
-  { href: "/reservations", label: "Reservations", icon: CalendarDays },
-  { href: "/import", label: "Import", icon: Upload },
-  { href: "/messages", label: "Messages", icon: MessageSquare },
-  { href: "/reviews", label: "Reviews", icon: Star },
-  { href: "/approvals", label: "Approvals", icon: CheckSquare },
-  { href: "/revenue", label: "Revenue", icon: TrendingUp },
-  { href: "/intelligence", label: "Insights", icon: Sparkles },
-  { href: "/celebrate", label: "Rewards", icon: Gift },
-  { href: "/tasks", label: "Tasks", icon: ListTodo },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/guests", label: "Guests", icon: Users },
+  { href: "/app/reservations", label: "Reservations", icon: CalendarDays },
+  { href: "/app/import", label: "Import", icon: Upload },
+  { href: "/app/messages", label: "Messages", icon: MessageSquare },
+  { href: "/app/reviews", label: "Reviews", icon: Star },
+  { href: "/app/approvals", label: "Approvals", icon: CheckSquare },
+  { href: "/app/revenue", label: "Revenue", icon: TrendingUp },
+  { href: "/app/intelligence", label: "Insights", icon: Sparkles },
+  { href: "/app/celebrate", label: "Rewards", icon: Gift },
+  { href: "/app/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar({
@@ -84,8 +84,8 @@ export function Sidebar({
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4" aria-label="Main">
         {items.map((item) => {
           const active =
-            item.href === "/"
-              ? pathname === "/"
+            item.href === "/app"
+              ? pathname === "/app"
               : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (

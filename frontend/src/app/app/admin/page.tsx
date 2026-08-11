@@ -146,7 +146,7 @@ export default function PlatformAdminPage() {
         >
           {error}
         </div>
-        <Button variant="secondary" onClick={() => router.replace("/")}>
+        <Button variant="secondary" onClick={() => router.replace("/app")}>
           Back to Dashboard
         </Button>
       </div>

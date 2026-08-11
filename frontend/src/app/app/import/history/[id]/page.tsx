@@ -65,7 +65,7 @@ export default function ImportDetailsPage() {
         title={session.filename || "Import details"}
         subtitle={`${session.source} · ${importStatusLabel(session.status)}`}
         action={
-          <Link href="/import/history">
+          <Link href="/app/import/history">
             <Button variant="ghost">← All imports</Button>
           </Link>
         }
@@ -115,7 +115,7 @@ export default function ImportDetailsPage() {
               Download error report
             </Button>
           )}
-          <Link href="/reservations">
+          <Link href="/app/reservations">
             <Button variant="secondary">View imported reservations →</Button>
           </Link>
         </div>

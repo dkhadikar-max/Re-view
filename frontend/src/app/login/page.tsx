@@ -8,7 +8,7 @@ import { Button } from "@/components/ui";
 import { ARGUS, REVISIT } from "@/lib/brand";
 
 function safeNext(raw: string | null): string {
-  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/app";
 }
 
 function LoginForm() {

@@ -26,6 +26,21 @@ body {
   }
 }
 
+/* Respect the guest/operator's OS-level motion preference. Site-wide:
+   entrance/scroll animations collapse to an instant, non-animated state
+   rather than being removed outright, so layout never depends on an
+   animation having run. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

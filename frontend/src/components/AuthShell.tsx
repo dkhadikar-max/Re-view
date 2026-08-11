@@ -13,13 +13,16 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
   const [ready, setReady] = useState(false);
-  const isPublic =
-    pathname === "/login" ||
-    pathname === "/onboard" ||
-    (pathname.startsWith("/celebrate/") && pathname !== "/celebrate");
+  // Only /app and its subpaths are the authenticated hotel application.
+  // Everything else (public marketing site, /login, /onboard, guest-facing
+  // /celebrate/:token pages, and any future public route) renders directly,
+  // with no api.me() call and no Sidebar/WorkspaceProvider wrap. This is
+  // an allowlist of what's PROTECTED, not what's public, so adding a new
+  // public page never requires touching this file.
+  const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
 
   useEffect(() => {
-    if (isPublic) {
+    if (!isAppRoute) {
       setReady(true);
       return;
     }
@@ -44,16 +47,17 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       .catch(() => {
         if (cancelled) return;
         setToken(null);
-        const next =
-          pathname && pathname !== "/login" && pathname !== "/onboard"
-            ? `?next=${encodeURIComponent(pathname)}`
-            : "";
+        const next = pathname ? `?next=${encodeURIComponent(pathname)}` : "";
         router.replace(`/login${next}`);
       });
     return () => {
       cancelled = true;
     };
-  }, [isPublic, router, pathname]);
+  }, [isAppRoute, router, pathname]);
+
+  if (!isAppRoute) {
+    return <>{children}</>;
+  }
 
   if (!ready) {
     return (
@@ -61,10 +65,6 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         Loading…
       </div>
     );
-  }
-
-  if (isPublic) {
-    return <>{children}</>;
   }
 
   return (
