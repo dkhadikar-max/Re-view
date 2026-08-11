@@ -68,6 +68,11 @@ def test_production_allows_sqlite_with_escape_hatch():
             "ALLOW_EPHEMERAL_SQLITE",
             "REQUIRE_DURABLE_STORAGE",
             "JWT_SECRET",
+            # PILOT_READINESS.md §3 — this test is only about the sqlite
+            # escape hatch, not the (separate, orthogonal) mock-mode
+            # go-live guard, so it uses that guard's own escape hatch
+            # rather than faking real credentials.
+            "ALLOW_MOCK_MODE_IN_PRODUCTION",
         )
     }
     try:
@@ -76,6 +81,7 @@ def test_production_allows_sqlite_with_escape_hatch():
         os.environ["ALLOW_EPHEMERAL_SQLITE"] = "true"
         os.environ["REQUIRE_DURABLE_STORAGE"] = "true"
         os.environ["JWT_SECRET"] = "test-secret-key-at-least-32-characters-long"
+        os.environ["ALLOW_MOCK_MODE_IN_PRODUCTION"] = "true"
         from app.core.config import Settings
 
         s = Settings()
