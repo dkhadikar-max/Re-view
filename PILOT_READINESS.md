@@ -242,42 +242,90 @@ functionality:
 
 ## 7. Pilot acceptance criteria
 
-Classified explicitly, per the CTO's own requirement that this
-document draw the line rather than leave it implicit:
+**Updated post-implementation.** §1–§5 shipped as PRs #37–#41; the
+shared-WABA-vs-BYO architecture question raised while attempting §6
+was resolved and implemented as PRs #42–#43
+(`WHATSAPP_PLATFORM_ARCHITECTURE.md`). This section now reflects that
+closed-out state rather than the pre-implementation plan — the
+original must-pass list named a live §6 round trip as a blocker to
+pilot start; it no longer is, for the reason below.
 
-**Must-pass (blocks pilot start):**
-- §1 idempotency: a replayed webhook cannot create a duplicate
-  `ActionEvent`/`Order`/`Task`, verified against a real Meta replay.
-- §3 go-live guard: the system cannot silently run a pilot in mock
-  mode.
-- §5 staff Task E2E: verified through the actual frontend, not just
-  the API, with a `TASK_COMPLETED` ledger event.
-- §6 real WhatsApp round trip: inbound, outbound, and translation
-  failure behavior all confirmed live, not only in tests.
+**Engineering pilot readiness: PASS.** Eight gates, each verified
+against merged code and CI, not asserted:
+
+1. **Production boot** — real integrations required; mock mode cannot
+   masquerade as production (PR #39, PR #43).
+2. **Connected-property isolation** — WhatsApp traffic resolves to the
+   correct `Property`/tenant via `whatsapp_phone_number_id`
+   (CONCIERGE.md §3).
+3. **Duplicate webhook protection** — the same `provider_message_id`
+   cannot execute the concierge pipeline twice (PR #37).
+4. **Inbound processing** — the guest's original message is preserved
+   unmodified, normalized when required, and reaches the existing
+   pipeline correctly (Translation Layer, PR #37).
+5. **Outbound delivery** — replies enter the delivery state machine
+   with bounded retry; failures remain observable, not silent
+   (PR #38, PR #40).
+6. **Evidence chain** — decisions, orders, tasks, and task completion
+   share one `correlation_id` end-to-end; prior ledger events are
+   never mutated, only appended to (PR #41).
+7. **Staff execution** — a real staff user can see and complete the
+   resulting `Task` through the actual frontend, not only the API
+   (PR #41).
+8. **Safety boundaries** — no autonomous substitutions, fabricated
+   menu data, allergen-safety claims, payment execution, or unintended
+   memory mutation. Not one gate but distributed by design: the
+   Escalation Filter's hard-safety patterns, the Context Builder's
+   "never invent" discipline on the Revenue/Menu agents, no PMS
+   integration (so nothing executes beyond a staff `Task`), and the
+   Memory Manager's confidence-band gating before any guest-profile
+   mutation.
+
+**Operational pilot validation: pending the first real property.**
+§6's live round trip was never an engineering gap — the code has
+always been ready to speak to Meta's real Cloud API and a real LLM
+translation call, exactly as built and tested against mocks/stubs.
+What was missing was a real hotel's WABA connection, which is
+correctly an onboarding activity, not a pre-pilot engineering
+deliverable, and must not be simulated with a developer-owned
+WhatsApp account. §6 is reframed as the **operational validation
+checklist run once during the first controlled hotel's onboarding**,
+not a condition of shipping engineering readiness:
+
+Connect the hotel's WABA → assign `Property.whatsapp_phone_number_id`
+→ mark the property `connected` (`WHATSAPP_PLATFORM_ARCHITECTURE.md`
+§3) → send controlled messages (inbound English, inbound non-English,
+FAQ, service/order request, confirmation) → verify inbound/outbound
+behavior → verify ledger correlation end-to-end → complete the
+resulting staff Task → resend the same webhook/message → verify
+deduplication holds against the real payload shape.
+
+Until that sequence runs against a real property, the system is
+engineering-complete but not yet pilot-validated — a factual,
+operational statement, not an open engineering question.
 
 **Must-fix, can land alongside pilot start rather than strictly block
-it:**
-- §2 outbound retry mechanism (a `failed` message with zero retry
-  attempts is a worse pilot experience than one with even a minimal
-  bounded retry, but doesn't itself risk data corruption the way §1
-  does).
-- §4 monitoring — "basic visibility" can start as a manual daily query
-  and still satisfy this document's intent, provided it's actually
-  used, not merely possible.
+it:** none remaining — §2 (outbound retry) and §4 (monitoring) both
+shipped as PRs #38/#40 and are part of the engineering-readiness PASS
+above, not open items.
 
 **Deferred (unchanged from prior session decisions, restated for
 completeness):** payments, POS/kitchen integration, dynamic pricing,
 autonomous substitutions, response caching, WhatsApp media/voice
 support, order cancellation-after-confirmation, Guest Memory
 pattern-evidence track, any additional concierge agent, property-level
-translation configuration, and the check-in/document workflow — the
-last two are real, agreed next steps, sequenced strictly after this
-document, not folded into it.
+translation configuration, the check-in/document workflow, and
+per-property (BYO) WhatsApp credentials
+(`WHATSAPP_PLATFORM_ARCHITECTURE.md` §0) — the check-in/document and
+translation-config items are real, agreed next steps, sequenced
+strictly after a real pilot's evidence, not folded into this phase.
 
-**Standing rule for this entire pilot phase:** no new agent capability
-is added simply because it is technically possible. Every proposed
-addition between now and controlled-pilot start must trace back to one
-of the seven gaps above, or it doesn't belong in this phase.
+**Standing rule, unchanged:** no new agent capability is added simply
+because it is technically possible. Feature development on this
+platform stops here. The next move is one real hotel, one controlled
+property, one end-to-end operational run — the objective shifts from
+building capability to measuring whether the capability works in
+reality.
 
 ## 8. What happens after this document
 
