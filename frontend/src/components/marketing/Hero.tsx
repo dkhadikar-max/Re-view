@@ -43,13 +43,12 @@ export function Hero() {
         <img ref={imgRef} src="/images/marketing/arrival.jpg" alt="" />
         <div className="rv-grade-dusk" />
         <div className="rv-vignette" />
-        <svg className="rv-grain" width="100%" height="100%">
-          <filter id="rv-grain-hero">
-            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves={3} stitchTiles="stitch" />
-            <feColorMatrix type="saturate" values="0" />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#rv-grain-hero)" opacity="0.05" />
-        </svg>
+        {/* Was a full-viewport SVG feTurbulence filter -- recomputed
+            on every repaint, a real GPU/rendering cost for a static
+            grain effect. Same visual treatment now comes from a
+            precomputed, tiled noise PNG (marketing.css's .rv-grain) --
+            see PERF_PATCH_PUBLIC_SITE.md. */}
+        <div className="rv-grain" />
       </div>
 
       <div className="rv-copy">
