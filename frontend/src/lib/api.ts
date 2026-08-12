@@ -263,6 +263,27 @@ export type Guest = {
   revenue_timeline?: GuestTimelineEvent[];
 };
 
+// Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md) — the operator Evidence
+// Chain's data source: what ReVisit currently remembers about this
+// guest, and where it came from. `confirmed` is always true in v1 —
+// there is no inferred-memory engine yet (kept as an explicit field
+// so a future evidence source can set it false without every caller
+// needing to relearn what "confirmed" means). `evidence_quote` is
+// null whenever the underlying Message can't be resolved (an older
+// memory logged before provenance existed, or a dangling reference) —
+// the UI must degrade to "no quote available", never fabricate one.
+export type MemoryEvidence = {
+  field: string;
+  field_label: string;
+  value: string;
+  confirmed: boolean;
+  evidence_quote?: string | null;
+  evidence_channel?: string | null;
+  evidence_date?: string | null;
+  insight: string;
+  hotel_intelligence: string;
+};
+
 export type Reservation = {
   id: string;
   guest_id: string;
@@ -690,6 +711,8 @@ export const api = {
   guest: (id: string) => request<Guest>(`/api/guests/${id}`),
   guestOpportunities: () =>
     request<GuestOpportunity[]>("/api/guests/opportunities"),
+  guestMemoryEvidence: (guestId: string) =>
+    request<MemoryEvidence[]>(`/api/guests/${guestId}/memory-evidence`),
   hotelSignup: (payload: {
     hotel_name: string;
     your_name: string;

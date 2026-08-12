@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Search, Sparkles } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Empty, Panel } from "@/components/ui";
+import { EvidenceChain } from "@/components/EvidenceChain";
 import {
   api,
   type Guest,
   type GuestOpportunity,
+  type MemoryEvidence,
 } from "@/lib/api";
 import { useMoney } from "@/components/WorkspaceProvider";
 import { REVISIT } from "@/lib/brand";
@@ -56,6 +58,8 @@ export default function GuestsPage() {
   const [opportunities, setOpportunities] = useState<GuestOpportunity[]>([]);
   const [selected, setSelected] = useState<Guest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [evidence, setEvidence] = useState<MemoryEvidence[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [minSpend, setMinSpend] = useState("");
@@ -105,6 +109,29 @@ export default function GuestsPage() {
     }, 200);
     return () => clearTimeout(t);
   }, [load]);
+
+  useEffect(() => {
+    if (!selected) {
+      setEvidence([]);
+      return;
+    }
+    let cancelled = false;
+    setEvidenceLoading(true);
+    api
+      .guestMemoryEvidence(selected.id)
+      .then((rows) => {
+        if (!cancelled) setEvidence(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setEvidence([]);
+      })
+      .finally(() => {
+        if (!cancelled) setEvidenceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
   function selectOpportunity(opp: GuestOpportunity) {
     const match = guests.find((g) => g.id === opp.guest_id);
@@ -455,25 +482,12 @@ export default function GuestsPage() {
               </div>
             </div>
 
-            {/* Remembers */}
-            <div className="rounded-2xl border border-ink-200/60 bg-white/70 p-5 backdrop-blur">
-              <h3 className="font-display text-lg text-ink-900">Remembers</h3>
-              {(selected.remembers || []).length === 0 ? (
-                <p className="mt-2 text-sm text-ink-400">No preferences captured yet</p>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {selected.remembers!.map((item) => (
-                    <li
-                      key={item}
-                      className="flex items-center gap-2 text-sm text-ink-800"
-                    >
-                      <Check className="h-3.5 w-3.5 shrink-0 text-sea-600" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            {/* Evidence Chain — Phase 4A, GUEST_MEMORY_EVIDENCE_CHAIN.md */}
+            <EvidenceChain
+              guestName={selected.name}
+              evidence={evidence}
+              loading={evidenceLoading}
+            />
 
             {/* Next best action */}
             {nba && (

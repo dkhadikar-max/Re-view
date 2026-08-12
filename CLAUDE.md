@@ -184,6 +184,28 @@ Never hardcode hotel logic into the platform core.
 
 ---
 
+## Current Status (as of `main @ 19acf91`)
+
+**Pilot Readiness is closed.** Engineering pilot readiness: PASS — 8/8
+gates in `PILOT_READINESS.md` §7, each tied to a merged PR and green
+CI, not just asserted: production go-live guard, webhook idempotency,
+outbound delivery retry, operational monitoring, staff Task completion
+evidence, and the shared-WABA WhatsApp architecture
+(`WHATSAPP_PLATFORM_ARCHITECTURE.md`).
+
+**Operational pilot validation is pending the first real hotel** —
+connecting a real WABA, running a real message round trip, and having
+real staff complete a real Task. Do not simulate this with a
+developer-owned WhatsApp account.
+
+**Feature development is explicitly stopped.** Do not add a new agent,
+guest-facing capability, or AI decision surface without it tracing
+back to evidence from a real pilot. If asked to build something new
+here, confirm it's justified by real pilot feedback, not "because it's
+possible" — that discipline is the whole point of this phase.
+
+---
+
 ## Before Making Changes
 
 Always:

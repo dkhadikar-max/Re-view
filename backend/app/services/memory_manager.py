@@ -131,6 +131,11 @@ class MemoryManager:
                 field=update["field"],
                 value=update["value"],
                 confidence=update["confidence"],
+                # Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md §3) — absent
+                # for any update dict built before this field existed
+                # (e.g. a synthetic test case), so this is always a
+                # tolerant .get, never a required key.
+                message_id=update.get("message_id"),
             )
 
     def _load_guest(self, db: Session, event: ActionEvent) -> Optional[Guest]:
@@ -152,6 +157,7 @@ class MemoryManager:
         field: str,
         value: str,
         confidence: float,
+        message_id: Optional[str] = None,
     ) -> None:
         if confidence < _HOLD_THRESHOLD:
             self._reject(
@@ -202,7 +208,12 @@ class MemoryManager:
             input_summary=f"Guest memory proposal for {field}.",
             decision=f"Applied to Guest.{field}.",
             status=ActionEventStatus.accepted,
-            metadata={"field": field, "reason": "applied"},
+            # Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md §3) — the one
+            # addition this phase makes to the frozen §4 metadata shape.
+            # Still never the guest's raw text (MEMORY_MANAGER.md §4's
+            # own rule, unchanged) — just the id of the Message a reader
+            # can join to later if it wants the actual quote.
+            metadata={"field": field, "reason": "applied", "message_id": message_id},
         )
 
     def _hold(
