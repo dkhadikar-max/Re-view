@@ -7,6 +7,7 @@ import { Badge, Empty, Panel } from "@/components/ui";
 import { EvidenceChain } from "@/components/EvidenceChain";
 import {
   api,
+  type EpistemicStatus,
   type Guest,
   type GuestOpportunity,
   type MemoryEvidence,
@@ -32,6 +33,32 @@ function formatShortDate(value?: string | null) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+// PHASE4_PRODUCT_REVIEW.md §4/§8 ("act now" scope A) — short display
+// text for the five-tier epistemic-status taxonomy. Only the two
+// classes that actually need correcting (heuristic estimates dressed
+// as facts, illustrative placeholders dressed as estimates) get a
+// visible tag below — "observed"/"calculated" stay untagged, the same
+// way most software doesn't badge a number as "real data"; the
+// product-truth risk is only ever in the two weaker classes.
+const EPISTEMIC_LABEL: Partial<Record<EpistemicStatus, string>> = {
+  heuristic_estimate: "Heuristic",
+  illustrative: "Illustrative",
+  predicted: "Predicted",
+};
+
+function EpistemicTag({ status }: { status?: EpistemicStatus }) {
+  const label = status ? EPISTEMIC_LABEL[status] : undefined;
+  if (!label) return null;
+  return (
+    <span
+      title="Not a calibrated prediction — see PHASE4_PRODUCT_REVIEW.md"
+      className="ml-1 rounded bg-ink-100 px-1 py-0.5 align-middle text-[9px] font-medium uppercase tracking-wide text-ink-400"
+    >
+      {label}
+    </span>
+  );
 }
 
 function Metric({
@@ -442,6 +469,11 @@ export default function GuestsPage() {
             {/* Predictive metrics */}
             <div className="rounded-2xl border border-ink-200/60 bg-white/70 p-5 backdrop-blur">
               <h3 className="font-display text-lg text-ink-900">Predictions</h3>
+              {selected.predictions_status === "heuristic_estimate" && (
+                <p className="mt-0.5 text-[11px] text-ink-400">
+                  Heuristic estimates — hand-tuned scoring, not calibrated against outcomes.
+                </p>
+              )}
               <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                 {[
                   ["Likelihood to return", selected.return_probability],
@@ -500,22 +532,33 @@ export default function GuestsPage() {
                 <p className="mt-3 text-sm font-medium text-ink-900">
                   {nba.recommendation}
                 </p>
-                <div className="mt-3 flex gap-4 text-xs text-ink-500">
+                <div className="mt-3 flex flex-wrap gap-4 text-xs text-ink-500">
                   <span>
                     Redemption{" "}
                     <strong className="text-ink-800">
                       {Math.round(nba.expected_redemption * 100)}%
                     </strong>
+                    <EpistemicTag status={nba.expected_redemption_status} />
                   </span>
                   <span>
                     Expected revenue{" "}
                     <strong className="text-ink-800">
                       {money(nba.expected_revenue)}
                     </strong>
+                    <EpistemicTag status={nba.expected_revenue_status} />
                   </span>
                 </div>
-                <p className="mt-3 text-sm font-medium text-sea-600">
-                  {nba.action_label} →
+                {/* PHASE4_PRODUCT_REVIEW.md §3/§8 ("act now" scope B) —
+                    this used to render as a sea-600 link with a "→",
+                    implying it was clickable. Nothing in the frontend
+                    or backend ever wired it to a real action, so that
+                    was a false affordance (state D in the review's own
+                    A/B/C/D taxonomy). This is state B: a recommendation
+                    label, deliberately not styled or shaped like a
+                    functional control, until a real destination exists
+                    to wire it to. */}
+                <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+                  Recommended: {nba.action_label}
                 </p>
               </div>
             )}

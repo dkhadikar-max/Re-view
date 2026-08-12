@@ -1,4 +1,20 @@
-"""Living Guest Intelligence — computed insights from guest memory."""
+"""Living Guest Intelligence — computed insights from guest memory.
+
+PHASE4_PRODUCT_REVIEW.md §4/§8 — the Predictions panel and Next Best
+Action card's numbers are hand-tuned heuristic formulas, never
+calibrated against real outcomes, and in two branches below not even
+a formula (a literal constant). Historically this module returned
+those numbers with no indication of that — the UI rendered a `42%`
+exactly like a real backtested conversion rate. `predictions_status`
+and each `next_best_action`'s `expected_redemption_status`/
+`expected_revenue_status` fields exist so the frontend can render the
+review's five-tier taxonomy (Observed / Calculated / Heuristic
+estimate / Illustrative / Predicted) instead of implying more
+certainty than this module actually has. This module's own scoring
+logic is unchanged — this only makes its existing epistemic status
+visible, per the Product Truth Principle: never communicate more
+certainty than the underlying system possesses.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +36,19 @@ from app.models.entities import (
     Review,
 )
 from app.schemas import GuestOut
+
+# PHASE4_PRODUCT_REVIEW.md §4 — the five-tier epistemic-status
+# taxonomy, as plain strings (same "closed vocabulary today,
+# extensible tomorrow" convention as PropertyService.service_type and
+# ActionEvent.action_type elsewhere in this codebase). "Predicted"
+# isn't used anywhere yet -- nothing in this module is an
+# outcome-calibrated model -- but it's named here so a future one has
+# a place to say so.
+STATUS_OBSERVED = "observed"
+STATUS_CALCULATED = "calculated"
+STATUS_HEURISTIC_ESTIMATE = "heuristic_estimate"
+STATUS_ILLUSTRATIVE = "illustrative"
+STATUS_PREDICTED = "predicted"
 
 
 class TimelineEvent(BaseModel):
@@ -49,6 +78,12 @@ class GuestIntelligence(GuestOut):
     upsell_probability: float = 0.0
     review_probability: float = 0.0
     churn_risk: float = 0.0
+    # PHASE4_PRODUCT_REVIEW.md §4/§8 — return/upsell/review/churn above
+    # share one status because they're the same formula family (a
+    # single hand-tuned weighted sum each, never calibrated against an
+    # observed outcome). One shared field rather than four identical
+    # ones -- there's no case yet where they'd diverge.
+    predictions_status: str = STATUS_HEURISTIC_ESTIMATE
     preferred_channel: str = "whatsapp"
     preferred_time: str = "6 PM"
     days_since_last_visit: int | None = None
@@ -389,7 +424,9 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
             "detail": f"Birthday in {days_bday} days · {guest.stay_count} stays · avg {float(guest.average_booking or 0):.0f}",
             "recommendation": "Send complimentary dessert or celebrate reward",
             "expected_redemption": round(min(0.85, 0.45 + guest.upsell_acceptance * 0.4), 2),
+            "expected_redemption_status": STATUS_HEURISTIC_ESTIMATE,
             "expected_revenue": round(float(guest.average_booking or 120) * 0.18, 0),
+            "expected_revenue_status": STATUS_HEURISTIC_ESTIMATE,
             "action_label": "Send reward",
         }
     elif churn >= 55:
@@ -397,8 +434,14 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
             "title": "Win-back offer",
             "detail": f"Churn risk {churn:.0f}% · last visit {days_since or '—'} days ago",
             "recommendation": "Offer 15% package or suite upgrade incentive",
+            # PHASE4_PRODUCT_REVIEW.md §4 -- the exact example the review
+            # named: a literal constant, not derived from anything. Never
+            # relabel this "heuristic_estimate" -- that would still imply
+            # a formula this number doesn't have.
             "expected_redemption": 0.42,
+            "expected_redemption_status": STATUS_ILLUSTRATIVE,
             "expected_revenue": round(float(guest.average_booking or 200) * 0.2, 0),
+            "expected_revenue_status": STATUS_HEURISTIC_ESTIMATE,
             "action_label": "Create offer",
         }
     elif guest.previous_reviews == 0 and last_res and last_res.check_out <= today:
@@ -407,7 +450,11 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
             "detail": "No review yet after stay",
             "recommendation": "Generate review request message",
             "expected_redemption": round(review_p / 100, 2),
+            "expected_redemption_status": STATUS_HEURISTIC_ESTIMATE,
+            # A fixed 0, not computed -- this action type has no revenue
+            # model at all yet, not "modeled and found to be zero".
             "expected_revenue": 0,
+            "expected_revenue_status": STATUS_ILLUSTRATIVE,
             "action_label": "Generate message",
         }
     elif upsell_p >= 60:
@@ -416,7 +463,12 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
             "detail": f"Upsell probability {upsell_p:.0f}%",
             "recommendation": recs[0] if recs else "Offer late checkout",
             "expected_redemption": round(upsell_p / 100 * 0.7, 2),
+            "expected_redemption_status": STATUS_HEURISTIC_ESTIMATE,
+            # 95/55 are fixed constants picked by a string match on the
+            # recommendation text, not derived from any guest data --
+            # same "constant dressed as a number" shape as the 0.42 above.
             "expected_revenue": 95 if "Spa" in (recs[0] if recs else "") else 55,
+            "expected_revenue_status": STATUS_ILLUSTRATIVE,
             "action_label": "Draft upsell",
         }
 
@@ -430,6 +482,7 @@ def build_intelligence(db: Session, guest: Guest) -> GuestIntelligence:
         upsell_probability=round(upsell_p, 1),
         review_probability=round(review_p, 1),
         churn_risk=round(churn, 1),
+        predictions_status=STATUS_HEURISTIC_ESTIMATE,
         preferred_channel=channel,
         preferred_time="6 PM",
         days_since_last_visit=days_since,
