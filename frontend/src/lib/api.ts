@@ -193,12 +193,26 @@ export type GuestTimelineEvent = {
   amount?: number | null;
 };
 
+// PHASE4_PRODUCT_REVIEW.md §4/§8 — the five-tier epistemic-status
+// taxonomy the backend now tags every heuristic/illustrative number
+// with, so the UI can render "42%" as what it actually is (a fixed
+// constant) rather than implying a calibrated prediction. Keep in
+// sync with STATUS_* in guest_intelligence.py.
+export type EpistemicStatus =
+  | "observed"
+  | "calculated"
+  | "heuristic_estimate"
+  | "illustrative"
+  | "predicted";
+
 export type GuestNextBestAction = {
   title: string;
   detail: string;
   recommendation: string;
   expected_redemption: number;
+  expected_redemption_status?: EpistemicStatus;
   expected_revenue: number;
+  expected_revenue_status?: EpistemicStatus;
   action_label: string;
 };
 
@@ -246,6 +260,7 @@ export type Guest = {
   upsell_probability?: number;
   review_probability?: number;
   churn_risk?: number;
+  predictions_status?: EpistemicStatus;
   preferred_channel?: string;
   preferred_time?: string;
   days_since_last_visit?: number | null;
