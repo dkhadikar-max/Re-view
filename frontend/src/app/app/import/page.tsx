@@ -311,7 +311,7 @@ export default function DataImportPage() {
         title="Import Reservations"
         subtitle="Bring reservations in from wherever they live today — one flow, any source."
         action={
-          <Link href="/import/history">
+          <Link href="/app/import/history">
             <Button variant="ghost">View import history →</Button>
           </Link>
         }
@@ -837,10 +837,10 @@ export default function DataImportPage() {
             <Link href="/">
               <Button variant="secondary">Continue →</Button>
             </Link>
-            <Link href="/guests">
+            <Link href="/app/guests">
               <Button variant="secondary">Open Guest Memory →</Button>
             </Link>
-            <Link href="/reservations">
+            <Link href="/app/reservations">
               <Button variant="secondary">View Reservations →</Button>
             </Link>
             <Button variant="ghost" className="!text-white" onClick={reset}>

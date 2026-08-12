@@ -42,7 +42,7 @@ export default function HotelSignupPage() {
       setToken(res.access_token);
       setDone(true);
       setTimeout(() => {
-        router.replace(res.dashboard_path || "/");
+        router.replace(res.dashboard_path || "/app");
       }, 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create account");

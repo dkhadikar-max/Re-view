@@ -54,7 +54,7 @@ class HotelSignupRequest(BaseModel):
 class HotelSignupResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    dashboard_path: str = "/"
+    dashboard_path: str = "/app"
     message: str
     user: UserOut
     hotel_name: str
@@ -565,5 +565,5 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
         property_name=prop.name,
         tenant_id=tenant_id,
         currency=currency,
-        dashboard_path="/",
+        dashboard_path="/app",
     )

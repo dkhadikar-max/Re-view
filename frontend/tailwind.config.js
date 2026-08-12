@@ -44,6 +44,15 @@ module.exports = {
         display: ["var(--font-display)", "Georgia", "serif"],
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
+      fontSize: {
+        // Editorial display scale for the public site — large, generous
+        // line-height, tight tracking. App dashboard keeps using the
+        // default Tailwind scale (text-2xl, text-3xl, etc.) untouched.
+        "display-2xl": ["4.5rem", { lineHeight: "1.04", letterSpacing: "-0.02em" }],
+        "display-xl": ["3.5rem", { lineHeight: "1.06", letterSpacing: "-0.015em" }],
+        "display-lg": ["2.5rem", { lineHeight: "1.1", letterSpacing: "-0.01em" }],
+        "display-md": ["1.75rem", { lineHeight: "1.2", letterSpacing: "-0.005em" }],
+      },
       backgroundImage: {
         grain:
           "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E\")",
