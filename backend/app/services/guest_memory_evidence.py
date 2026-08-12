@@ -20,6 +20,15 @@ something this module fakes.
 append-only free-text log (MEMORY_MANAGER.md §3), not one current
 value the way the other two fields are, so there's no single "the
 preference" to attach evidence to without guessing which line matters.
+
+GUEST_INSIGHT_CONTRACT.md (§1, frozen) — `category` is the one
+addition this phase makes. Deterministic mapping from `field` only
+(Clarification B); never backfilled from `notes` or any free-form
+interpretation. The frozen contract's `needs_review` taxonomy state
+is deliberately not produced anywhere in this module — see the
+contract's "Open finding": no real, deterministic trigger for a
+dietary conflict exists without a `GuestMemoryAgent` pattern change,
+which is explicitly out of scope here.
 """
 
 from __future__ import annotations
@@ -39,6 +48,14 @@ _FIELD_LABELS = {
     "preferred_room": "Room preference",
 }
 
+# GUEST_INSIGHT_CONTRACT.md Clarification B — deterministic, from
+# `field` only. A field not listed here gets `category=None`, never a
+# guess derived from its value or from `notes`.
+_FIELD_CATEGORIES = {
+    "dietary_preferences": "Dining",
+    "preferred_room": "Room",
+}
+
 
 class MemoryEvidence(BaseModel):
     model_config = {"frozen": True}
@@ -56,6 +73,10 @@ class MemoryEvidence(BaseModel):
     evidence_date: Optional[str]  # ISO date, or None if no linked message
     insight: str
     hotel_intelligence: str
+    # GUEST_INSIGHT_CONTRACT.md Clarification B. None for any field
+    # not in _FIELD_CATEGORIES -- never backfilled from notes or any
+    # free-form interpretation.
+    category: Optional[str] = None
 
 
 def _guest_insight(value: str) -> str:
@@ -158,6 +179,7 @@ def get_guest_memory_evidence(
                 evidence_date=evidence_date,
                 insight=_guest_insight(value),
                 hotel_intelligence=_hotel_intelligence(field_label),
+                category=_FIELD_CATEGORIES.get(field),
             )
         )
     return results
