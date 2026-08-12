@@ -291,3 +291,48 @@ def test_guest_in_another_tenant_returns_no_evidence(db_session):
     results = get_guest_memory_evidence(db, tenant_id="hotel-k-imposter", guest_id=guest.id)
 
     assert results == []
+
+
+# -- category (GUEST_INSIGHT_CONTRACT.md §1, Clarification B) -----------------
+
+
+def test_dietary_evidence_has_dining_category(db_session):
+    db = db_session
+    guest = _make_guest(db, tenant_id="hotel-l", dietary_preferences="Vegetarian")
+    _log_accepted(db, tenant_id="hotel-l", guest_id=guest.id, field="dietary_preferences")
+    db.commit()
+
+    results = get_guest_memory_evidence(db, tenant_id="hotel-l", guest_id=guest.id)
+
+    assert results[0].category == "Dining"
+
+
+def test_room_preference_evidence_has_room_category(db_session):
+    db = db_session
+    guest = _make_guest(db, tenant_id="hotel-m", preferred_room="Deluxe Suite")
+    _log_accepted(db, tenant_id="hotel-m", guest_id=guest.id, field="preferred_room")
+    db.commit()
+
+    results = get_guest_memory_evidence(db, tenant_id="hotel-m", guest_id=guest.id)
+
+    assert results[0].category == "Room"
+
+
+def test_category_is_deterministic_from_field_not_from_notes_or_value(db_session):
+    """GUEST_INSIGHT_CONTRACT.md Clarification B -- category comes
+    only from which Guest field the evidence is about, never from
+    interpreting the value text or notes. A guest with unrelated notes
+    content must not have that leak into category assignment."""
+    db = db_session
+    guest = _make_guest(
+        db, tenant_id="hotel-n",
+        dietary_preferences="Vegetarian",
+        notes="[2026-01-01] Guest mentioned loving the spa (Service?)",
+    )
+    _log_accepted(db, tenant_id="hotel-n", guest_id=guest.id, field="dietary_preferences")
+    db.commit()
+
+    results = get_guest_memory_evidence(db, tenant_id="hotel-n", guest_id=guest.id)
+
+    assert len(results) == 1  # notes still excluded entirely, per existing behavior
+    assert results[0].category == "Dining"  # not "Service" -- notes text never consulted

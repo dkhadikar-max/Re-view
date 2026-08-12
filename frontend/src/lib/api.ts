@@ -297,6 +297,11 @@ export type MemoryEvidence = {
   evidence_date?: string | null;
   insight: string;
   hotel_intelligence: string;
+  // GUEST_INSIGHT_CONTRACT.md §1, Clarification B — deterministic
+  // from the source field only (dietary -> "Dining", room -> "Room").
+  // null for any field without a mapping; never inferred from value
+  // text or notes.
+  category?: string | null;
 };
 
 export type Reservation = {

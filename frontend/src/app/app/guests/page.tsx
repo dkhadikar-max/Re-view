@@ -5,6 +5,7 @@ import { Search, Sparkles } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Badge, Empty, Panel } from "@/components/ui";
 import { EvidenceChain } from "@/components/EvidenceChain";
+import { GuestInsightSummary } from "@/components/GuestInsightSummary";
 import {
   api,
   type EpistemicStatus,
@@ -513,6 +514,11 @@ export default function GuestsPage() {
                 </div>
               </div>
             </div>
+
+            {/* Guest Insight — §1, GUEST_INSIGHT_CONTRACT.md. Summary
+                layer above the unchanged Evidence Chain below, built
+                from the same data -- not a second source of truth. */}
+            <GuestInsightSummary evidence={evidence} loading={evidenceLoading} />
 
             {/* Evidence Chain — Phase 4A, GUEST_MEMORY_EVIDENCE_CHAIN.md */}
             <EvidenceChain
