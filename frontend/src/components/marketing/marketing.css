@@ -21,7 +21,21 @@
    horizontal overflow at the page level, so this stays unset. */
 .rv-root { position: relative; background: var(--rv-dusk); color: var(--rv-mist); }
 
-.rv-grain { position: absolute; inset: 0; opacity: 0.35; mix-blend-mode: overlay; pointer-events: none; }
+/* A tiled, precomputed noise tile standing in for the feTurbulence
+   filter this used to be — same visual grain treatment, none of the
+   per-repaint rasterization cost of a full-viewport SVG filter (see
+   PERF_PATCH_PUBLIC_SITE.md). The tile itself is a small, quantized
+   (16-color) 64x64 PNG -- random noise doesn't compress well, keeping
+   the palette small keeps the embed cheap.
+
+   Opacity: the old SVG compounded two opacities -- 0.35 on the <svg>
+   itself, 0.05 on the inner <rect> -- for an effective ~0.0175. This
+   is a single element, so it carries that combined value directly;
+   using 0.35 here alone would make the grain ~20x more visible than
+   before, which is not "no design change." */
+.rv-grain { position: absolute; inset: 0; opacity: 0.0175; mix-blend-mode: overlay; pointer-events: none;
+  background-image: url("data:image/png;base64,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");
+  background-repeat: repeat; background-size: 64px 64px; }
 
 /* ---- nav ---- */
 .rv-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; display: flex; align-items: center;
@@ -35,7 +49,13 @@
 .rv-nav .sign-in { font-size: 0.82rem; color: rgba(238, 244, 245, 0.8); }
 
 /* ---- shared: video/photo grounds with a color grade ---- */
-.rv-ground { position: absolute; inset: 0; overflow: hidden; }
+/* isolation:isolate + contain give each ground its own stacking and
+   layout/paint containment, so the mix-blend-mode layers inside it
+   (grade, grain) composite against just this element's own
+   background rather than negotiating with the rest of the page --
+   fewer surprise repaints elsewhere on the page during scroll. Purely
+   a compositing-boundary change; renders identically. */
+.rv-ground { position: absolute; inset: 0; overflow: hidden; isolation: isolate; contain: layout paint; }
 .rv-ground img { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover;
   will-change: transform, filter; transition: filter 0.9s ease; filter: blur(0px); }
 .rv-ground img.rv-pulse { filter: blur(7px); }
@@ -77,7 +97,14 @@
 @media (prefers-reduced-motion: reduce) { .rv-hero .rv-scroll-cue .rv-line::after { animation: none; top: 40%; } }
 
 /* ---- sequence stage (Acts II–V + Final Frame) ---- */
-.rv-sequence-wrap { position: relative; height: 900vh; }
+/* 900vh -> 750vh (see PERF_PATCH_PUBLIC_SITE.md, Patch B): the goal
+   is the user feeling the story progress, not feeling trapped in the
+   sticky stage. RANGES in SignatureSequence.tsx are fractional (0-1),
+   so every beat's relative pacing and order is unchanged -- this only
+   compresses the total scroll distance uniformly. Worth tuning
+   further against real device/user testing; this is a middle point
+   in the 700-750vh range, not a final number. */
+.rv-sequence-wrap { position: relative; height: 750vh; }
 .rv-sequence-stage { position: sticky; top: 0; height: 100vh; overflow: hidden; }
 
 .rv-rail { position: fixed; right: clamp(16px, 3vw, 40px); top: 50%; transform: translateY(-50%); z-index: 20;
@@ -86,13 +113,6 @@
 .rv-rail button { width: 7px; height: 7px; border-radius: 50%; background: rgba(238, 244, 245, 0.3);
   border: none; padding: 0; cursor: pointer; }
 .rv-rail button.on { background: var(--rv-signal-bright); width: 9px; height: 9px; }
-
-.rv-act-marker { position: fixed; z-index: 20; left: clamp(20px, 4vw, 48px); top: clamp(88px, 12vh, 120px);
-  font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(238, 244, 245, 0.45);
-  opacity: 0; transition: opacity 0.5s ease; }
-.rv-act-marker.show { opacity: 1; }
-.rv-act-marker b { display: block; font-style: italic; font-weight: 400; font-size: 1.05rem;
-  text-transform: none; letter-spacing: 0; color: #fff; margin-top: 4px; }
 
 .rv-beat-panel { position: absolute; z-index: 3; opacity: 0; transform: translateY(8px);
   transition: opacity 0.6s ease, transform 0.6s ease; pointer-events: none; }
@@ -145,7 +165,6 @@
   .rv-hero .rv-scroll-cue { display: none; }
   .rv-pos-intel { left: clamp(14px, 6vw, 40px); top: 16vh; width: min(340px, 86vw); }
   .rv-pos-guest { right: clamp(14px, 6vw, 40px); bottom: 15vh; }
-  .rv-act-marker { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .rv-beat-panel, .rv-ground img, .rv-hosp-line { transition: opacity 0.01ms, transform 0.01ms, filter 0.01ms !important; }
