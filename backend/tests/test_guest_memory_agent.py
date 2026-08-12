@@ -157,3 +157,25 @@ def test_multiple_agent_instances_share_no_state():
     a = GuestMemoryAgent()
     b = GuestMemoryAgent()
     assert a.answer(context, "I'm vegan") == b.answer(context, "I'm vegan")
+
+
+# -- message_id provenance (GUEST_MEMORY_EVIDENCE_CHAIN.md §3) ---------------
+
+
+def test_message_id_is_threaded_onto_every_memory_update():
+    response = guest_memory_agent.answer(_make_context(), "I'm vegetarian", message_id="msg-1")
+
+    updates = response.metadata["memory_updates"]
+    assert len(updates) == 1
+    assert updates[0]["message_id"] == "msg-1"
+
+
+def test_message_id_defaults_to_none_when_not_provided():
+    """Every existing call site that hasn't been updated to pass
+    message_id yet (or ever synthesizes an update without one) must
+    keep working exactly as before -- this is a tolerant default, not
+    a new required argument."""
+    response = guest_memory_agent.answer(_make_context(), "I'm vegetarian")
+
+    updates = response.metadata["memory_updates"]
+    assert updates[0]["message_id"] is None

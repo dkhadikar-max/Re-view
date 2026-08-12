@@ -119,6 +119,14 @@ class MemoryUpdate(BaseModel):
     field: str
     value: str
     confidence: float
+    # Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md §3) — the inbound Message
+    # this proposal was extracted from, so a later reader can show the
+    # guest's own words, not just the field/value this agent derived
+    # from them. Optional and defaulted to None rather than required:
+    # nothing about this agent's own matching logic changes, and a
+    # caller that doesn't have a message_id in scope (tests, any future
+    # non-message-driven caller) still works exactly as before.
+    message_id: Optional[str] = None
 
 
 def _welcome_back_response(context: ConciergeContext) -> Optional[str]:
@@ -134,7 +142,12 @@ def _welcome_back_response(context: ConciergeContext) -> Optional[str]:
 class GuestMemoryAgent:
     """Stateless — holds no data between calls, same as FAQAgent."""
 
-    def answer(self, context: ConciergeContext, guest_message: str) -> AgentResponse:
+    def answer(
+        self,
+        context: ConciergeContext,
+        guest_message: str,
+        message_id: Optional[str] = None,
+    ) -> AgentResponse:
         text = guest_message or ""
         memory_updates: list[dict] = []
         response_parts: list[str] = []
@@ -144,7 +157,10 @@ class GuestMemoryAgent:
             if pattern.search(text):
                 memory_updates.append(
                     MemoryUpdate(
-                        field="dietary_preferences", value=value, confidence=confidence
+                        field="dietary_preferences",
+                        value=value,
+                        confidence=confidence,
+                        message_id=message_id,
                     ).model_dump()
                 )
                 response_parts.append(f"Got it — we've noted you're {value.lower()}.")
@@ -157,7 +173,10 @@ class GuestMemoryAgent:
                 value = f"Allergic to {allergen}"
                 memory_updates.append(
                     MemoryUpdate(
-                        field="dietary_preferences", value=value, confidence=0.85
+                        field="dietary_preferences",
+                        value=value,
+                        confidence=0.85,
+                        message_id=message_id,
                     ).model_dump()
                 )
                 response_parts.append(
@@ -168,7 +187,10 @@ class GuestMemoryAgent:
             if pattern.search(text):
                 memory_updates.append(
                     MemoryUpdate(
-                        field="preferred_room", value=value, confidence=confidence
+                        field="preferred_room",
+                        value=value,
+                        confidence=confidence,
+                        message_id=message_id,
                     ).model_dump()
                 )
                 response_parts.append("Noted — we'll keep that in mind for your room.")
@@ -177,7 +199,12 @@ class GuestMemoryAgent:
         for pattern, value, confidence in _NOTE_WORTHY_PATTERNS:
             if pattern.search(text):
                 memory_updates.append(
-                    MemoryUpdate(field="notes", value=value, confidence=confidence).model_dump()
+                    MemoryUpdate(
+                        field="notes",
+                        value=value,
+                        confidence=confidence,
+                        message_id=message_id,
+                    ).model_dump()
                 )
                 response_parts.append("Noted — we'll pass that along to our front desk team.")
                 break

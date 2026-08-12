@@ -131,6 +131,10 @@ from app.services.guest_intelligence import (
     build_intelligence,
     list_opportunities,
 )
+from app.services.guest_memory_evidence import (
+    MemoryEvidence,
+    get_guest_memory_evidence as fetch_guest_memory_evidence,
+)
 from app.services.hotel_signup import ensure_trial_demo_data
 from app.services.import_orchestrator import (
     build_import_summary,
@@ -726,6 +730,18 @@ def get_guest(
         db, Guest, guest_id, user.tenant_id, not_found="Guest not found"
     )
     return build_intelligence(db, guest)
+
+
+@router.get("/guests/{guest_id}/memory-evidence", response_model=list[MemoryEvidence])
+def get_guest_memory_evidence(
+    guest_id: str, user: AuthUser, db: Session = Depends(get_db)
+) -> list[MemoryEvidence]:
+    """Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md) — the operator Evidence
+    Chain's data source. `get_tenant_entity` 404s before the evidence
+    query ever runs, so a guest_id from another tenant can't be probed
+    for whether it exists."""
+    get_tenant_entity(db, Guest, guest_id, user.tenant_id, not_found="Guest not found")
+    return fetch_guest_memory_evidence(db, tenant_id=user.tenant_id, guest_id=guest_id)
 
 
 @router.get("/reservations", response_model=list[ReservationOut])

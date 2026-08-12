@@ -319,6 +319,12 @@ class ConciergeRouter:
         message_body: str,
         reservation_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        # Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md §3) — threaded through
+        # to GuestMemoryAgent so a proposed memory update can carry the
+        # id of the inbound Message it came from. Optional: every
+        # existing caller that doesn't pass one keeps working exactly as
+        # before, just without evidence-chain provenance for that turn.
+        message_id: Optional[str] = None,
     ) -> AgentResponse:
         context = ContextBuilder(db).build(
             tenant_id=tenant_id,
@@ -422,7 +428,7 @@ class ConciergeRouter:
                 actor=ActorType.system,
             )
 
-        response = self._dispatch(intent_decision.category, context, message_body)
+        response = self._dispatch(intent_decision.category, context, message_body, message_id)
         response = response.model_copy(
             update={"intent": intent_decision.category.value, "confidence": intent_decision.confidence}
         )
@@ -544,7 +550,11 @@ class ConciergeRouter:
         return response
 
     def _dispatch(
-        self, category: IntentCategory, context: ConciergeContext, message_body: str
+        self,
+        category: IntentCategory,
+        context: ConciergeContext,
+        message_body: str,
+        message_id: Optional[str] = None,
     ) -> AgentResponse:
         if category == IntentCategory.information:
             return _with_agent_tag(
@@ -555,7 +565,10 @@ class ConciergeRouter:
         if category == IntentCategory.service_request:
             return _with_agent_tag(revenue_agent.answer(context, message_body), "revenue")
         if category == IntentCategory.memory:
-            return _with_agent_tag(guest_memory_agent.answer(context, message_body), "guest_memory")
+            return _with_agent_tag(
+                guest_memory_agent.answer(context, message_body, message_id=message_id),
+                "guest_memory",
+            )
         raise AssertionError(
             f"No agent mapped for intent category {category!r} — small_talk/unknown are "
             "handled before this is ever called"

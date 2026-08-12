@@ -268,7 +268,15 @@ def ingest_inbound_whatsapp(
     # exists at all.
     try:
         response = concierge_router.route(
-            db, tenant_id=tenant_id, guest_id=guest.id, message_body=normalized_body
+            db,
+            tenant_id=tenant_id,
+            guest_id=guest.id,
+            message_body=normalized_body,
+            # Phase 4A (GUEST_MEMORY_EVIDENCE_CHAIN.md §3) — this inbound
+            # Message already exists and is flushed by this point, so its
+            # id is available to thread through to any memory proposal
+            # this turn produces.
+            message_id=message.id,
         )
     except ContextBuilderError:
         # A guest with a phone match but no resolvable Property (data
