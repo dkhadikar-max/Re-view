@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import inspect, text
+from sqlalchemy import Enum, inspect, text
 
 from app.db.session import engine
+from app.models.entities import WhatsAppConnectionStatus
 from app.services.currency import currency_for_country
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,34 @@ def ensure_schema_patches() -> None:
                 text("ALTER TABLE properties ADD COLUMN google_review_url VARCHAR(512)")
             )
         logger.info("Added properties.google_review_url column")
+
+    if "whatsapp_connection_status" not in cols:
+        # Same SQLAlchemy type the model declares (Property.whatsapp_connection_status
+        # = Enum(WhatsAppConnectionStatus)) so the Postgres enum type this creates —
+        # name, member set — is identical to what Alembic migration d5e6f7a8b9c0
+        # creates. `.create(checkfirst=True)` is a no-op on SQLite (no native enum
+        # type there) and idempotent on Postgres, so it's safe to call unconditionally.
+        status_type = Enum(WhatsAppConnectionStatus)
+        with engine.begin() as conn:
+            status_type.create(conn, checkfirst=True)
+            column_type = "VARCHAR(20)" if engine.dialect.name != "postgresql" else "whatsappconnectionstatus"
+            conn.execute(
+                text(
+                    f"ALTER TABLE properties ADD COLUMN whatsapp_connection_status "
+                    f"{column_type} NOT NULL DEFAULT 'not_connected'"
+                )
+            )
+            # Backfill: any property that already has a phone_number_id was
+            # already connected before this column existed. Mirrors the
+            # Alembic migration's own backfill for the deploy path that
+            # actually runs (this patcher, not `alembic upgrade`).
+            conn.execute(
+                text(
+                    "UPDATE properties SET whatsapp_connection_status = 'connected' "
+                    "WHERE whatsapp_phone_number_id IS NOT NULL"
+                )
+            )
+        logger.info("Added properties.whatsapp_connection_status column")
 
     if "reservations" in insp.get_table_names():
         res_cols = {c["name"] for c in insp.get_columns("reservations")}
