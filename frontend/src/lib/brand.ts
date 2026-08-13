@@ -18,17 +18,21 @@ export const REVISIT = {
   tagline: "Guest Experience Platform",
   /** Compact line used under the product name in chrome */
   shortPitch: "Guest revenue & engagement — approval required for sensitive actions",
-  /** Meta / share description */
+  /** Meta / share description — canonical positioning locked in
+   * SEO_AEO_GEO_AUDIT.md / SEO_AEO_GEO_IMPLEMENTATION.md. Leads with
+   * "guest intelligence," never "chatbot," and is careful not to
+   * claim anything the product doesn't verifiably do yet. */
   description:
-    "Revisit — the Guest Experience Platform from Argus OS. Guest intelligence, Celebrate Rewards, approvals, and revenue after booking.",
+    "ReVisit turns guest conversations and history into intelligence hotel teams can act on — recognizing returning guests, remembering preferences, and carrying context into every stay.",
   /** Suggested blurb when linking from the Argus product grid */
   productBlurb:
     "Guest Experience Platform. Syncs Cloudbeds, messages guests on WhatsApp/email, drafts review replies, and runs Stripe upsells — with manager approval on every commercial action.",
   siteUrl:
     process.env.NEXT_PUBLIC_REVISIT_SITE_URL || "https://revisit.argusai.online",
   parent: ARGUS,
-  /** Browser / og title pattern */
-  title: "Revisit · Argus OS",
+  /** Browser / og title pattern — ReVisit is the primary entity;
+   * Argus OS stays the parent relationship, not the headline. */
+  title: "Guest Intelligence for Hotels | Revisit",
   /** Footer / attribution */
   productOf: `A product of ${ARGUS.productLine}`,
   /** Login / brand vision — not the Celebrate loop */
