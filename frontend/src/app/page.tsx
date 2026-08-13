@@ -1,18 +1,35 @@
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { Hero } from "@/components/marketing/Hero";
 import { SignatureSequence } from "@/components/marketing/SignatureSequence";
+import { ArrivalScene } from "@/components/marketing/ArrivalScene";
+import { StayScene } from "@/components/marketing/StayScene";
+import { ReturnScene } from "@/components/marketing/ReturnScene";
+import { HotelOutcomes } from "@/components/marketing/HotelOutcomes";
+import { StaffExperience } from "@/components/marketing/StaffExperience";
+import { SystemsFit } from "@/components/marketing/SystemsFit";
+import { ClosingCTA } from "@/components/marketing/ClosingCTA";
 import "@/components/marketing/marketing.css";
 
 /**
  * Public marketing homepage — Direction B (Contemporary Hospitality) with
  * Direction A (Quiet Luxury) restraint in the hero and closing frame.
  *
- * This implements Acts I–V + the Final Frame from the approved v8 design
- * (hero arrival → guest signal → intelligence reveal → hotel action →
- * experience fade → hospitality close). Act "08 · Product" (the operator
- * guest-intelligence screens) is a deliberate, separate follow-up — it
- * only earns its place once this arc has been reviewed live, per the
- * phased approach carried through the whole design process.
+ * Hero (Act I) and the Signature Sequence (Acts II–V + Final Frame) are the
+ * original cinematic arc, unchanged in mechanics — Hero's copy was rewritten
+ * to the locked positioning and its primary visual is now a staged CSS-3D
+ * key-card scene (HeroScene), not a paragraph or an icon chain.
+ *
+ * Arrival / Stay / Return are three chapters of one narrative — the same
+ * guest (Marie, already established in Hero and SignatureSequence)
+ * traveling through a doorway scene, a service scene, and a second-arrival
+ * scene, sharing one visual system (ChapterStage) rather than three
+ * independent card sections. This replaced an earlier icon-grid/card-based
+ * version of these sections entirely, not incrementally.
+ *
+ * HotelOutcomes/StaffExperience/SystemsFit/ClosingCTA follow as the
+ * "why it matters / what your team sees / how it fits your PMS / close"
+ * arc — StaffExperience resolves the previously-deferred "Act 08 · Product"
+ * note (the operator-facing section).
  *
  * Photography is real but temporary: three commercially-licensed
  * Wikimedia Commons photos standing in for a future commissioned shoot,
@@ -26,6 +43,13 @@ export default function HomePage() {
       <MarketingNav />
       <Hero />
       <SignatureSequence />
+      <ArrivalScene />
+      <StayScene />
+      <ReturnScene />
+      <HotelOutcomes />
+      <StaffExperience />
+      <SystemsFit />
+      <ClosingCTA />
     </div>
   );
 }

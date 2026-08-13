@@ -21,7 +21,6 @@ export function MarketingNav() {
     <nav className={`rv-nav${solid ? " solid" : ""}`}>
       <div className="rv-word" style={{ fontFamily: "var(--font-display)" }}>
         {REVISIT.name}
-        <small>Argus OS</small>
       </div>
       <Link href="/login" className="sign-in">
         Sign in

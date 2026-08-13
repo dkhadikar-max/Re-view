@@ -11,7 +11,11 @@
 
 .rv-dusk { --rv-dusk: #0c1a1f; --rv-warmth: #d4a574; --rv-signal: #0f8a8a;
   --rv-signal-bright: #2ec4c4; --rv-ember: #d9705c; --rv-ember-bright: #f2a795;
-  --rv-mist: #eef4f5; }
+  --rv-mist: #eef4f5;
+  /* Shared easing for the new (non-scroll-hijacked) sections below --
+     the cinematic Acts above intentionally keep their own plain
+     ease/ease-in-out keywords; this is scoped to new work only. */
+  --rv-ease: cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* overflow-x alone here would implicitly set overflow-y to auto (the
    CSS "if only one axis is non-visible, the other becomes auto" rule),
@@ -44,8 +48,6 @@
   border-bottom: 1px solid transparent; }
 .rv-nav.solid { background: rgba(12, 26, 31, 0.72); backdrop-filter: blur(10px);
   padding: 14px clamp(20px, 4vw, 48px); border-color: rgba(255, 255, 255, 0.08); }
-.rv-nav .word small { display: block; font-weight: 400; font-size: 0.6rem; letter-spacing: 0.16em;
-  text-transform: uppercase; color: var(--rv-signal-bright); }
 .rv-nav .sign-in { font-size: 0.82rem; color: rgba(238, 244, 245, 0.8); }
 
 /* ---- shared: video/photo grounds with a color grade ---- */
@@ -81,11 +83,84 @@
   color: var(--rv-signal-bright); font-weight: 500; }
 .rv-hero h1 { font-size: clamp(2.3rem, 5.6vw, 4.4rem); line-height: 1.03; letter-spacing: -0.02em;
   margin-top: 16px; color: #fff; }
-.rv-hero .rv-support { margin-top: 20px; font-size: 1.02rem; color: rgba(238, 244, 245, 0.82); max-width: 36ch; }
-.rv-hero .rv-cta { margin-top: 30px; display: inline-flex; align-items: center; gap: 10px; font-size: 0.86rem;
+.rv-support-short { margin-top: 20px; font-size: 1rem; color: rgba(238, 244, 245, 0.8); max-width: 34ch; }
+
+/* ---- Hero signature scene: the key card, not an icon chain ---- */
+/* Foreground (the card) carries the visible mouse-parallax tilt;
+   the background layer (room-number numeral + glow) moves a fraction
+   as much, in the opposite direction -- the depth cue the brief asks
+   for, done with perspective + translateZ, no WebGL. Guest name/room
+   are printed on the card face itself, like real hotel signage,
+   not a floating UI label. */
+.rv-hero-scene-wrap { position: absolute; right: clamp(20px, 5vw, 72px); top: 50%; transform: translateY(-50%);
+  z-index: 2; display: none; }
+.rv-keycard-scene { position: relative; width: 340px; height: 420px; perspective: 1000px; }
+
+.rv-keycard-bg { position: absolute; inset: 0; transform: translate3d(0, 0, -80px); transition: transform 300ms var(--rv-ease); }
+.rv-keycard-room-number { position: absolute; right: -10px; top: 10px; font-family: var(--font-display);
+  font-size: 9rem; font-weight: 600; color: rgba(212, 165, 116, 0.1); filter: blur(0.5px); line-height: 1; }
+.rv-keycard-glow { position: absolute; left: 30%; top: 20%; width: 220px; height: 220px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(212, 165, 116, 0.16), transparent 70%); filter: blur(6px); }
+
+.rv-keycard { position: absolute; left: 50%; top: 128px; width: 224px; height: 140px;
+  transform: perspective(1000px) rotateX(-8deg) rotateY(-10deg) translateX(-50%);
+  transform-origin: center; border-radius: 10px;
+  background: linear-gradient(135deg, #16342b 0%, #0d1f1a 60%, #0a1815 100%);
+  border: 1px solid rgba(212, 165, 116, 0.22);
+  box-shadow: 0 30px 50px -18px rgba(0, 0, 0, 0.7), 0 10px 18px -8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  padding: 16px 18px; display: flex; flex-direction: column; justify-content: space-between;
+  opacity: 0; transition: opacity 700ms var(--rv-ease), transform 250ms var(--rv-ease); }
+.rv-keycard-scene.in .rv-keycard { opacity: 1; }
+.rv-keycard-brand { font-family: var(--font-display); font-size: 0.82rem; letter-spacing: 0.04em; color: var(--rv-warmth); }
+.rv-keycard-chip { position: absolute; right: 18px; top: 16px; width: 26px; height: 18px; border-radius: 3px;
+  background: linear-gradient(155deg, #e0bc96, #b98a56); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.rv-keycard-guest { font-size: 1.05rem; font-weight: 600; color: #fff; letter-spacing: 0.01em; }
+.rv-keycard-room { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(238, 244, 245, 0.55); }
+
+.rv-keycard-tags { position: absolute; inset: 0; }
+.rv-keycard-tag { position: absolute; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px;
+  border-radius: 999px; background: rgba(9, 20, 18, 0.82); border: 1px solid rgba(150, 214, 197, 0.22);
+  font-size: 0.68rem; color: rgba(238, 244, 245, 0.85); white-space: nowrap;
+  opacity: 0; transform: translateY(10px) scale(0.9);
+  animation: rv-tag-in 650ms var(--rv-ease) forwards; animation-play-state: paused; }
+.rv-keycard-scene.in .rv-keycard-tag { animation-play-state: running; }
+.rv-keycard-tag-icon { width: 14px; height: 14px; stroke: var(--rv-signal-bright); flex-shrink: 0; }
+.rv-keycard-tag:nth-child(1) { left: -8px; top: 40px; }
+.rv-keycard-tag:nth-child(2) { right: -14px; top: 92px; }
+.rv-keycard-tag:nth-child(3) { left: 14px; top: 292px; }
+@keyframes rv-tag-in { to { opacity: 1; transform: translateY(0) scale(1); } }
+
+.rv-keycard-status, .rv-keycard-welcome, .rv-keycard-line { position: absolute; left: 0; right: 0; text-align: center;
+  opacity: 0; transition: opacity 600ms var(--rv-ease); }
+.rv-keycard-status { top: 344px; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: rgba(238, 244, 245, 0.5); transition-delay: 1.2s; }
+.rv-keycard-welcome { top: 368px; font-family: var(--font-display); font-size: 1.1rem; color: #fff;
+  transition-delay: 1.5s; }
+.rv-keycard-line { top: 398px; font-style: italic; font-size: 0.86rem; color: rgba(238, 244, 245, 0.6);
+  transition-delay: 1.8s; }
+.rv-keycard-scene.in .rv-keycard-status,
+.rv-keycard-scene.in .rv-keycard-welcome,
+.rv-keycard-scene.in .rv-keycard-line { opacity: 1; }
+
+@media (min-width: 980px) {
+  .rv-hero-scene-wrap { display: block; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-keycard { opacity: 1 !important; transition: none !important; }
+  .rv-keycard-tag { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .rv-keycard-status, .rv-keycard-welcome, .rv-keycard-line { opacity: 1 !important; transition: none !important; }
+}
+.rv-cta { display: inline-flex; align-items: center; gap: 10px; font-size: 0.86rem;
   padding: 13px 22px; border-radius: 2px; background: var(--rv-signal); color: #08181a; font-weight: 500;
   transition: background 0.25s ease, transform 0.25s ease; text-decoration: none; }
-.rv-hero .rv-cta:hover { background: var(--rv-signal-bright); transform: translateY(-1px); }
+.rv-cta:hover { background: var(--rv-signal-bright); transform: translateY(-1px); }
+.rv-hero .rv-cta { margin-top: 30px; }
+.rv-cta-row { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.rv-cta-secondary { margin-top: 30px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.86rem;
+  color: rgba(238, 244, 245, 0.82); font-weight: 500; text-decoration: none; border-bottom: 1px solid rgba(238, 244, 245, 0.3);
+  padding-bottom: 2px; transition: color 0.25s ease, border-color 0.25s ease; }
+.rv-cta-secondary:hover { color: #fff; border-color: rgba(238, 244, 245, 0.7); }
 .rv-hero .rv-scroll-cue { position: absolute; left: clamp(20px, 5vw, 64px); bottom: 28px; z-index: 2;
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.14em; color: rgba(238, 244, 245, 0.5);
   display: flex; align-items: center; gap: 10px; }
@@ -168,7 +243,206 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .rv-beat-panel, .rv-ground img, .rv-hosp-line { transition: opacity 0.01ms, transform 0.01ms, filter 0.01ms !important; }
+  .rv-reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .rv-tilt-card { transform: none !important; animation: none !important; transition: none !important; }
 }
+
+/* ---- new sections (post-Signature-Sequence): scroll-reveal + tilt ---- */
+/* These sections are independent, not scroll-linked to each other, so
+   layout/color below leans on Tailwind utilities where the existing
+   config already expresses the right values (the ink and sea color
+   scales, numerically identical to this file's --rv- tokens) --
+   bespoke CSS here is reserved for effects Tailwind can't express:
+   the reveal transition and the tilt transform/float. */
+.rv-reveal { opacity: 0; transform: translateY(16px) scale(0.98);
+  transition: opacity 650ms var(--rv-ease), transform 650ms var(--rv-ease); }
+.rv-reveal.in { opacity: 1; transform: none; }
+
+.rv-tilt-card { transform-style: preserve-3d; will-change: transform;
+  transition: transform 250ms var(--rv-ease), box-shadow 250ms var(--rv-ease);
+  animation: rv-float 7s ease-in-out infinite; }
+.rv-tilt-card:hover { box-shadow: 0 22px 60px -20px rgba(0, 0, 0, 0.5); }
+@keyframes rv-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+#how-it-works { scroll-margin-top: 96px; }
+
+/* Shared scaffolding every new section below reuses, so each one only
+   defines what's actually unique to it. */
+.rv-section { position: relative; padding: clamp(72px, 11vh, 128px) clamp(20px, 5vw, 64px); }
+.rv-section-inner { max-width: 1080px; margin: 0 auto; }
+.rv-section-eyebrow { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--rv-signal-bright); font-weight: 500; }
+.rv-section h2 { margin-top: 14px; font-family: var(--font-display); font-size: clamp(1.7rem, 3.4vw, 2.6rem);
+  line-height: 1.14; letter-spacing: -0.01em; color: #fff; max-width: 20ch; }
+.rv-section-sub { margin-top: 14px; font-size: 1rem; color: rgba(238, 244, 245, 0.75); max-width: 52ch; }
+
+/* ---- Chapters: Arrival / Stay / Return ---- */
+/* One shared staging system (see ChapterStage.tsx) for all three
+   narrative chapters -- same perspective, palette, easing, and
+   one-shot scroll-reveal mechanism, so they read as one film rather
+   than three unrelated components. Each chapter supplies its own
+   .rv-*-specific background/foreground content into the shared
+   .rv-chapter-bg/.rv-chapter-fg slots, which is how the compositions
+   stay visually distinct (a door, a service tray, a second threshold)
+   while everything underneath is identical. */
+.rv-chapter-headline { margin-top: 10px; font-family: var(--font-display); font-size: clamp(1.6rem, 3vw, 2.2rem);
+  color: #fff; }
+.rv-chapter-stage { position: relative; perspective: 1000px; height: clamp(240px, 34vw, 320px);
+  margin: 36px auto 0; max-width: 520px; }
+.rv-chapter-bg { position: absolute; inset: 0; transform: translateZ(-60px); }
+.rv-chapter-fg { position: absolute; inset: 0; z-index: 2; }
+.rv-chapter-icon { width: 36px; height: 36px; stroke: var(--rv-signal-bright); }
+.rv-chapter-icon-xs { width: 16px; height: 16px; stroke: rgba(238, 244, 245, 0.55); }
+
+.rv-chapter-text { position: absolute; left: 0; right: 0; bottom: -8px; text-align: center; }
+.rv-chapter-text-line { display: block; opacity: 0; transform: translateY(8px);
+  transition: opacity 550ms var(--rv-ease), transform 550ms var(--rv-ease); }
+.rv-chapter-stage.in .rv-chapter-text-line { opacity: 1; transform: none; }
+.rv-chapter-text-name { font-size: 1.05rem; font-weight: 600; color: #fff; }
+.rv-chapter-text-room { margin-top: 4px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: rgba(238, 244, 245, 0.55); }
+.rv-chapter-text-welcome { margin-top: 8px; font-family: var(--font-display); font-style: italic; font-size: 1.15rem; color: var(--rv-warmth); }
+.rv-chapter-text-status { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(238, 244, 245, 0.55); }
+
+.rv-chapter-line { margin-top: 46px; text-align: center; font-style: italic; font-size: 1.02rem;
+  color: rgba(238, 244, 245, 0.75); }
+
+/* Arrival: doorway plane + key + luggage entering from opposite sides */
+.rv-door { position: absolute; left: 50%; top: 10%; width: 140px; height: 210px; transform: translateX(-50%);
+  border: 1px solid rgba(150, 214, 197, 0.18); border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.15)); }
+.rv-door-glow { position: absolute; left: 50%; bottom: -10px; width: 100px; height: 30px; transform: translateX(-50%);
+  background: radial-gradient(ellipse, rgba(212, 165, 116, 0.28), transparent 72%); filter: blur(4px); }
+.rv-door-number { position: absolute; right: -46px; top: 30%; font-family: var(--font-display); font-size: 2.6rem;
+  color: rgba(212, 165, 116, 0.18); }
+.rv-door-return { height: 170px; }
+
+.rv-arrival-luggage { position: absolute; left: 18%; bottom: 6%; opacity: 0; stroke: rgba(238, 244, 245, 0.45);
+  transform: translateY(10px); transition: opacity 600ms var(--rv-ease) 0.15s, transform 600ms var(--rv-ease) 0.15s; }
+.rv-chapter-stage.in .rv-arrival-luggage { opacity: 1; transform: none; }
+.rv-arrival-key { position: absolute; right: 20%; top: 42%; padding: 10px; border-radius: 6px;
+  background: linear-gradient(150deg, #16342b, #0d1f1a); border: 1px solid rgba(212, 165, 116, 0.25);
+  box-shadow: 0 14px 26px -10px rgba(0, 0, 0, 0.6); opacity: 0; transform: translate3d(20px, -6px, 10px) rotateY(-10deg);
+  transition: opacity 650ms var(--rv-ease) 0.05s, transform 650ms var(--rv-ease) 0.05s; }
+.rv-chapter-stage.in .rv-arrival-key { opacity: 1; transform: translate3d(0, 0, 10px) rotateY(-6deg); }
+
+/* Return: same key motif, simpler stage (context already established) */
+.rv-return-key { position: absolute; left: 50%; top: 34%; transform: translate3d(-50%, 0, 10px) rotateY(0deg) scale(0.85);
+  padding: 12px; border-radius: 6px; background: linear-gradient(150deg, #16342b, #0d1f1a);
+  border: 1px solid rgba(212, 165, 116, 0.25); box-shadow: 0 16px 30px -10px rgba(0, 0, 0, 0.6);
+  opacity: 0; transition: opacity 650ms var(--rv-ease), transform 650ms var(--rv-ease); }
+.rv-chapter-stage.in .rv-return-key { opacity: 1; transform: translate3d(-50%, 0, 10px) scale(1); }
+
+/* Stay: a service surface, one preference converging into an action */
+.rv-tray { position: absolute; left: 50%; bottom: 14%; width: 260px; height: 90px; transform: translateX(-50%) rotateX(50deg);
+  border-radius: 6px; background: linear-gradient(160deg, rgba(212, 165, 116, 0.1), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(212, 165, 116, 0.16); }
+.rv-stay-plate { position: absolute; left: 50%; top: 38%; transform: translate3d(-50%, 0, 20px) scale(0.7);
+  opacity: 0; transition: opacity 650ms var(--rv-ease), transform 650ms var(--rv-ease); }
+.rv-chapter-stage.in .rv-stay-plate { opacity: 1; transform: translate3d(-50%, 0, 20px) scale(1); }
+.rv-stay-tag { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); font-size: 0.68rem;
+  text-transform: uppercase; letter-spacing: 0.1em; padding: 5px 12px; border-radius: 999px;
+  background: rgba(9, 20, 18, 0.85); border: 1px solid rgba(150, 214, 197, 0.22); color: rgba(238, 244, 245, 0.85);
+  opacity: 0; transition: opacity 550ms var(--rv-ease) 0.2s, transform 550ms var(--rv-ease) 0.2s;
+  transform: translate(-50%, 10px); white-space: nowrap; }
+.rv-chapter-stage.in .rv-stay-tag { opacity: 1; transform: translate(-50%, 0); }
+.rv-stay-mark { position: absolute; display: inline-flex; align-items: center; gap: 5px; font-size: 0.62rem;
+  color: rgba(238, 244, 245, 0.4); opacity: 0; transition: opacity 550ms var(--rv-ease) 0.55s; }
+.rv-chapter-stage.in .rv-stay-mark { opacity: 1; }
+.rv-stay-mark-1 { left: 10%; bottom: 22%; }
+.rv-stay-mark-2 { right: 10%; bottom: 22%; }
+
+@media (max-width: 640px) {
+  /* Tighter vertical rhythm on mobile -- the cinematic chapters were
+     leaving a large dead zone before the editorial section (each
+     chapter's own top+bottom padding compounding three times over).
+     Cuts each chapter's section padding roughly in half and pulls the
+     stage/line spacing in to match, so Return lands close to the
+     65-75vh target instead of sprawling. */
+  .rv-chapter { padding-top: 40px; padding-bottom: 40px; }
+  .rv-chapter-stage { height: clamp(200px, 52vw, 250px); margin-top: 24px; }
+  .rv-chapter-line { margin-top: 26px; }
+  .rv-door { width: 110px; height: 170px; }
+  .rv-tray { width: 200px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-chapter-text-line, .rv-arrival-luggage, .rv-arrival-key, .rv-return-key, .rv-stay-plate, .rv-stay-tag, .rv-stay-mark {
+    opacity: 1 !important; transform: none !important; transition: none !important; }
+}
+
+/* ---- Editorial: "What changes for the hotel?" ---- */
+/* The deliberate change of pace after Return -- typography and
+   whitespace, not another staged scene, not icon cards. Oversized
+   numbers are the visual anchor; one faint, large hospitality-object
+   mark bleeds off the section edge as the section's only "3D" texture
+   (a restrained callback to the chapters' material, not a repeat of
+   their staging system). */
+.rv-editorial { position: relative; overflow: hidden; background: rgba(255, 255, 255, 0.015); }
+.rv-editorial-mark { position: absolute; right: -60px; bottom: -60px; width: 260px; height: 260px;
+  stroke: var(--rv-mist); opacity: 0.035; pointer-events: none; }
+.rv-editorial-headline { font-family: var(--font-display); font-size: clamp(1.8rem, 4vw, 2.9rem);
+  line-height: 1.16; color: #fff; max-width: 16ch; text-transform: uppercase; letter-spacing: -0.01em; }
+.rv-outcomes-list { margin-top: 56px; display: flex; flex-direction: column; }
+.rv-outcome-row { display: flex; align-items: baseline; gap: 28px; padding: 30px 0;
+  border-top: 1px solid rgba(150, 214, 197, 0.16); }
+.rv-outcome-row:last-child { border-bottom: 1px solid rgba(150, 214, 197, 0.16); }
+.rv-outcome-num { flex: 0 0 auto; font-family: var(--font-display); font-size: clamp(2.4rem, 5vw, 3.6rem);
+  color: rgba(212, 165, 116, 0.35); line-height: 1; font-variant-numeric: tabular-nums; }
+.rv-outcome-copy h3 { font-family: var(--font-display); font-size: clamp(1.15rem, 2vw, 1.5rem);
+  text-transform: uppercase; letter-spacing: 0.01em; color: #fff; font-weight: 600; }
+.rv-outcome-copy p { margin-top: 8px; font-size: 0.94rem; color: rgba(238, 244, 245, 0.68); max-width: 46ch; }
+@media (max-width: 640px) {
+  .rv-editorial-mark { width: 180px; height: 180px; right: -40px; bottom: -40px; }
+  .rv-outcomes-list { margin-top: 36px; }
+  .rv-outcome-row { gap: 16px; padding: 22px 0; }
+}
+
+/* ---- Staff Experience ---- */
+.rv-staff-panel { margin-top: 36px; display: grid; grid-template-columns: 1.3fr 1fr; border-radius: 3px;
+  border: 1px solid rgba(150, 214, 197, 0.16); overflow: hidden; }
+.rv-staff-col { padding: 28px 26px; }
+.rv-staff-col-now { background: linear-gradient(155deg, rgba(46, 196, 196, 0.16), rgba(15, 138, 138, 0.06));
+  border-left: 1px solid rgba(150, 214, 197, 0.16); }
+.rv-staff-col-label { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--rv-signal-bright); font-weight: 600; }
+.rv-staff-panel dl { margin: 16px 0 0; }
+.rv-staff-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0;
+  border-top: 1px solid rgba(238, 244, 245, 0.08); font-size: 0.86rem; }
+.rv-staff-row:first-child { border-top: none; }
+.rv-staff-row dt { color: rgba(238, 244, 245, 0.5); }
+.rv-staff-row dd { margin: 0; color: #fff; text-align: right; }
+.rv-staff-col-now ul { margin: 16px 0 0; padding: 0; list-style: none; font-size: 0.92rem; }
+.rv-staff-col-now li { padding: 8px 0; border-top: 1px solid rgba(238, 244, 245, 0.1); color: rgba(238, 244, 245, 0.9); }
+.rv-staff-col-now li:first-child { border-top: none; }
+.rv-staff-caption { margin-top: 16px; font-size: 0.82rem; color: rgba(238, 244, 245, 0.5); }
+@media (max-width: 760px) {
+  .rv-staff-panel { grid-template-columns: 1fr; }
+  .rv-staff-col-now { border-left: none; border-top: 1px solid rgba(150, 214, 197, 0.16); }
+}
+
+/* ---- Systems Fit ---- */
+.rv-systems-fit { background: rgba(255, 255, 255, 0.02); }
+.rv-systems-equation { margin-top: 40px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.rv-systems-block { flex: 1 1 220px; padding: 24px 22px; border-radius: 3px; border: 1px solid rgba(150, 214, 197, 0.16); }
+.rv-systems-block p { margin-top: 10px; font-size: 0.88rem; color: rgba(238, 244, 245, 0.72); }
+.rv-systems-block-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
+  color: rgba(238, 244, 245, 0.6); font-weight: 600; }
+.rv-systems-block-accent { background: linear-gradient(155deg, rgba(46, 196, 196, 0.22), rgba(15, 138, 138, 0.08)); }
+.rv-systems-block-accent .rv-systems-block-label { color: var(--rv-signal-bright); }
+.rv-systems-block-result { flex-basis: 200px; text-align: center; background: rgba(255, 255, 255, 0.04); }
+.rv-systems-block-result .rv-systems-block-label { color: #fff; font-size: 0.98rem; text-transform: none; letter-spacing: 0; }
+.rv-systems-op { font-family: var(--font-display); font-size: 1.6rem; color: rgba(238, 244, 245, 0.4); flex: 0 0 auto; }
+@media (max-width: 760px) {
+  .rv-systems-equation { flex-direction: column; align-items: stretch; }
+  .rv-systems-op { text-align: center; }
+}
+
+/* ---- Closing CTA ---- */
+.rv-closing { text-align: center; }
+.rv-closing .rv-section-inner { max-width: 640px; }
+.rv-closing-line { font-family: var(--font-display); font-size: clamp(1.7rem, 3.6vw, 2.6rem); font-weight: 600;
+  line-height: 1.2; color: #fff; text-wrap: balance; }
+.rv-closing .rv-cta { margin-top: 32px; }
 
 /* ---- reduced-motion static fallback: every beat, stacked, always visible ---- */
 .rv-rm-beat { position: relative; min-height: 68vh; display: flex; align-items: center; justify-content: center;

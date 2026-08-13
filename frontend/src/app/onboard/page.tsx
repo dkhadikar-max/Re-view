@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Check, Building2 } from "lucide-react";
 import { api, setToken } from "@/lib/api";
 import { Button } from "@/components/ui";
-import { ARGUS, REVISIT } from "@/lib/brand";
+import { REVISIT } from "@/lib/brand";
 import { currencyForCountry } from "@/lib/currency";
 
 export default function HotelSignupPage() {
@@ -73,7 +73,7 @@ export default function HotelSignupPage() {
       <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1fr_1.05fr]">
         <aside className="animate-fade-up self-start opacity-0 lg:sticky lg:top-10">
           <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-sea-700">
-            {ARGUS.productLine} · {REVISIT.name}
+            {REVISIT.name}
           </p>
           <h1 className="mt-3 font-display text-4xl tracking-tight text-ink-950 md:text-5xl">
             See {REVISIT.name} for your hotel
