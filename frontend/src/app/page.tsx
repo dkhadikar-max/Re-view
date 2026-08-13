@@ -1,6 +1,8 @@
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { Hero } from "@/components/marketing/Hero";
 import { SignatureSequence } from "@/components/marketing/SignatureSequence";
+import { AnswerBlocks } from "@/components/marketing/AnswerBlocks";
+import { StructuredData } from "@/components/marketing/StructuredData";
 import "@/components/marketing/marketing.css";
 
 /**
@@ -19,13 +21,21 @@ import "@/components/marketing/marketing.css";
  * not ReVisit's own. See public/images/marketing/CREDITS.md — flagged
  * explicitly there and in-page (small credit lines) since two of the
  * three depict a real, named, unaffiliated hotel.
+ *
+ * AnswerBlocks + StructuredData (SEO_AEO_GEO_AUDIT.md /
+ * SEO_AEO_GEO_IMPLEMENTATION.md) are the site's real semantic layer —
+ * deliberately static, deliberately separate from the cinematic
+ * sequence above, so the page's actual meaning never depends on a
+ * search engine or AI system understanding the animation.
  */
 export default function HomePage() {
   return (
     <div className="rv-root rv-dusk">
+      <StructuredData />
       <MarketingNav />
       <Hero />
       <SignatureSequence />
+      <AnswerBlocks />
     </div>
   );
 }
