@@ -206,6 +206,29 @@ possible" — that discipline is the whole point of this phase.
 
 ---
 
+## Database Schema Changes — Hard Rule
+
+Learned from the PR #52 production incident (2026-08-13): a correct
+Alembic migration and a correct SQLAlchemy model still let production
+crash-loop for a full day, because production never ran `alembic
+upgrade head` — the mechanism that actually patches the live database
+was a separate hand-rolled file (`schema_patches.py`) that nobody
+updated. Two competing "correct" systems, no shared source of truth,
+and nothing caught the gap between them until production was already
+crashing. (Issue #53 tracks retiring that dual architecture in favor
+of Alembic as the single mechanism — until that's done, both rules
+below apply.)
+
+- Any database schema change must include a production migration path
+  and a migration test. Never modify an ORM model without verifying
+  how the production database receives the corresponding schema
+  change.
+- Before merging backend changes, inspect deployment configuration,
+  migration execution, startup lifecycle, and CI — not just
+  application tests.
+
+---
+
 ## Before Making Changes
 
 Always:
