@@ -35,10 +35,13 @@ export function MarketingNav() {
         <Link href="/login" className="sign-in">
           Sign in
         </Link>
-        {/* "Start free", not "Start a pilot" — /onboard is instant
-            self-serve trial signup, not a managed pilot engagement. */}
+        {/* "Start free trial", not "Start a pilot" (implies a managed
+            engagement /onboard doesn't support) and not bare "Start
+            free" (the product itself isn't free — only the trial
+            period is, and today nothing charges since billing isn't
+            built yet; "trial" keeps that accurate either way). */}
         <a href="/onboard" className="rv-nav-cta">
-          Start free →
+          Start free trial →
         </a>
       </div>
     </nav>

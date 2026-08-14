@@ -77,7 +77,7 @@ export function Hero() {
         </p>
         <div className="rv-cta-row">
           <a href="/onboard" className="rv-cta">
-            Start free →
+            Start free trial →
           </a>
           <a href="#how-it-works" className="rv-cta-secondary">
             See how it works

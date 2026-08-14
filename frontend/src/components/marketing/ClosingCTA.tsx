@@ -6,8 +6,9 @@ import { useScrollReveal } from "./useScrollReveal";
  * A quiet premium close — per explicit direction, a single statement
  * and one CTA, no feature list or secondary information underneath.
  * `/onboard` is confirmed instant self-serve trial signup, not a
- * sales/contact flow, so "Start free" (not "Start a pilot") stays
- * accurate to what actually happens next.
+ * sales/contact flow, so "Start free trial" (not "Start a pilot,"
+ * not bare "Start free" — the product isn't free, only the trial is)
+ * stays accurate to what actually happens next.
  */
 export function ClosingCTA() {
   const { ref, revealed } = useScrollReveal<HTMLDivElement>();
@@ -24,7 +25,7 @@ export function ClosingCTA() {
             start over.
           </p>
           <a href="/onboard" className="rv-cta">
-            Start free →
+            Start free trial →
           </a>
         </div>
       </div>
