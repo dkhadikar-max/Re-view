@@ -59,8 +59,17 @@ export function Hero() {
           <br />
           remembers every preference.
         </h1>
-        <p className="rv-support-short">
+        <p className="rv-support-short rv-support-desktop">
           Your team remembers what matters — before the guest has to ask.
+        </p>
+        {/* Mobile only (CSS-toggled, see marketing.css): the key-card
+            scene is hidden below 980px, so mobile needs a specific,
+            concrete cue in its place rather than a generic sentence —
+            the photo should set the mood, not compete with the
+            proposition. */}
+        <p className="rv-support-short rv-support-mobile">
+          Marie Dupont — vegetarian, quiet room, anniversary —
+          remembered before she checks in.
         </p>
         <div className="rv-cta-row">
           <a href="/onboard" className="rv-cta">

@@ -84,6 +84,20 @@
 .rv-hero h1 { font-size: clamp(2.3rem, 5.6vw, 4.4rem); line-height: 1.03; letter-spacing: -0.02em;
   margin-top: 16px; color: #fff; }
 .rv-support-short { margin-top: 20px; font-size: 1rem; color: rgba(238, 244, 245, 0.8); max-width: 34ch; }
+.rv-support-mobile { display: none; }
+@media (max-width: 979px) {
+  /* Below 980px the key-card scene is hidden (see .rv-hero-scene-wrap),
+     so the specific guest cue replaces the generic line instead of
+     competing with a visual that isn't there. The photo also gets a
+     touch more darkening here -- on mobile it's the only visual, and
+     it should set the mood, not fight the headline for attention. */
+  .rv-support-desktop { display: none; }
+  .rv-support-mobile { display: block; max-width: 30ch; }
+  .rv-hero .rv-grade-dusk {
+    background: linear-gradient(160deg, rgba(8, 17, 21, 0.74) 0%, rgba(8, 17, 21, 0.38) 45%, rgba(8, 17, 21, 0.82) 100%),
+      linear-gradient(rgba(12, 60, 60, 0.16), rgba(12, 60, 60, 0.16));
+  }
+}
 
 /* ---- Hero signature scene: the key card, not an icon chain ---- */
 /* Foreground (the card) carries the visible mouse-parallax tilt;
@@ -353,17 +367,22 @@
 .rv-stay-mark-2 { right: 10%; bottom: 22%; }
 
 @media (max-width: 640px) {
-  /* Tighter vertical rhythm on mobile -- the cinematic chapters were
-     leaving a large dead zone before the editorial section (each
-     chapter's own top+bottom padding compounding three times over).
-     Cuts each chapter's section padding roughly in half and pulls the
-     stage/line spacing in to match, so Return lands close to the
-     65-75vh target instead of sprawling. */
-  .rv-chapter { padding-top: 40px; padding-bottom: 40px; }
-  .rv-chapter-stage { height: clamp(200px, 52vw, 250px); margin-top: 24px; }
-  .rv-chapter-line { margin-top: 26px; }
-  .rv-door { width: 110px; height: 170px; }
-  .rv-tray { width: 200px; }
+  /* Each chapter reads as one deliberate, near-fullscreen cinematic
+     beat on mobile (~85vh, centered) rather than either sprawling
+     (the original desktop-derived padding) or feeling cramped (an
+     earlier pass over-corrected to ~50vh). The earlier "dead zone"
+     complaint was really about the GAP between Return and the
+     editorial section, not each chapter's own height -- that's
+     handled by tight padding at the seam (rv-chapter-line's
+     margin-bottom below), not by shrinking the chapters themselves.
+     The stage is also sized up so the actual scene fills more of
+     that space, rather than a small island in a lot of empty padding. */
+  .rv-chapter { min-height: 85vh; display: flex; flex-direction: column;
+    justify-content: center; padding-top: 56px; padding-bottom: 32px; }
+  .rv-chapter-stage { height: clamp(260px, 66vw, 320px); margin-top: 32px; }
+  .rv-chapter-line { margin-top: 30px; margin-bottom: 0; }
+  .rv-door { width: 130px; height: 195px; }
+  .rv-tray { width: 230px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .rv-chapter-text-line, .rv-arrival-luggage, .rv-arrival-key, .rv-return-key, .rv-stay-plate, .rv-stay-tag, .rv-stay-mark {
@@ -419,6 +438,15 @@
   .rv-staff-panel { grid-template-columns: 1fr; }
   .rv-staff-col-now { border-left: none; border-top: 1px solid rgba(150, 214, 197, 0.16); }
 }
+@media (max-width: 640px) {
+  /* A two-column data panel reads as a SaaS dashboard dropped into a
+     hospitality site on a phone -- exactly what the rest of the page
+     is deliberately not. Desktop keeps the full panel unchanged;
+     mobile drops the section rather than compress it into something
+     worse. Nothing here is lost information -- the same Marie Dupont
+     facts are already established in Arrival/Stay/Return. */
+  .rv-staff-section { display: none; }
+}
 
 /* ---- Systems Fit ---- */
 .rv-systems-fit { background: rgba(255, 255, 255, 0.02); }
@@ -432,9 +460,18 @@
 .rv-systems-block-result { flex-basis: 200px; text-align: center; background: rgba(255, 255, 255, 0.04); }
 .rv-systems-block-result .rv-systems-block-label { color: #fff; font-size: 0.98rem; text-transform: none; letter-spacing: 0; }
 .rv-systems-op { font-family: var(--font-display); font-size: 1.6rem; color: rgba(238, 244, 245, 0.4); flex: 0 0 auto; }
+.rv-systems-proof-mobile { display: none; }
 @media (max-width: 760px) {
   .rv-systems-equation { flex-direction: column; align-items: stretch; }
   .rv-systems-op { text-align: center; }
+}
+@media (max-width: 640px) {
+  /* Same fact, two lines instead of a three-box equation diagram --
+     the boxed "+ / =" composition is exactly the SaaS-diagram
+     language the mobile page is otherwise free of. */
+  .rv-systems-equation, .rv-systems-sub-desktop { display: none; }
+  .rv-systems-proof-mobile { display: block; margin-top: 32px; font-size: 1.05rem; line-height: 1.6;
+    color: rgba(238, 244, 245, 0.85); max-width: 30ch; }
 }
 
 /* ---- Closing CTA ---- */
@@ -442,6 +479,10 @@
 .rv-closing .rv-section-inner { max-width: 640px; }
 .rv-closing-line { font-family: var(--font-display); font-size: clamp(1.7rem, 3.6vw, 2.6rem); font-weight: 600;
   line-height: 1.2; color: #fff; text-wrap: balance; }
+@media (max-width: 640px) {
+  .rv-closing { min-height: 65vh; display: flex; align-items: center; }
+  .rv-closing .rv-section-inner { margin: 0 auto; }
+}
 .rv-closing .rv-cta { margin-top: 32px; }
 
 /* ---- reduced-motion static fallback: every beat, stacked, always visible ---- */

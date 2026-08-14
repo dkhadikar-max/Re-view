@@ -19,6 +19,11 @@ export function SystemsFit() {
       <div className="rv-section-inner">
         <div ref={ref} className={`rv-reveal${revealed ? " in" : ""}`}>
           <span className="rv-section-eyebrow">Works with what you have</span>
+
+          {/* Desktop: the equation composition. Hidden on mobile via
+              CSS -- a row of boxed panels + operators reads as a
+              SaaS diagram on a phone, not the editorial/premium
+              language the rest of the mobile page uses. */}
           <div className="rv-systems-equation">
             <div className="rv-systems-block">
               <span className="rv-systems-block-label">Your existing hotel system</span>
@@ -34,9 +39,17 @@ export function SystemsFit() {
               <h2 className="rv-systems-block-label">A more personal stay</h2>
             </div>
           </div>
-          <p className="rv-section-sub">
+          <p className="rv-section-sub rv-systems-sub-desktop">
             ReVisit works alongside the systems your hotel already runs — it
             doesn&rsquo;t replace them.
+          </p>
+
+          {/* Mobile: the same fact as two short lines instead of an
+              equation diagram. Same claim, no boxes. */}
+          <p className="rv-systems-proof-mobile">
+            Your existing hotel system stays exactly where it is.
+            <br />
+            ReVisit adds the memory layer.
           </p>
         </div>
       </div>
