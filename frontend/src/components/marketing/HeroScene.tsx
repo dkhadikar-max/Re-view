@@ -10,10 +10,16 @@ import { QuietIcon, PlateIcon, CalendarIcon } from "./HospitalityIcons";
  * which is how the brief's "foreground moves more than background"
  * depth cue is achieved with plain CSS perspective/translateZ, no
  * WebGL. Guest name and room number are printed on the card itself
- * (hotel signage, not a UI label); the preference tags, status line,
- * and welcome text stage in on mount via CSS animation-delay, not
- * scroll — the hero is already in view on load, so there's nothing to
- * scroll-trigger.
+ * (hotel signage, not a UI label); the preference tags stage in on
+ * mount via CSS animation-delay, not scroll — the hero is already in
+ * view on load, so there's nothing to scroll-trigger.
+ *
+ * Deliberately does not carry its own "Welcome back, Marie." headline
+ * text (an earlier version did) — that read as a second, competing
+ * statement next to the Hero's own H1, turning the card into a
+ * product-demo block instead of a detail glimpsed in the scene. The
+ * card now only shows what a physical key card would actually show:
+ * a name, a room number, a few preference marks.
  */
 export function HeroScene() {
   const sceneRef = useRef<HTMLDivElement>(null);
@@ -89,10 +95,6 @@ export function HeroScene() {
         <span className="rv-keycard-guest">Marie Dupont</span>
         <span className="rv-keycard-room">Room 407</span>
       </div>
-
-      <span className="rv-keycard-status">ReVisit — guest context ready</span>
-      <span className="rv-keycard-welcome">Welcome back, Marie.</span>
-      <p className="rv-keycard-line">The guest didn&rsquo;t have to ask.</p>
     </div>
   );
 }

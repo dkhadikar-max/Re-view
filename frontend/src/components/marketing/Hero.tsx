@@ -55,12 +55,13 @@ export function Hero() {
       <div className="rv-copy">
         <span className="rv-eyebrow">ReVisit for hotels</span>
         <h1>
-          Guest intelligence that
+          Your hotel
           <br />
-          remembers every preference.
+          remembers your guests.
         </h1>
         <p className="rv-support-short rv-support-desktop">
-          Your team remembers what matters — before the guest has to ask.
+          Every preference. Every occasion. Every detail your team
+          shouldn&rsquo;t have to ask twice.
         </p>
         {/* Mobile only (CSS-toggled, see marketing.css): the key-card
             scene is hidden below 980px, so mobile needs a specific,
@@ -73,7 +74,7 @@ export function Hero() {
         </p>
         <div className="rv-cta-row">
           <a href="/onboard" className="rv-cta">
-            See ReVisit with your property →
+            Start free →
           </a>
           <a href="#how-it-works" className="rv-cta-secondary">
             See how it works

@@ -49,6 +49,19 @@
 .rv-nav.solid { background: rgba(12, 26, 31, 0.72); backdrop-filter: blur(10px);
   padding: 14px clamp(20px, 4vw, 48px); border-color: rgba(255, 255, 255, 0.08); }
 .rv-nav .sign-in { font-size: 0.82rem; color: rgba(238, 244, 245, 0.8); }
+.rv-nav-links { display: flex; gap: 28px; font-size: 0.82rem; color: rgba(238, 244, 245, 0.75); }
+.rv-nav-links a { color: inherit; text-decoration: none; transition: color 0.25s ease; }
+.rv-nav-links a:hover { color: #fff; }
+.rv-nav-actions { display: flex; align-items: center; gap: 22px; }
+.rv-nav-cta { font-size: 0.78rem; padding: 9px 16px; border-radius: 2px; background: var(--rv-signal);
+  color: #08181a; font-weight: 500; text-decoration: none; transition: background 0.25s ease; }
+.rv-nav-cta:hover { background: var(--rv-signal-bright); }
+@media (max-width: 760px) {
+  /* Keep the mobile nav to wordmark + Sign in only -- section anchors
+     and a CTA button crowd a small bar and aren't essential there;
+     the hero's own CTA row covers the action. */
+  .rv-nav-links, .rv-nav-cta { display: none; }
+}
 
 /* ---- shared: video/photo grounds with a color grade ---- */
 /* isolation:isolate + contain give each ground its own stacking and
@@ -108,54 +121,46 @@
    not a floating UI label. */
 .rv-hero-scene-wrap { position: absolute; right: clamp(20px, 5vw, 72px); top: 50%; transform: translateY(-50%);
   z-index: 2; display: none; }
-.rv-keycard-scene { position: relative; width: 340px; height: 420px; perspective: 1000px; }
+/* Sized to read as a detail glimpsed in the scene, not a second
+   content column competing with the photograph and headline --
+   deliberately smaller than an earlier version that also carried its
+   own headline text (removed; see HeroScene.tsx). */
+.rv-keycard-scene { position: relative; width: 260px; height: 300px; perspective: 1000px; }
 
 .rv-keycard-bg { position: absolute; inset: 0; transform: translate3d(0, 0, -80px); transition: transform 300ms var(--rv-ease); }
-.rv-keycard-room-number { position: absolute; right: -10px; top: 10px; font-family: var(--font-display);
-  font-size: 9rem; font-weight: 600; color: rgba(212, 165, 116, 0.1); filter: blur(0.5px); line-height: 1; }
-.rv-keycard-glow { position: absolute; left: 30%; top: 20%; width: 220px; height: 220px; border-radius: 50%;
+.rv-keycard-room-number { position: absolute; right: -6px; top: 4px; font-family: var(--font-display);
+  font-size: 6.4rem; font-weight: 600; color: rgba(212, 165, 116, 0.1); filter: blur(0.5px); line-height: 1; }
+.rv-keycard-glow { position: absolute; left: 28%; top: 16%; width: 160px; height: 160px; border-radius: 50%;
   background: radial-gradient(circle, rgba(212, 165, 116, 0.16), transparent 70%); filter: blur(6px); }
 
-.rv-keycard { position: absolute; left: 50%; top: 128px; width: 224px; height: 140px;
+.rv-keycard { position: absolute; left: 50%; top: 88px; width: 172px; height: 108px;
   transform: perspective(1000px) rotateX(-8deg) rotateY(-10deg) translateX(-50%);
-  transform-origin: center; border-radius: 10px;
+  transform-origin: center; border-radius: 8px;
   background: linear-gradient(135deg, #16342b 0%, #0d1f1a 60%, #0a1815 100%);
   border: 1px solid rgba(212, 165, 116, 0.22);
-  box-shadow: 0 30px 50px -18px rgba(0, 0, 0, 0.7), 0 10px 18px -8px rgba(0, 0, 0, 0.5),
+  box-shadow: 0 22px 38px -16px rgba(0, 0, 0, 0.7), 0 8px 14px -6px rgba(0, 0, 0, 0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  padding: 16px 18px; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between;
   opacity: 0; transition: opacity 700ms var(--rv-ease), transform 250ms var(--rv-ease); }
 .rv-keycard-scene.in .rv-keycard { opacity: 1; }
-.rv-keycard-brand { font-family: var(--font-display); font-size: 0.82rem; letter-spacing: 0.04em; color: var(--rv-warmth); }
-.rv-keycard-chip { position: absolute; right: 18px; top: 16px; width: 26px; height: 18px; border-radius: 3px;
+.rv-keycard-brand { font-family: var(--font-display); font-size: 0.7rem; letter-spacing: 0.04em; color: var(--rv-warmth); }
+.rv-keycard-chip { position: absolute; right: 14px; top: 12px; width: 20px; height: 14px; border-radius: 3px;
   background: linear-gradient(155deg, #e0bc96, #b98a56); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
-.rv-keycard-guest { font-size: 1.05rem; font-weight: 600; color: #fff; letter-spacing: 0.01em; }
-.rv-keycard-room { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(238, 244, 245, 0.55); }
+.rv-keycard-guest { font-size: 0.88rem; font-weight: 600; color: #fff; letter-spacing: 0.01em; }
+.rv-keycard-room { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(238, 244, 245, 0.55); }
 
 .rv-keycard-tags { position: absolute; inset: 0; }
-.rv-keycard-tag { position: absolute; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px;
+.rv-keycard-tag { position: absolute; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 7px;
   border-radius: 999px; background: rgba(9, 20, 18, 0.82); border: 1px solid rgba(150, 214, 197, 0.22);
-  font-size: 0.68rem; color: rgba(238, 244, 245, 0.85); white-space: nowrap;
+  font-size: 0.64rem; color: rgba(238, 244, 245, 0.85); white-space: nowrap;
   opacity: 0; transform: translateY(10px) scale(0.9);
   animation: rv-tag-in 650ms var(--rv-ease) forwards; animation-play-state: paused; }
 .rv-keycard-scene.in .rv-keycard-tag { animation-play-state: running; }
-.rv-keycard-tag-icon { width: 14px; height: 14px; stroke: var(--rv-signal-bright); flex-shrink: 0; }
-.rv-keycard-tag:nth-child(1) { left: -8px; top: 40px; }
-.rv-keycard-tag:nth-child(2) { right: -14px; top: 92px; }
-.rv-keycard-tag:nth-child(3) { left: 14px; top: 292px; }
+.rv-keycard-tag-icon { width: 13px; height: 13px; stroke: var(--rv-signal-bright); flex-shrink: 0; }
+.rv-keycard-tag:nth-child(1) { left: -4px; top: 18px; }
+.rv-keycard-tag:nth-child(2) { right: -8px; top: 52px; }
+.rv-keycard-tag:nth-child(3) { left: 10px; top: 210px; }
 @keyframes rv-tag-in { to { opacity: 1; transform: translateY(0) scale(1); } }
-
-.rv-keycard-status, .rv-keycard-welcome, .rv-keycard-line { position: absolute; left: 0; right: 0; text-align: center;
-  opacity: 0; transition: opacity 600ms var(--rv-ease); }
-.rv-keycard-status { top: 344px; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em;
-  color: rgba(238, 244, 245, 0.5); transition-delay: 1.2s; }
-.rv-keycard-welcome { top: 368px; font-family: var(--font-display); font-size: 1.1rem; color: #fff;
-  transition-delay: 1.5s; }
-.rv-keycard-line { top: 398px; font-style: italic; font-size: 0.86rem; color: rgba(238, 244, 245, 0.6);
-  transition-delay: 1.8s; }
-.rv-keycard-scene.in .rv-keycard-status,
-.rv-keycard-scene.in .rv-keycard-welcome,
-.rv-keycard-scene.in .rv-keycard-line { opacity: 1; }
 
 @media (min-width: 980px) {
   .rv-hero-scene-wrap { display: block; }
@@ -163,7 +168,6 @@
 @media (prefers-reduced-motion: reduce) {
   .rv-keycard { opacity: 1 !important; transition: none !important; }
   .rv-keycard-tag { animation: none !important; opacity: 1 !important; transform: none !important; }
-  .rv-keycard-status, .rv-keycard-welcome, .rv-keycard-line { opacity: 1 !important; transition: none !important; }
 }
 .rv-cta { display: inline-flex; align-items: center; gap: 10px; font-size: 0.86rem;
   padding: 13px 22px; border-radius: 2px; background: var(--rv-signal); color: #08181a; font-weight: 500;
@@ -278,7 +282,7 @@
 .rv-tilt-card:hover { box-shadow: 0 22px 60px -20px rgba(0, 0, 0, 0.5); }
 @keyframes rv-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 
-#how-it-works { scroll-margin-top: 96px; }
+#how-it-works, #for-hotels, #integrations { scroll-margin-top: 96px; }
 
 /* Shared scaffolding every new section below reuses, so each one only
    defines what's actually unique to it. */
@@ -305,7 +309,8 @@
   margin: 36px auto 0; max-width: 520px; }
 .rv-chapter-bg { position: absolute; inset: 0; transform: translateZ(-60px); }
 .rv-chapter-fg { position: absolute; inset: 0; z-index: 2; }
-.rv-chapter-icon { width: 36px; height: 36px; stroke: var(--rv-signal-bright); }
+.rv-chapter-icon { width: 36px; height: 36px; stroke: var(--rv-signal-bright);
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.4)); }
 .rv-chapter-icon-xs { width: 16px; height: 16px; stroke: rgba(238, 244, 245, 0.55); }
 
 .rv-chapter-text { position: absolute; left: 0; right: 0; bottom: -8px; text-align: center; }
@@ -322,9 +327,12 @@
   color: rgba(238, 244, 245, 0.75); }
 
 /* Arrival: doorway plane + key + luggage entering from opposite sides */
+/* An arched top (not a plain rectangle) and an inset molding line
+   read as an actual doorway, not a generic card outline. */
 .rv-door { position: absolute; left: 50%; top: 10%; width: 140px; height: 210px; transform: translateX(-50%);
-  border: 1px solid rgba(150, 214, 197, 0.18); border-radius: 4px 4px 2px 2px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.15)); }
+  border: 1px solid rgba(150, 214, 197, 0.18); border-radius: 40px 40px 3px 3px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.15));
+  box-shadow: inset 0 0 0 5px rgba(150, 214, 197, 0.05); }
 .rv-door-glow { position: absolute; left: 50%; bottom: -10px; width: 100px; height: 30px; transform: translateX(-50%);
   background: radial-gradient(ellipse, rgba(212, 165, 116, 0.28), transparent 72%); filter: blur(4px); }
 .rv-door-number { position: absolute; right: -46px; top: 30%; font-family: var(--font-display); font-size: 2.6rem;
@@ -405,6 +413,113 @@
     opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 
+/* ---- Guest Journey: 3D card-stack carousel ---- */
+/* A single compact widget (Arrival/Stay/Return as three cards staged
+   with perspective/translateZ/rotateY, one in front) replacing the
+   previous three-moments grid. Originated as a design exploration in
+   Kimi (a separate AI tool, ported into GuestJourney.tsx as a proper
+   React component) and adopted here as-is for this section -- see
+   that file's doc comment for the full story. All classes prefixed
+   `rv-jc-` (Journey Cards) to avoid colliding with unrelated existing
+   classes like the top nav's own `.rv-nav`. The previous grid's CSS
+   (.rv-journey-moment, .rv-stay-glow, .rv-tray-plain, etc.) and the
+   ChapterStage-based ArrivalScene/StayScene/ReturnScene it drew on
+   are unused now but kept in the repo, same policy as
+   SignatureSequence. A scroll-driven single-space version (pinned
+   viewport, continuous crossfade) was tried and reverted -- explicit
+   direction, back to this card-stack. */
+.rv-journey { position: relative; }
+/* The section's own atmosphere shifts with the story, not just the
+   card. One consistent color (the platform's own brass warmth, not a
+   new hue) across all three layers -- only its position drifts
+   across the section as the story moves forward, reading as one
+   continuous atmosphere following the story rather than three
+   different scenes swapping in. */
+.rv-journey-mood { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.rv-journey-mood-layer { position: absolute; inset: 0; opacity: 0; transition: opacity 1.1s var(--rv-ease); }
+.rv-journey-mood-layer.active { opacity: 1; }
+.rv-journey-mood-arrival { background: radial-gradient(ellipse 75% 60% at 30% 25%, rgba(212, 165, 116, 0.14), transparent 68%); }
+.rv-journey-mood-stay { background: radial-gradient(ellipse 75% 60% at 50% 50%, rgba(212, 165, 116, 0.16), transparent 68%); }
+.rv-journey-mood-return { background: radial-gradient(ellipse 75% 60% at 70% 75%, rgba(212, 165, 116, 0.14), transparent 68%); }
+.rv-journey > .rv-section-inner { position: relative; z-index: 1; }
+
+.rv-jc { font-family: var(--font-body); padding: 32px 24px; perspective: 1400px; min-height: 460px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+  background: transparent; border-radius: 12px; margin-top: 40px; cursor: pointer; transition: background 1.1s var(--rv-ease); }
+.rv-jc-scene { position: relative; width: 300px; height: 360px; transform-style: preserve-3d;
+  transition: transform 0.9s var(--rv-ease); }
+.rv-jc-panel { position: absolute; width: 260px; height: 340px; left: 20px; top: 10px; border-radius: 14px;
+  background: #1c1917; border: 1px solid #292524; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(251, 191, 36, 0.06);
+  transform-style: preserve-3d; backface-visibility: hidden; display: flex; flex-direction: column; padding: 22px;
+  transition: all 0.7s var(--rv-ease); cursor: pointer; overflow: hidden; }
+.rv-jc-panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #d97706, #f59e0b, #d97706); opacity: 0.6; }
+.rv-jc-panel.active { opacity: 1; filter: blur(0px); z-index: 10;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(251, 191, 36, 0.12), 0 0 40px rgba(217, 119, 6, 0.08); }
+.rv-jc-panel.active::before { opacity: 1; background: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b); }
+.rv-jc-panel.inactive { opacity: 0.25; filter: blur(1.5px); z-index: 1; }
+.rv-jc-panel-number { font-size: 11px; font-weight: 500; color: #a8a29e; letter-spacing: 0.12em;
+  text-transform: uppercase; margin-bottom: 8px; }
+.rv-jc-panel-title { font-size: 21px; font-weight: 500; color: #fafaf9; margin-bottom: 16px; line-height: 1.15;
+  letter-spacing: -0.01em; }
+.rv-jc-panel-body { font-size: 13px; line-height: 1.6; color: #a8a29e; flex: 1; overflow-y: auto; }
+.rv-jc-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.rv-jc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px;
+  font-size: 11px; font-weight: 500; background: rgba(251, 191, 36, 0.08); color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.15); }
+.rv-jc-chip.vegetarian { background: rgba(34, 197, 94, 0.08); color: #4ade80; border-color: rgba(34, 197, 94, 0.15); }
+.rv-jc-chip.quiet { background: rgba(59, 130, 246, 0.08); color: #60a5fa; border-color: rgba(59, 130, 246, 0.15); }
+.rv-jc-chip.anniversary { background: rgba(239, 68, 68, 0.08); color: #f87171; border-color: rgba(239, 68, 68, 0.15); }
+.rv-jc-flow-arrow { display: flex; align-items: center; justify-content: center; margin: 12px 0; opacity: 0.3; }
+.rv-jc-flow-arrow svg { width: 16px; height: 16px; color: #a8a29e; }
+.rv-jc-guest-card { background: #292524; border-radius: 10px; padding: 14px 16px; margin-top: 12px; border: 1px solid #44403c; }
+.rv-jc-guest-name { font-size: 14px; font-weight: 500; color: #fafaf9; margin-bottom: 4px; }
+.rv-jc-guest-meta { font-size: 11px; color: #a8a29e; }
+.rv-jc-room-badge { display: inline-flex; align-items: center; gap: 6px; background: #292524; border: 1px solid #44403c;
+  border-radius: 6px; padding: 4px 10px; font-size: 11px; color: #d6d3d1; margin-top: 8px; }
+.rv-jc-nav { display: flex; gap: 10px; margin-top: 28px; z-index: 20; }
+.rv-jc-nav-btn { width: 8px; height: 8px; border-radius: 50%; border: none; background: #44403c; cursor: pointer;
+  transition: all 0.4s var(--rv-ease); padding: 0; }
+.rv-jc-nav-btn.active { background: #f59e0b; width: 28px; border-radius: 4px; box-shadow: 0 0 12px rgba(245, 158, 11, 0.4); }
+.rv-jc-labels { display: flex; gap: 32px; margin-top: 16px; z-index: 20; }
+.rv-jc-label { font-size: 12px; color: #78716c; cursor: pointer; padding: 4px 10px; border-radius: 6px;
+  transition: all 0.3s ease; letter-spacing: 0.02em; }
+.rv-jc-label:hover { color: #d6d3d1; background: rgba(251, 191, 36, 0.06); }
+.rv-jc-label.active { color: #fbbf24; font-weight: 500; }
+.rv-jc-check-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 12.5px; color: #d6d3d1;
+  border-bottom: 1px solid #292524; }
+.rv-jc-check-item:last-child { border-bottom: none; }
+.rv-jc-check-icon { width: 15px; height: 15px; color: #f59e0b; flex-shrink: 0; }
+.rv-jc-quote { margin-top: 16px; padding: 12px; border-radius: 8px; background: rgba(251, 191, 36, 0.04);
+  border: 1px solid rgba(251, 191, 36, 0.08); text-align: center; font-size: 12px; color: #a8a29e; font-style: italic; }
+.rv-jc-fade-in { animation: rv-jc-fade-in-up 0.6s ease forwards; opacity: 0; transform: translateY(10px); }
+@keyframes rv-jc-fade-in-up { to { opacity: 1; transform: translateY(0); } }
+.rv-jc-delay-1 { animation-delay: 0.12s; }
+.rv-jc-delay-2 { animation-delay: 0.24s; }
+.rv-jc-delay-3 { animation-delay: 0.36s; }
+@media (max-width: 480px) {
+  /* The Stay panel (4 checklist items + arrow + quote) is the
+     content-heaviest of the three and was overflowing its own
+     scrollable body at this width (330px of content in a 194px
+     window, with no visible scroll affordance) -- taller
+     scene/panel plus tighter internal spacing closes most of that
+     gap without shortening the copy or diverging it from other
+     breakpoints. */
+  .rv-jc { min-height: 500px; padding: 24px 16px; }
+  .rv-jc-scene { width: 240px; height: 420px; }
+  .rv-jc-panel { width: 210px; height: 400px; left: 15px; padding: 18px; }
+  .rv-jc-labels { gap: 22px; }
+  .rv-jc-check-item { padding: 6px 0; font-size: 12px; }
+  .rv-jc-quote { margin-top: 10px; padding: 10px; font-size: 11px; }
+  .rv-jc-flow-arrow { margin: 8px 0; }
+  .rv-jc-guest-card { padding: 12px 14px; margin-top: 10px; }
+  .rv-jc-chip-row { margin-top: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-jc-scene, .rv-jc-panel { transition: none !important; }
+  .rv-jc-fade-in { opacity: 1 !important; transform: none !important; animation: none !important; }
+}
+
 /* ---- Editorial: "What changes for the hotel?" ---- */
 /* The deliberate change of pace after Return -- typography and
    whitespace, not another staged scene, not icon cards. Oversized
@@ -423,6 +538,8 @@
 .rv-outcome-row:last-child { border-bottom: 1px solid rgba(150, 214, 197, 0.16); }
 .rv-outcome-num { flex: 0 0 auto; font-family: var(--font-display); font-size: clamp(2.4rem, 5vw, 3.6rem);
   color: rgba(212, 165, 116, 0.35); line-height: 1; font-variant-numeric: tabular-nums; }
+.rv-outcome-phase { flex: 0 0 auto; width: 6.5ch; font-family: var(--font-display); font-style: italic;
+  font-size: clamp(1.5rem, 2.8vw, 2rem); color: rgba(212, 165, 116, 0.5); line-height: 1; }
 .rv-outcome-copy h3 { font-family: var(--font-display); font-size: clamp(1.15rem, 2vw, 1.5rem);
   text-transform: uppercase; letter-spacing: 0.01em; color: #fff; font-weight: 600; }
 .rv-outcome-copy p { margin-top: 8px; font-size: 0.94rem; color: rgba(238, 244, 245, 0.68); max-width: 46ch; }
@@ -464,30 +581,28 @@
   .rv-staff-section { display: none; }
 }
 
-/* ---- Systems Fit ---- */
-.rv-systems-fit { background: rgba(255, 255, 255, 0.02); }
-.rv-systems-equation { margin-top: 40px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-.rv-systems-block { flex: 1 1 220px; padding: 24px 22px; border-radius: 3px; border: 1px solid rgba(150, 214, 197, 0.16); }
-.rv-systems-block p { margin-top: 10px; font-size: 0.88rem; color: rgba(238, 244, 245, 0.72); }
-.rv-systems-block-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
-  color: rgba(238, 244, 245, 0.6); font-weight: 600; }
-.rv-systems-block-accent { background: linear-gradient(155deg, rgba(46, 196, 196, 0.22), rgba(15, 138, 138, 0.08)); }
-.rv-systems-block-accent .rv-systems-block-label { color: var(--rv-signal-bright); }
-.rv-systems-block-result { flex-basis: 200px; text-align: center; background: rgba(255, 255, 255, 0.04); }
-.rv-systems-block-result .rv-systems-block-label { color: #fff; font-size: 0.98rem; text-transform: none; letter-spacing: 0; }
-.rv-systems-op { font-family: var(--font-display); font-size: 1.6rem; color: rgba(238, 244, 245, 0.4); flex: 0 0 auto; }
-.rv-systems-proof-mobile { display: none; }
-@media (max-width: 760px) {
-  .rv-systems-equation { flex-direction: column; align-items: stretch; }
-  .rv-systems-op { text-align: center; }
-}
+/* ---- Systems Fit / Memory Layer ---- */
+/* A restrained conceptual flow, not a boxed architecture diagram --
+   two label rows connected by a single accent word through thin
+   vertical rules. Flex-wrap alone handles narrow viewports, so this
+   is one markup for every breakpoint (no separate mobile fallback
+   text needed, unlike the equation version this replaces). */
+.rv-memory-layer { background: rgba(255, 255, 255, 0.02); }
+.rv-memory-diagram { margin-top: 44px; display: flex; flex-direction: column; align-items: center;
+  gap: 0; text-align: center; }
+.rv-memory-row { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 26px; row-gap: 10px;
+  max-width: 620px; }
+.rv-memory-row span { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: rgba(238, 244, 245, 0.5); }
+.rv-memory-outputs span { color: rgba(238, 244, 245, 0.75); }
+.rv-memory-connector { width: 1px; height: 30px; background: rgba(150, 214, 197, 0.28); }
+.rv-memory-core { font-family: var(--font-display); font-size: clamp(1.1rem, 2.4vw, 1.5rem);
+  color: var(--rv-signal-bright); padding: 14px 30px;
+  border-top: 1px solid rgba(150, 214, 197, 0.28); border-bottom: 1px solid rgba(150, 214, 197, 0.28); }
+.rv-memory-sub { margin-left: auto; margin-right: auto; text-align: center; }
 @media (max-width: 640px) {
-  /* Same fact, two lines instead of a three-box equation diagram --
-     the boxed "+ / =" composition is exactly the SaaS-diagram
-     language the mobile page is otherwise free of. */
-  .rv-systems-equation, .rv-systems-sub-desktop { display: none; }
-  .rv-systems-proof-mobile { display: block; margin-top: 32px; font-size: 1.05rem; line-height: 1.6;
-    color: rgba(238, 244, 245, 0.85); max-width: 30ch; }
+  .rv-memory-diagram { margin-top: 32px; }
+  .rv-memory-connector { height: 22px; }
 }
 
 /* ---- Closing CTA ---- */
