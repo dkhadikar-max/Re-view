@@ -68,8 +68,8 @@ export function Hero() {
             the photo should set the mood, not compete with the
             proposition. */}
         <p className="rv-support-short rv-support-mobile">
-          Marie Dupont — vegetarian, quiet room, anniversary —
-          remembered before she checks in.
+          Marie is returning. Her room, her preferences, even the
+          occasion — already remembered.
         </p>
         <div className="rv-cta-row">
           <a href="/onboard" className="rv-cta">

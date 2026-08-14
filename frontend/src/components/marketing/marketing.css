@@ -365,6 +365,7 @@
 .rv-chapter-stage.in .rv-stay-mark { opacity: 1; }
 .rv-stay-mark-1 { left: 10%; bottom: 22%; }
 .rv-stay-mark-2 { right: 10%; bottom: 22%; }
+.rv-stay-beat-mobile { display: none; }
 
 @media (max-width: 640px) {
   /* Each chapter reads as one deliberate, near-fullscreen cinematic
@@ -383,6 +384,21 @@
   .rv-chapter-line { margin-top: 30px; margin-bottom: 0; }
   .rv-door { width: 130px; height: 195px; }
   .rv-tray { width: 230px; }
+
+  /* Stay specifically: the "Vegetarian" pill + bordered tray + labeled
+     marks read as a UI component displaying guest attributes on a
+     phone -- exactly the dashboard language the rest of the mobile
+     page avoids. The plate (the physical object) stays as the visual
+     carrier; quiet room/anniversary reduce to small unlabeled icons --
+     environmental detail, not a data row -- and a plain story-beat
+     line replaces the pill + status text. Desktop keeps the full
+     pill/tray/label treatment, unchanged. */
+  .rv-stay-tag { display: none; }
+  .rv-tray { background: none; border-color: transparent; }
+  .rv-stay-mark-text { display: none; }
+  .rv-stay-mark { color: rgba(238, 244, 245, 0.3); }
+  .rv-stay-beat-mobile { display: block; margin-top: 28px; text-align: center; font-style: italic;
+    font-size: 1.05rem; line-height: 1.55; color: rgba(238, 244, 245, 0.85); }
 }
 @media (prefers-reduced-motion: reduce) {
   .rv-chapter-text-line, .rv-arrival-luggage, .rv-arrival-key, .rv-return-key, .rv-stay-plate, .rv-stay-tag, .rv-stay-mark {
