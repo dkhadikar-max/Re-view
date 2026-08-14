@@ -4,11 +4,14 @@ import { useEffect, useRef } from "react";
 import { HeroScene } from "./HeroScene";
 
 /**
- * Act I — Arrival. Full-bleed licensed photo standing in for a future
+ * Act I — Arrival. Full-bleed photo standing in for a future
  * commissioned arrival video (see public/images/marketing/CREDITS.md).
- * The image itself drifts almost imperceptibly on scroll via a direct
- * ref transform — deliberately not React state, since this updates on
- * every scroll frame and a re-render per frame would be wasteful.
+ * AI-generated (not a real named property — deliberately generic
+ * European grand-hotel facade, checked against not resembling any
+ * single recognizable real building/brand). The image itself drifts
+ * almost imperceptibly on scroll via a direct ref transform —
+ * deliberately not React state, since this updates on every scroll
+ * frame and a re-render per frame would be wasteful.
  */
 export function Hero() {
   const imgRef = useRef<HTMLImageElement>(null);
@@ -41,7 +44,7 @@ export function Hero() {
     <section className="rv-hero">
       <div className="rv-ground">
         {/* eslint-disable-next-line @next/next/no-img-element -- scroll-driven transform needs a plain img, not next/image */}
-        <img ref={imgRef} src="/images/marketing/arrival.jpg" alt="" />
+        <img ref={imgRef} src="/images/marketing/facade-dusk.png" alt="" />
         <div className="rv-grade-dusk" />
         <div className="rv-vignette" />
         {/* Was a full-viewport SVG feTurbulence filter -- recomputed
@@ -55,12 +58,13 @@ export function Hero() {
       <div className="rv-copy">
         <span className="rv-eyebrow">ReVisit for hotels</span>
         <h1>
-          Guest intelligence that
+          Your hotel
           <br />
-          remembers every preference.
+          remembers your guests.
         </h1>
         <p className="rv-support-short rv-support-desktop">
-          Your team remembers what matters — before the guest has to ask.
+          Every preference. Every occasion. Every detail your team
+          shouldn&rsquo;t have to ask twice.
         </p>
         {/* Mobile only (CSS-toggled, see marketing.css): the key-card
             scene is hidden below 980px, so mobile needs a specific,
@@ -73,7 +77,7 @@ export function Hero() {
         </p>
         <div className="rv-cta-row">
           <a href="/onboard" className="rv-cta">
-            See ReVisit with your property →
+            Start free trial →
           </a>
           <a href="#how-it-works" className="rv-cta-secondary">
             See how it works
@@ -85,7 +89,6 @@ export function Hero() {
         <HeroScene />
       </div>
 
-      <p className="rv-credit">Entrance, Amantaka — Basile Morin, CC BY-SA 4.0, Wikimedia Commons</p>
       <div className="rv-scroll-cue">
         <span className="rv-line" />
         Scroll

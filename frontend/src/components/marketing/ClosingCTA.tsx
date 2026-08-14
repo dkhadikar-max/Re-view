@@ -4,12 +4,11 @@ import { useScrollReveal } from "./useScrollReveal";
 
 /**
  * A quiet premium close — per explicit direction, a single statement
- * and one CTA, no feature list underneath. "A stay that remembers you
- * feels different." still lives once, mid-page, in
- * SignatureSequence.tsx's Act V — this doesn't need to repeat it, it
- * has its own, more direct closing line. `/onboard` is confirmed
- * instant self-serve trial signup, not a sales/contact flow, so one
- * CTA, accurate to what actually happens, is correct here.
+ * and one CTA, no feature list or secondary information underneath.
+ * `/onboard` is confirmed instant self-serve trial signup, not a
+ * sales/contact flow, so "Start free trial" (not "Start a pilot,"
+ * not bare "Start free" — the product isn't free, only the trial is)
+ * stays accurate to what actually happens next.
  */
 export function ClosingCTA() {
   const { ref, revealed } = useScrollReveal<HTMLDivElement>();
@@ -26,7 +25,7 @@ export function ClosingCTA() {
             start over.
           </p>
           <a href="/onboard" className="rv-cta">
-            See ReVisit with your property →
+            Start free trial →
           </a>
         </div>
       </div>

@@ -1,53 +1,51 @@
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { Hero } from "@/components/marketing/Hero";
-import { SignatureSequence } from "@/components/marketing/SignatureSequence";
-import { ArrivalScene } from "@/components/marketing/ArrivalScene";
-import { StayScene } from "@/components/marketing/StayScene";
-import { ReturnScene } from "@/components/marketing/ReturnScene";
-import { HotelOutcomes } from "@/components/marketing/HotelOutcomes";
-import { StaffExperience } from "@/components/marketing/StaffExperience";
+import { GuestJourney } from "@/components/marketing/GuestJourney";
+import { HotelValue } from "@/components/marketing/HotelValue";
 import { SystemsFit } from "@/components/marketing/SystemsFit";
 import { ClosingCTA } from "@/components/marketing/ClosingCTA";
 import "@/components/marketing/marketing.css";
 
 /**
- * Public marketing homepage — Direction B (Contemporary Hospitality) with
- * Direction A (Quiet Luxury) restraint in the hero and closing frame.
+ * Public marketing homepage — final narrative-consolidation pass.
  *
- * Hero (Act I) and the Signature Sequence (Acts II–V + Final Frame) are the
- * original cinematic arc, unchanged in mechanics — Hero's copy was rewritten
- * to the locked positioning and its primary visual is now a staged CSS-3D
- * key-card scene (HeroScene), not a paragraph or an icon chain.
+ * Structure: Hero → Guest Journey → Hotel Value → Systems Fit (Memory
+ * Layer) → Closing CTA. Five sections, ~5-6 viewports total, down
+ * from the previous nine-section/~10-12-viewport version. The
+ * objective of this pass was compression, not addition — every prior
+ * section either got folded into one of the five above or stopped
+ * rendering:
  *
- * Arrival / Stay / Return are three chapters of one narrative — the same
- * guest (Marie, already established in Hero and SignatureSequence)
- * traveling through a doorway scene, a service scene, and a second-arrival
- * scene, sharing one visual system (ChapterStage) rather than three
- * independent card sections. This replaced an earlier icon-grid/card-based
- * version of these sections entirely, not incrementally.
- *
- * HotelOutcomes/StaffExperience/SystemsFit/ClosingCTA follow as the
- * "why it matters / what your team sees / how it fits your PMS / close"
- * arc — StaffExperience resolves the previously-deferred "Act 08 · Product"
- * note (the operator-facing section).
+ * - `SignatureSequence` no longer renders. It was the ~4-5 viewport
+ *   scroll-hijacked cinematic sequence between Hero and Arrival; its
+ *   story (guest arrives, memory surfaces, hotel acts) is now told
+ *   once, compactly, in `GuestJourney`. The component itself is kept
+ *   in the repo, unrendered, for easy rollback — not deleted.
+ * - `ArrivalScene` / `StayScene` / `ReturnScene` no longer render as
+ *   three independent full-viewport sections. `GuestJourney` is a
+ *   fresh composition reusing their visual language (ChapterStage,
+ *   the door/tray/key motifs) as three compact moments of one
+ *   section instead. Also kept in the repo, unrendered.
+ * - `HotelOutcomes` + `StaffExperience` no longer render separately.
+ *   `HotelValue` consolidates them into one editorial section —
+ *   StaffExperience's two-column "Guest context / What matters now"
+ *   panel is deliberately not carried forward (it read as a dashboard
+ *   dropped into a hospitality site). Both original files kept,
+ *   unrendered.
+ * - `SystemsFit` is redesigned in place (same file, same slot in the
+ *   flow) from a three-box equation into a restrained flow diagram.
  *
  * Photography is real but temporary: three commercially-licensed
- * Wikimedia Commons photos standing in for a future commissioned shoot,
- * not ReVisit's own. See public/images/marketing/CREDITS.md — flagged
- * explicitly there and in-page (small credit lines) since two of the
- * three depict a real, named, unaffiliated hotel.
+ * Wikimedia Commons photos standing in for a future commissioned
+ * shoot. See public/images/marketing/CREDITS.md.
  */
 export default function HomePage() {
   return (
     <div className="rv-root rv-dusk">
       <MarketingNav />
       <Hero />
-      <SignatureSequence />
-      <ArrivalScene />
-      <StayScene />
-      <ReturnScene />
-      <HotelOutcomes />
-      <StaffExperience />
+      <GuestJourney />
+      <HotelValue />
       <SystemsFit />
       <ClosingCTA />
     </div>
