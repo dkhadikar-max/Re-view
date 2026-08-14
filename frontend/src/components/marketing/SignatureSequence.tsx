@@ -291,7 +291,7 @@ function InteractiveSequence() {
           </div>
           <div className="rv-hosp-line rv-close" ref={hospL4}>
             <span className="rv-word" style={{ fontFamily: "var(--font-display)" }}>
-              Revisit
+              ReVisit
             </span>
             <p>Turn every guest conversation into a better stay.</p>
           </div>
@@ -400,7 +400,7 @@ function StaticFallback() {
         <img src="/images/marketing/hospitality.jpg" alt="" />
         <div className="rv-hosp-line rv-close on" style={{ position: "relative", left: "auto", bottom: "auto", transform: "none" }}>
           <span className="rv-word" style={{ fontFamily: "var(--font-display)" }}>
-            Revisit
+            ReVisit
           </span>
           <p>Turn every guest conversation into a better stay.</p>
         </div>

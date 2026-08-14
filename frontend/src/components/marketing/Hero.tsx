@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { HeroScene } from "./HeroScene";
 
 /**
  * Act I — Arrival. Full-bleed licensed photo standing in for a future
@@ -52,19 +53,36 @@ export function Hero() {
       </div>
 
       <div className="rv-copy">
-        <span className="rv-eyebrow">The hotel concierge</span>
+        <span className="rv-eyebrow">ReVisit for hotels</span>
         <h1>
-          Every guest conversation
+          Guest intelligence that
           <br />
-          can become hotel action.
+          remembers every preference.
         </h1>
-        <p className="rv-support">
-          Guests ask. ReVisit understands. Your team acts. What follows is that
-          transformation, once, in full.
+        <p className="rv-support-short rv-support-desktop">
+          Your team remembers what matters — before the guest has to ask.
         </p>
-        <a href="/onboard" className="rv-cta">
-          Discuss a pilot →
-        </a>
+        {/* Mobile only (CSS-toggled, see marketing.css): the key-card
+            scene is hidden below 980px, so mobile needs a specific,
+            concrete cue in its place rather than a generic sentence —
+            the photo should set the mood, not compete with the
+            proposition. */}
+        <p className="rv-support-short rv-support-mobile">
+          Marie is returning. Her room, her preferences, even the
+          occasion — already remembered.
+        </p>
+        <div className="rv-cta-row">
+          <a href="/onboard" className="rv-cta">
+            See ReVisit with your property →
+          </a>
+          <a href="#how-it-works" className="rv-cta-secondary">
+            See how it works
+          </a>
+        </div>
+      </div>
+
+      <div className="rv-hero-scene-wrap">
+        <HeroScene />
       </div>
 
       <p className="rv-credit">Entrance, Amantaka — Basile Morin, CC BY-SA 4.0, Wikimedia Commons</p>
