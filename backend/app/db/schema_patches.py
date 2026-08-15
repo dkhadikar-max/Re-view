@@ -124,6 +124,90 @@ def ensure_schema_patches() -> None:
                 )
             logger.info("Added import_sessions.validation_issues column")
 
+    if "messages" in insp.get_table_names():
+        msg_cols = {c["name"] for c in insp.get_columns("messages")}
+        # Translation Layer (TRANSLATION_LAYER.md) — mirrors Alembic
+        # migration e5f7a9b1c3d5, the deploy path that doesn't actually
+        # run.
+        if "detected_language" not in msg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE messages ADD COLUMN detected_language VARCHAR(32)")
+                )
+            logger.info("Added messages.detected_language column")
+        if "normalized_text" not in msg_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE messages ADD COLUMN normalized_text TEXT"))
+            logger.info("Added messages.normalized_text column")
+
+        # PILOT_READINESS.md §2 — mirrors Alembic migration a9b8c7d6e5f4.
+        if "retry_count" not in msg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE messages ADD COLUMN retry_count INTEGER "
+                        "NOT NULL DEFAULT 0"
+                    )
+                )
+            logger.info("Added messages.retry_count column")
+
+        # PILOT_READINESS.md §4 — mirrors Alembic migration b3c4d5e6f7a8.
+        if "processing_failed" not in msg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE messages ADD COLUMN processing_failed BOOLEAN "
+                        "NOT NULL DEFAULT FALSE"
+                    )
+                )
+            logger.info("Added messages.processing_failed column")
+        if "failure_reason" not in msg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE messages ADD COLUMN failure_reason VARCHAR(64)")
+                )
+            logger.info("Added messages.failure_reason column")
+        if "duplicate_webhook_count" not in msg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE messages ADD COLUMN duplicate_webhook_count "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            logger.info("Added messages.duplicate_webhook_count column")
+
+        # PILOT_READINESS.md §1 — mirrors Alembic migration f1a2b3c4d5e6.
+        # provider_message_id itself predates this patcher; only the
+        # index was ever missing.
+        msg_indexes = {ix["name"] for ix in insp.get_indexes("messages")}
+        if "ix_msg_tenant_provider_message_id" not in msg_indexes:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_msg_tenant_provider_message_id "
+                        "ON messages (tenant_id, provider_message_id)"
+                    )
+                )
+            logger.info("Added ix_msg_tenant_provider_message_id index")
+
+    if "tasks" in insp.get_table_names():
+        task_cols = {c["name"] for c in insp.get_columns("tasks")}
+        # PILOT_READINESS.md §5 — mirrors Alembic migration c4d5e6f7a8b9.
+        if "correlation_id" not in task_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE tasks ADD COLUMN correlation_id VARCHAR(36)")
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_task_correlation_id "
+                        "ON tasks (correlation_id)"
+                    )
+                )
+            logger.info("Added tasks.correlation_id column")
+
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:
         rows = conn.execute(text("SELECT id, country, currency FROM properties")).fetchall()
