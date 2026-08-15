@@ -113,6 +113,7 @@ from app.integrations.pdf_extractor import (
     PdfUnreadableError,
 )
 from app.services.passwords import ChangePasswordRequest
+from app.services.activation import log_event_once
 from app.services.ai_orchestrator import (
     ai_orchestrator,
     execute_decision,
@@ -292,6 +293,9 @@ async def login(
     if tenant and tenant.plan == "trial":
         if ensure_trial_demo_data(db, tenant.id):
             db.commit()
+
+    if log_event_once(db, tenant_id=user.tenant_id, event_type="first_login"):
+        db.commit()
 
     token = create_access_token(
         user_id=user.id,
@@ -729,6 +733,8 @@ def get_guest(
     guest = get_tenant_entity(
         db, Guest, guest_id, user.tenant_id, not_found="Guest not found"
     )
+    if log_event_once(db, tenant_id=user.tenant_id, event_type="first_guest_viewed"):
+        db.commit()
     return build_intelligence(db, guest)
 
 
@@ -783,6 +789,7 @@ def create_reservation(
     user: StaffUser,
     db: Session = Depends(get_db),
 ) -> ReservationOut:
+    log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(
         db,
@@ -1139,6 +1146,7 @@ def act_on_approval(
     approval = get_tenant_entity(
         db, Approval, approval_id, user.tenant_id, not_found="Approval not found"
     )
+    log_event_once(db, tenant_id=user.tenant_id, event_type="first_action_taken")
     target = (
         ApprovalStatus.approved
         if payload.action == "approve"
@@ -1494,10 +1502,15 @@ def sync_pms(user: ManagerUser, db: Session = Depends(get_db)) -> SyncResult:
         details=result,
     )
     db.commit()
+    # P4 onboarding audit (CTO P0) -- use the service layer's own honest
+    # `message`/`connected`, never re-derive a "Synced N reservations"
+    # claim here. sync_cloudbeds() already returns `connected: False` and
+    # a truthful message when no real PMS is attached.
     return SyncResult(
         imported=result["imported"],
         events_emitted=result["events_emitted"],
-        message=f"Synced {result['imported']} reservations from Cloudbeds",
+        message=result["message"],
+        connected=result.get("connected", True),
     )
 
 
@@ -1661,6 +1674,7 @@ async def import_csv(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> SyncResult:
+    log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     raw_rows = await _read_csv_rows(file)
     valid, warnings, errors = _validate_csv_rows(raw_rows)
     property_ = _property_for_tenant(db, user.tenant_id)
@@ -1783,6 +1797,7 @@ def confirm_pdf_import(
     absent, identity falls back to a hash of the reservation's own fields
     rather than blocking the import (PDF_IMPORT.md §11.1).
     """
+    log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(
         db,

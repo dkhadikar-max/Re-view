@@ -178,6 +178,12 @@ class Property(Base):
     rooms: Mapped[int] = mapped_column(Integer, default=40)
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     google_review_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # P4 onboarding audit (CTO P0) -- False until the first REAL guest/
+    # reservation lands via import_reservation() (manual/CSV/PDF). Seeded
+    # trial demo data never sets this (it writes Guest/Reservation rows
+    # directly, bypassing the orchestrator). Drives the "Sample workspace"
+    # banner: shown while False, auto-hidden once True.
+    has_real_data: Mapped[bool] = mapped_column(Boolean, default=False)
     # Meta's inbound webhook payload includes this on every message
     # (value.metadata.phone_number_id) — set once per property when its
     # WhatsApp number is provisioned under ReVisit's WABA (CONCIERGE.md
@@ -1076,6 +1082,37 @@ class AuditLog(Base):
     entity_type: Mapped[str] = mapped_column(String(64))
     entity_id: Mapped[str] = mapped_column(String(36))
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ActivationEvent(Base):
+    """Signup -> first-real-value funnel (P4 onboarding audit, CTO P0).
+
+    Deliberately separate from AuditLog: AuditLog.tenant_id is required
+    (every audit entry belongs to an existing tenant), but `signup_started`
+    fires from the public /onboard page before any account exists.
+    `tenant_id` is nullable specifically to allow that one pre-account event;
+    every other event_type is written with a real tenant_id once one exists.
+
+    "First X" event types (signup_completed, first_login, import_started,
+    first_real_data_imported, first_guest_viewed, first_action_taken) are
+    written at most once per tenant by log_event_once() in
+    app/services/activation.py -- the north-star metric this funnel exists
+    to compute is signup_completed.created_at -> first_real_data_imported.
+    created_at, so duplicate rows would corrupt that math.
+    """
+
+    __tablename__ = "activation_events"
+    __table_args__ = (
+        Index("ix_activation_tenant_event", "tenant_id", "event_type"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    tenant_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64))
+    event_metadata: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

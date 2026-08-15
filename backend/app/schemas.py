@@ -249,6 +249,8 @@ class PropertyOut(ORMModel):
     # whatsapp_phone_number_id by the update_property endpoint, not
     # settable directly here.
     whatsapp_connection_status: str = "not_connected"
+    # P4 onboarding audit (CTO P0) -- drives the "Sample workspace" banner.
+    has_real_data: bool = False
 
 
 class PropertyUpdate(BaseModel):
@@ -417,6 +419,11 @@ class SyncResult(BaseModel):
     message: str
     import_session_id: Optional[str] = None
     rows_skipped: int = 0
+    # P4 onboarding audit (CTO P0) -- False whenever this "sync" ran
+    # against a Cloudbeds connection with no real credentials configured
+    # (every trial hotel today). The frontend must never present a
+    # `connected: False` result as if real reservations were synced.
+    connected: bool = True
 
 
 class CsvRowIssue(BaseModel):

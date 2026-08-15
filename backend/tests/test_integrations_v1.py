@@ -62,11 +62,16 @@ def test_sales_analytics(client: TestClient, auth_header: dict):
 
 
 def test_cloudbeds_mock_sync(client: TestClient, auth_header: dict):
+    # P4 onboarding audit (CTO P0) — "kill the fake PMS sync." An
+    # unconfigured (mock-mode) Cloudbeds client must never write fake
+    # reservations or claim a real sync happened; see
+    # app/services/pms_sync.py::sync_cloudbeds.
     res = client.post("/api/connectors/cloudbeds/sync", headers=auth_header)
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["mode"] == "mock"
-    assert body["imported"] >= 1
+    assert body["connected"] is False
+    assert body["imported"] == 0
 
 
 def test_whatsapp_webhook_verify_and_inbound(client: TestClient, auth_header: dict):
