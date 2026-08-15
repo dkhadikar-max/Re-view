@@ -30,6 +30,10 @@ export default function OperationsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  // P4 onboarding audit (CTO P0) — "never report a reservation as synced
+  // unless it actually came from the connected PMS." Drives the message's
+  // styling below; not just its text.
+  const [syncConnected, setSyncConnected] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   const load = useCallback(async () => {
@@ -99,6 +103,7 @@ export default function OperationsPage() {
     try {
       const res = await api.syncPms();
       setSyncMsg(res.message);
+      setSyncConnected(res.connected);
       await load();
     } finally {
       setSyncing(false);
@@ -162,12 +167,21 @@ export default function OperationsPage() {
         action={
           <Button onClick={handleSync} disabled={syncing} variant="secondary">
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-            Sync PMS
+            {/* P4 onboarding audit (CTO P0) — "Sync PMS" implied a real,
+                already-connected PMS. No trial workspace has one today
+                (Cloudbeds/Mews/Opera are all "Coming Soon" on Import). */}
+            Preview sample sync
           </Button>
         }
       />
       {syncMsg && (
-        <p className="mb-4 animate-fade-in text-sm text-sea-700">{syncMsg}</p>
+        <p
+          className={`mb-4 animate-fade-in text-sm ${
+            syncConnected ? "text-sea-700" : "text-amber-700"
+          }`}
+        >
+          {syncMsg}
+        </p>
       )}
 
       <section className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-ink-200/60 bg-gradient-to-br from-ink-950 via-ink-900 to-sea-700 p-6 text-white opacity-0">

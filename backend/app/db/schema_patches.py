@@ -208,6 +208,23 @@ def ensure_schema_patches() -> None:
                 )
             logger.info("Added tasks.correlation_id column")
 
+    if "has_real_data" not in cols:
+        # P4 onboarding audit (CTO P0) — mirrors Alembic migration
+        # b1c2d3e4f5a6. The `activation_events` table itself needs no
+        # patch here: it's wholly new, so create_all() (run before this
+        # patcher, both in migrate_and_verify.py's deploy gate and in
+        # main.py's own AUTO_CREATE_TABLES path) already creates it —
+        # patches in this file only ever add a COLUMN to a table that
+        # already exists, which create_all() can't do.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE properties ADD COLUMN has_real_data BOOLEAN "
+                    "NOT NULL DEFAULT FALSE"
+                )
+            )
+        logger.info("Added properties.has_real_data column")
+
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:
         rows = conn.execute(text("SELECT id, country, currency FROM properties")).fetchall()

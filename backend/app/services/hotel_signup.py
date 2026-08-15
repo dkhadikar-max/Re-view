@@ -36,6 +36,7 @@ from app.models.entities import (
     Workflow,
 )
 from app.schemas import UserOut
+from app.services.activation import log_event_once
 from app.services.currency import convert_from_eur, currency_for_country
 
 
@@ -542,6 +543,8 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
 
     # Always seed demo data for trials so clients understand the product
     seed_trial_demo_data(db, tenant_id, prop)
+
+    log_event_once(db, tenant_id=tenant_id, event_type="signup_completed")
 
     db.commit()
     db.refresh(user)

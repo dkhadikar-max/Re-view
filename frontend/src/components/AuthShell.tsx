@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api, setToken, type Property, type User } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
+import { SampleDataBanner } from "@/components/SampleDataBanner";
 import { WorkspaceProvider } from "@/components/WorkspaceProvider";
 import { currencyForCountry } from "@/lib/currency";
 
@@ -71,7 +72,8 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
     <WorkspaceProvider property={property}>
       <div className="min-h-screen bg-hero-wash bg-grain">
         <Sidebar user={user} propertyName={property?.name || null} />
-        <main className="ml-0 min-h-screen px-4 py-6 md:ml-60 md:px-10 md:py-8">
+        <main className="ml-0 min-h-screen px-4 pb-6 pt-20 md:ml-60 md:px-10 md:pb-8 md:pt-8">
+          {property && !property.has_real_data && <SampleDataBanner />}
           {children}
         </main>
       </div>

@@ -15,6 +15,7 @@ from app.models.entities import (
     Reservation,
     ReservationStatus,
 )
+from app.services.activation import mark_real_data_imported
 from app.services.connectors import store_connector_secret
 from app.services.event_bus import event_bus
 
@@ -35,6 +36,28 @@ def sync_cloudbeds(
     client: CloudbedsClient | None = None,
 ) -> dict[str, Any]:
     client = client or cloudbeds_client
+
+    # P4 onboarding audit (CTO P0) -- "kill the fake PMS sync." No real
+    # Cloudbeds credentials exist for any trial hotel today (Client ID/
+    # secret and API key are all blank until real OAuth ships, P2). Do not
+    # create or mark a Connector "connected", and do not write a single
+    # Guest/Reservation row, on an unconfigured client -- that's exactly
+    # what previously produced "Synced 2 reservations from Cloudbeds" for
+    # a connection that was never made. Return honestly and stop here.
+    if not client.configured:
+        return {
+            "imported": 0,
+            "updated": 0,
+            "events_emitted": 0,
+            "cursor": None,
+            "mode": "mock",
+            "connected": False,
+            "message": (
+                "This trial isn't connected to a live Cloudbeds account yet. "
+                "Import your real reservations via CSV, PDF, or manual entry."
+            ),
+        }
+
     connector = (
         db.query(Connector)
         .filter(Connector.tenant_id == tenant_id, Connector.provider == "Cloudbeds")
@@ -149,6 +172,12 @@ def sync_cloudbeds(
     connector.last_sync_at = datetime.utcnow()
     connector.status = "connected"
     connector.last_error = None
+    if imported > 0:
+        # Bypasses import_reservation() (this path writes Reservation rows
+        # directly, pre-dating the shared orchestrator) -- call the
+        # activation hook directly so a genuine Cloudbeds sync still counts
+        # toward "real data imported" like every other import path does.
+        mark_real_data_imported(db, tenant_id=tenant_id, property_=prop)
     db.flush()
     return {
         "imported": imported,
@@ -156,7 +185,8 @@ def sync_cloudbeds(
         "events_emitted": events,
         "cursor": connector.sync_cursor,
         "mode": client.mode,
-        "message": f"Cloudbeds sync ({client.mode}): imported {imported}, updated {updated}",
+        "connected": True,
+        "message": f"Synced {imported} reservation(s) from Cloudbeds ({updated} updated).",
     }
 
 
