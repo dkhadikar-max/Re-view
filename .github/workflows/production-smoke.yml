@@ -1,0 +1,28 @@
+name: production-smoke-test
+
+# CTO P3 (follow-up to #56/#57): catches "deployed fine, silently
+# broken" production failures -- schema drift, 500s on core flows --
+# between Railway's own crash-on-boot notifications and a human
+# noticing. Runs on a schedule, immediately after every push to main
+# (deployment health verification), and on demand.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run production smoke checks
+        env:
+          SMOKE_BASE_URL: ${{ secrets.SMOKE_BASE_URL }}
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: python backend/scripts/smoke_test_production.py
