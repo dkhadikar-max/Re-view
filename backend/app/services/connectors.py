@@ -17,6 +17,7 @@ from app.models.entities import (
     Reservation,
     ReservationStatus,
 )
+from app.services.activation import mark_real_data_imported
 from app.services.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,20 @@ CONNECTORS: dict[str, PMSConnector] = {
 
 
 def sync_connector(db: Session, tenant_id: str, provider: str = "Cloudbeds") -> dict[str, Any]:
-    """Delegate Cloudbeds to the production PMS sync path (mock or live)."""
+    """Delegate Cloudbeds to the production PMS sync path (mock or live).
+
+    CTO P1 (code-review follow-up): every branch below MUST return the
+    same shape -- `imported`, `events_emitted`, `cursor`, `mode`,
+    `connected`, `message` -- because callers (routes.py's `sync_pms`)
+    read `result["message"]` unconditionally. `sync_cloudbeds()` already
+    guarantees this. The generic branch used to omit `message`/`connected`
+    entirely, which was harmless only because `CONNECTORS` has never had a
+    second entry -- the moment one is added, that omission becomes a
+    `KeyError` -> 500 on every sync for the new provider. Validated
+    explicitly here instead: an unregistered/unconfigured provider raises
+    a clear `ValueError` (a controlled, caught-by-the-route error) rather
+    than ever reaching a return statement with a different shape.
+    """
     if provider == "Cloudbeds":
         from app.services.pms_sync import sync_cloudbeds
 
@@ -185,5 +199,17 @@ def sync_connector(db: Session, tenant_id: str, provider: str = "Cloudbeds") -> 
     connector.last_sync_at = datetime.utcnow()
     connector.status = "connected"
     connector.last_error = None
+    if imported > 0:
+        # Same activation-funnel hook sync_cloudbeds() uses -- a real sync
+        # through a real, configured connector counts as real data imported
+        # regardless of which provider it came from.
+        mark_real_data_imported(db, tenant_id=tenant_id, property_=prop)
     db.flush()
-    return {"imported": imported, "events_emitted": events, "cursor": new_cursor}
+    return {
+        "imported": imported,
+        "events_emitted": events,
+        "cursor": new_cursor,
+        "mode": "live",
+        "connected": True,
+        "message": f"Synced {imported} reservation(s) from {provider} ({events} events).",
+    }

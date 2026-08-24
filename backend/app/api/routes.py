@@ -113,7 +113,7 @@ from app.integrations.pdf_extractor import (
     PdfUnreadableError,
 )
 from app.services.passwords import ChangePasswordRequest
-from app.services.activation import log_event_once
+from app.services.activation import safe_log_event_once
 from app.services.ai_orchestrator import (
     ai_orchestrator,
     execute_decision,
@@ -294,9 +294,6 @@ async def login(
         if ensure_trial_demo_data(db, tenant.id):
             db.commit()
 
-    if log_event_once(db, tenant_id=user.tenant_id, event_type="first_login"):
-        db.commit()
-
     token = create_access_token(
         user_id=user.id,
         tenant_id=user.tenant_id,
@@ -304,6 +301,9 @@ async def login(
         name=user.name,
         role=user.role,
     )
+    # CTO P0: telemetry runs after the real action (token issuance) has
+    # already succeeded, and can never fail the login itself.
+    safe_log_event_once(db, tenant_id=user.tenant_id, event_type="first_login")
     return TokenResponse(
         access_token=token,
         expires_in=settings.access_token_expire_minutes * 60,
@@ -733,9 +733,10 @@ def get_guest(
     guest = get_tenant_entity(
         db, Guest, guest_id, user.tenant_id, not_found="Guest not found"
     )
-    if log_event_once(db, tenant_id=user.tenant_id, event_type="first_guest_viewed"):
-        db.commit()
-    return build_intelligence(db, guest)
+    intelligence = build_intelligence(db, guest)
+    # CTO P0: telemetry runs after the real read has already succeeded.
+    safe_log_event_once(db, tenant_id=user.tenant_id, event_type="first_guest_viewed")
+    return intelligence
 
 
 @router.get("/guests/{guest_id}/memory-evidence", response_model=list[MemoryEvidence])
@@ -789,7 +790,6 @@ def create_reservation(
     user: StaffUser,
     db: Session = Depends(get_db),
 ) -> ReservationOut:
-    log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(
         db,
@@ -810,6 +810,8 @@ def create_reservation(
     finish_import_session(db, session)
     db.commit()
     db.refresh(reservation)
+    # CTO P0: telemetry runs after the real action has already committed.
+    safe_log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     return _reservation_out(reservation, guest.name)
 
 
@@ -1146,7 +1148,6 @@ def act_on_approval(
     approval = get_tenant_entity(
         db, Approval, approval_id, user.tenant_id, not_found="Approval not found"
     )
-    log_event_once(db, tenant_id=user.tenant_id, event_type="first_action_taken")
     target = (
         ApprovalStatus.approved
         if payload.action == "approve"
@@ -1203,6 +1204,9 @@ def act_on_approval(
     )
     db.commit()
     db.refresh(approval)
+    # CTO P0: telemetry runs after the approval has already committed --
+    # a logging failure here can never roll back or block the decision.
+    safe_log_event_once(db, tenant_id=user.tenant_id, event_type="first_action_taken")
     item = ApprovalOut.model_validate(approval)
     item.status = approval.status.value
     return item
@@ -1505,11 +1509,16 @@ def sync_pms(user: ManagerUser, db: Session = Depends(get_db)) -> SyncResult:
     # P4 onboarding audit (CTO P0) -- use the service layer's own honest
     # `message`/`connected`, never re-derive a "Synced N reservations"
     # claim here. sync_cloudbeds() already returns `connected: False` and
-    # a truthful message when no real PMS is attached.
+    # a truthful message when no real PMS is attached. `.get()` with a
+    # fallback (CTO P1, code-review follow-up) rather than a bare `[...]`
+    # lookup: every branch of sync_connector() is now required to return
+    # this shape, but a defensive default here means a future provider
+    # that slips through with an incomplete dict degrades to a generic
+    # message instead of a raw 500 KeyError.
     return SyncResult(
         imported=result["imported"],
         events_emitted=result["events_emitted"],
-        message=result["message"],
+        message=result.get("message", "Sync completed."),
         connected=result.get("connected", True),
     )
 
@@ -1674,7 +1683,6 @@ async def import_csv(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> SyncResult:
-    log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     raw_rows = await _read_csv_rows(file)
     valid, warnings, errors = _validate_csv_rows(raw_rows)
     property_ = _property_for_tenant(db, user.tenant_id)
@@ -1714,6 +1722,8 @@ async def import_csv(
     imported = session.rows_imported
     emitted = imported
     db.commit()
+    # CTO P0: telemetry runs after the import has already committed.
+    safe_log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     return SyncResult(
         imported=imported,
         events_emitted=emitted,
@@ -1797,7 +1807,6 @@ def confirm_pdf_import(
     absent, identity falls back to a hash of the reservation's own fields
     rather than blocking the import (PDF_IMPORT.md §11.1).
     """
-    log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     property_ = _property_for_tenant(db, user.tenant_id)
     session = start_import_session(
         db,
@@ -1823,6 +1832,8 @@ def confirm_pdf_import(
     finish_import_session(db, session)
     imported_count = session.rows_imported
     db.commit()
+    # CTO P0: telemetry runs after the import has already committed.
+    safe_log_event_once(db, tenant_id=user.tenant_id, event_type="import_started")
     return PdfImportResult(
         import_session_id=session.id,
         imported=imported_count,

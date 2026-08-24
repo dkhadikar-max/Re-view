@@ -223,7 +223,28 @@ def ensure_schema_patches() -> None:
                     "NOT NULL DEFAULT FALSE"
                 )
             )
-        logger.info("Added properties.has_real_data column")
+            # CTO P0 (code-review follow-up) — a hotel that already
+            # imported real guests before this column existed must not be
+            # misclassified as "Sample workspace" the moment it's added.
+            # seed_trial_demo_data() (hotel_signup.py) always gives every
+            # seeded demo guest an email ending in ".demo"; every real
+            # import path (manual entry, CSV, PDF -- all through
+            # import_reservation()/find_or_create_guest) never produces
+            # that suffix, and a real guest legitimately imported with no
+            # email at all (email IS NULL) is still real, not demo. Any
+            # property with at least one such guest gets marked real here,
+            # once, at column-creation time -- the same "backfill it now,
+            # let normal app logic own it going forward" pattern as the
+            # whatsapp_connection_status backfill just above.
+            conn.execute(
+                text(
+                    "UPDATE properties SET has_real_data = TRUE WHERE id IN ("
+                    "SELECT DISTINCT property_id FROM guests "
+                    "WHERE email IS NULL OR email NOT LIKE '%.demo'"
+                    ")"
+                )
+            )
+        logger.info("Added properties.has_real_data column (backfilled from existing guests)")
 
     # Backfill from country when still on the default and country implies otherwise
     with engine.begin() as conn:

@@ -1104,7 +1104,12 @@ class ActivationEvent(Base):
 
     __tablename__ = "activation_events"
     __table_args__ = (
-        Index("ix_activation_tenant_event", "tenant_id", "event_type"),
+        # CTO P0 (code-review follow-up): UNIQUE -- log_event_once()'s own
+        # SELECT-then-INSERT check is a TOCTOU race under concurrent
+        # requests; this constraint is what actually stops two rows for
+        # the same tenant+event_type from ever landing, not just the
+        # application-level check. See activation.py::log_event_once.
+        Index("ix_activation_tenant_event", "tenant_id", "event_type", unique=True),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

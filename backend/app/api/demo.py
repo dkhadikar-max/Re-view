@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,6 +18,7 @@ from app.services.hotel_signup import (
 )
 
 router = APIRouter(prefix="/demo", tags=["hotel-trial"])
+logger = logging.getLogger(__name__)
 
 
 class PreSignupEvent(BaseModel):
@@ -41,8 +43,17 @@ def record_pre_signup_event(
     Confirmed locally. Avoiding 204 here sidesteps that pre-existing proxy
     bug without touching shared code, out of scope for this change.
     """
-    log_event(db, tenant_id=None, event_type=payload.event_type)
-    db.commit()
+    # CTO P0: this endpoint IS telemetry -- a storage hiccup must never
+    # surface as an error to a visitor who hasn't even signed up yet.
+    try:
+        log_event(db, tenant_id=None, event_type=payload.event_type)
+        db.commit()
+    except Exception:
+        logger.exception("pre-signup activation event logging failed (ignored)")
+        try:
+            db.rollback()
+        except Exception:
+            pass
     return {"ok": True}
 
 
