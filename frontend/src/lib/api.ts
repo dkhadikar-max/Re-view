@@ -622,6 +622,8 @@ export type Property = {
   // WHATSAPP_PLATFORM_ARCHITECTURE.md §3 — server-derived, kept in sync
   // with whatsapp_phone_number_id; not settable directly.
   whatsapp_connection_status?: "not_connected" | "connected";
+  // P4 onboarding audit (CTO P0) — drives the "Sample workspace" banner.
+  has_real_data?: boolean;
 };
 
 export type PropertyUpdate = {
@@ -778,10 +780,20 @@ export const api = {
       body: JSON.stringify({ action }),
     }),
   syncPms: () =>
-    request<{ imported: number; events_emitted: number; message: string }>(
-      "/api/connectors/sync",
-      { method: "POST" }
-    ),
+    request<{
+      imported: number;
+      events_emitted: number;
+      message: string;
+      connected: boolean;
+    }>("/api/connectors/sync", { method: "POST" }),
+  // P4 onboarding audit (CTO P0) — fire-and-forget top-of-funnel beacon
+  // from the public /onboard page, before any account exists.
+  recordSignupStarted: () =>
+    request<void>("/api/demo/activation-event", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ event_type: "signup_started" }),
+    }),
   createReservation: (payload: Record<string, unknown>) =>
     request<Reservation>("/api/reservations", {
       method: "POST",

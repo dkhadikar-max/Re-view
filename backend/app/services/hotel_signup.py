@@ -36,6 +36,7 @@ from app.models.entities import (
     Workflow,
 )
 from app.schemas import UserOut
+from app.services.activation import safe_log_event_once
 from app.services.currency import convert_from_eur, currency_for_country
 
 
@@ -545,6 +546,10 @@ def signup_hotel(db: Session, payload: HotelSignupRequest) -> HotelSignupRespons
 
     db.commit()
     db.refresh(user)
+
+    # CTO P0: telemetry runs after signup has already committed -- a
+    # logging failure here can never fail account creation itself.
+    safe_log_event_once(db, tenant_id=tenant_id, event_type="signup_completed")
 
     token = create_access_token(
         user_id=user.id,

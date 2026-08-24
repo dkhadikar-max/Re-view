@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Building2 } from "lucide-react";
@@ -11,6 +11,14 @@ import { currencyForCountry } from "@/lib/currency";
 
 export default function HotelSignupPage() {
   const router = useRouter();
+
+  // P4 onboarding audit (CTO P0) — top of the activation funnel. Fire-
+  // and-forget: a beacon failure must never block or error the signup
+  // page itself.
+  useEffect(() => {
+    api.recordSignupStarted().catch(() => {});
+  }, []);
+
   const [hotelName, setHotelName] = useState("");
   const [yourName, setYourName] = useState("");
   const [email, setEmail] = useState("");

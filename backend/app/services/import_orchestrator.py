@@ -30,9 +30,11 @@ from app.models.entities import (
     ImportSessionStatus,
     Message,
     Offer,
+    Property,
     Reservation,
 )
 from app.schemas import ReservationCreate
+from app.services.activation import mark_real_data_imported
 from app.services.event_bus import event_bus
 from app.services.guest_service import find_or_create_guest
 from app.services.reservation_service import create_reservation_record
@@ -105,6 +107,10 @@ def import_reservation(
     if import_session is not None:
         reservation.import_session_id = import_session.id
         import_session.rows_imported += 1
+
+    property_ = db.get(Property, property_id)
+    if property_ is not None:
+        mark_real_data_imported(db, tenant_id=tenant_id, property_=property_)
 
     if created:
         event_bus.publish_and_process(
